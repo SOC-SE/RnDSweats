@@ -35,9 +35,19 @@ get_current_gateway() {
     ip route show default | awk '/default/ {print $3}' | head -1
 }
 
+# Function to check if systemd-resolved is active
+is_resolved_active() {
+    systemctl is-active --quiet systemd-resolved
+}
+
 # Function to get current DNS servers (space-separated)
 get_current_dns() {
-    grep '^nameserver' /etc/resolv.conf | awk '{print $2}' | tr '\n' ' ' | xargs
+    local iface="$1"
+    if command -v resolvectl >/dev/null 2>&1 && is_resolved_active; then
+        resolvectl status "$iface" | awk '/DNS Servers:/ {for (i=3; i<=NF; i++) printf "%s ", $i; print ""}' | xargs
+    else
+        grep '^nameserver' /etc/resolv.conf | awk '{print $2}' | tr '\n' ' ' | xargs
+    fi
 }
 
 # Function to convert CIDR to netmask
@@ -61,49 +71,55 @@ revert_settings() {
     local target_cidr="${target_ip_cidr##*/}"
     local target_mask=$(cidr_to_netmask "$target_cidr")
 
-    # Prioritize tools: nmcli > ip > ifconfig
-    if command -v nmcli >/dev/null 2>&1; then
-        echo "Using nmcli to revert $change_type..."
-        local con_name
-        con_name=$(nmcli dev status | grep "^$iface" | awk '{print $4}')
-        if [ -z "$con_name" ] || [ "$con_name" = "--" ]; then
-            # Create a new connection if none exists
-            nmcli con add con-name "net-defender-$iface" type ethernet ifname "$iface" ipv4.method manual ipv4.addresses "$target_ip_cidr" ipv4.gateway "$target_gw" ipv4.dns "$target_dns"
-            con_name="net-defender-$iface"
-        else
-            nmcli con mod "$con_name" ipv4.addresses "$target_ip_cidr" ipv4.gateway "$target_gw" ipv4.dns "$target_dns" ipv4.method manual
-        fi
-        nmcli con up "$con_name"
-    elif command -v ip >/dev/null 2>&1; then
-        echo "Using ip command to revert $change_type..."
-        if [ "$change_type" = "ip" ] || [ "$change_type" = "gateway" ]; then
+    # Prioritize tools for IP and gateway: nmcli > ip > ifconfig
+    if [ "$change_type" = "ip" ] || [ "$change_type" = "gateway" ]; then
+        if command -v nmcli >/dev/null 2>&1; then
+            echo "Using nmcli to revert $change_type..."
+            local con_name
+            con_name=$(nmcli dev status | grep "^$iface" | awk '{print $4}')
+            if [ -z "$con_name" ] || [ "$con_name" = "--" ]; then
+                # Create a new connection if none exists
+                nmcli con add con-name "net-defender-$iface" type ethernet ifname "$iface" ipv4.method manual ipv4.addresses "$target_ip_cidr" ipv4.gateway "$target_gw" ipv4.dns "$target_dns"
+                con_name="net-defender-$iface"
+            else
+                nmcli con mod "$con_name" ipv4.addresses "$target_ip_cidr" ipv4.gateway "$target_gw" ipv4.dns "$target_dns" ipv4.method manual
+            fi
+            nmcli con up "$con_name"
+        elif command -v ip >/dev/null 2>&1; then
+            echo "Using ip command to revert $change_type..."
             ip addr flush dev "$iface"
             ip addr add "$target_ip_cidr" dev "$iface"
             ip link set "$iface" up
             ip route del default 2>/dev/null
             ip route add default via "$target_gw"
-        fi
-        # DNS handled separately below
-    elif command -v ifconfig >/dev/null 2>&1; then
-        echo "Using ifconfig to revert $change_type..."
-        if [ "$change_type" = "ip" ] || [ "$change_type" = "gateway" ]; then
+        elif command -v ifconfig >/dev/null 2>&1; then
+            echo "Using ifconfig to revert $change_type..."
             ifconfig "$iface" "$target_ip" netmask "$target_mask" up
             route del default 2>/dev/null
             route add default gw "$target_gw"
+        else
+            echo "No suitable tool (nmcli, ip, ifconfig) found to revert changes."
+            return 1
         fi
-        # DNS handled separately below
-    else
-        echo "No suitable tool (nmcli, ip, ifconfig) found to revert changes."
-        return 1
     fi
 
-    # Handle DNS reversion (if not using nmcli, edit /etc/resolv.conf directly)
-    if [ "$change_type" = "dns" ] && ! command -v nmcli >/dev/null 2>&1; then
-        > /etc/resolv.conf
-        IFS=' ' read -r -a dns_array <<< "$target_dns"
-        for dns in "${dns_array[@]}"; do
-            echo "nameserver $dns" >> /etc/resolv.conf
-        done
+    # Handle DNS reversion separately
+    if [ "$change_type" = "dns" ]; then
+        if command -v nmcli >/dev/null 2>&1; then
+            # Already handled in nmcli above, but ensure
+            :
+        elif command -v resolvectl >/dev/null 2>&1 && is_resolved_active; then
+            echo "Using resolvectl to revert DNS..."
+            resolvectl dns "$iface" $target_dns
+            resolvectl flush-caches
+        else
+            echo "Editing /etc/resolv.conf to revert DNS..."
+            > /etc/resolv.conf
+            IFS=' ' read -r -a dns_array <<< "$target_dns"
+            for dns in "${dns_array[@]}"; do
+                echo "nameserver $dns" >> /etc/resolv.conf
+            done
+        fi
     fi
     return 0
 }
@@ -122,13 +138,17 @@ if [ "$1" = "--install" ]; then
     # Interactive configuration
     echo -e "${YELLOW}Detecting available network interfaces...${RESET}"
     available_ifaces=$(get_available_interfaces)
-    echo "Available interfaces: $available_ifaces"
-    read -p "Enter the network interface to protect: " interface
-    # Basic validation
-    if ! echo "$available_ifaces" | grep -qw "$interface"; then
-        echo -e "${RED}Error: Invalid interface.${RESET}"
+    interfaces=($available_ifaces)
+    echo "Available interfaces:"
+    for i in "${!interfaces[@]}"; do
+        echo "$((i+1)). ${interfaces[i]}"
+    done
+    read -p "Enter the number of the interface to protect: " num
+    if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#interfaces[@]}" ]; then
+        echo -e "${RED}Error: Invalid selection.${RESET}"
         exit 1
     fi
+    interface="${interfaces[$((num-1))]}"
 
     current_ip=$(get_current_ip "$interface")
     read -p "Enter the correct static IPv4 address and subnet mask in CIDR notation (e.g., 192.168.1.100/24) [$current_ip]: " ip
@@ -138,7 +158,7 @@ if [ "$1" = "--install" ]; then
     read -p "Enter the correct default gateway [$current_gw]: " gw
     gw=${gw:-$current_gw}
 
-    current_dns=$(get_current_dns)
+    current_dns=$(get_current_dns "$interface")
     read -p "Enter space-separated list of DNS servers (e.g., '8.8.8.8 1.1.1.1') [$current_dns]: " dns
     dns=${dns:-$current_dns}
 
@@ -170,14 +190,15 @@ EOF
 
     # Reload, enable, and start service
     systemctl daemon-reload
-    systemctl enable net-defender.service
-    systemctl start net-defender.service
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}Service enabled and started successfully!${RESET}"
-    else
+    if ! systemctl enable net-defender.service; then
+        echo -e "${RED}Error enabling service.${RESET}"
+        exit 1
+    fi
+    if ! systemctl start net-defender.service; then
         echo -e "${RED}Error starting service.${RESET}"
         exit 1
     fi
+    echo -e "${GREEN}Service enabled and started successfully!${RESET}"
 
     echo -e "${YELLOW}Installation complete. Check service status with: sudo systemctl status net-defender.service${RESET}"
     exit 0
@@ -199,7 +220,10 @@ while true; do
     # Get current settings
     current_ip=$(get_current_ip "$INTERFACE")
     current_gw=$(get_current_gateway)
-    current_dns=$(get_current_dns)
+    current_dns=$(get_current_dns "$INTERFACE")
+
+    # Handle empty current_gw for logging
+    local log_gw="${current_gw:-none}"
 
     # Compare and revert if necessary
     if [ "$current_ip" != "$IP" ]; then
@@ -210,7 +234,7 @@ while true; do
 
     if [ "$current_gw" != "$GATEWAY" ]; then
         timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-        echo "[$timestamp] Change detected on $INTERFACE: Gateway changed from $GATEWAY to $current_gw. Reverting." >> "$log_file"
+        echo "[$timestamp] Change detected on $INTERFACE: Gateway changed from $GATEWAY to $log_gw. Reverting." >> "$log_file"
         revert_settings "$INTERFACE" "$IP" "$GATEWAY" "$DNS" "gateway"
     fi
 
