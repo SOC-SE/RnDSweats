@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# net-defender.sh - A self-contained Bash script for network interface protection.
+# IntProc - A self-contained Bash script for network interface protection.
 # This script operates in two modes:
 # 1. Installation mode (--install): Sets up the script as a systemd service.
 # 2. Monitoring mode (no arguments): Monitors and reverts network changes.
@@ -131,9 +131,9 @@ if [ "$1" = "--install" ]; then
     echo -e "${YELLOW}Starting installation mode...${RESET}"
 
     # Copy script to /usr/local/bin
-    cp "$0" /usr/local/bin/net-defender.sh
-    chmod +x /usr/local/bin/net-defender.sh
-    echo -e "${GREEN}Script copied to /usr/local/bin/net-defender.sh.${RESET}"
+    cp "$0" /usr/local/bin/IntProc.sh
+    chmod +x /usr/local/bin/IntProc.sh
+    echo -e "${GREEN}Script copied to /usr/local/bin/IntProc.sh.${RESET}"
 
     # Interactive configuration
     echo -e "${YELLOW}Detecting available network interfaces...${RESET}"
@@ -164,56 +164,56 @@ if [ "$1" = "--install" ]; then
 
     # Create config directory and file
     mkdir -p /etc/IntProc
-    cat <<EOF > /etc/IntProc/net-defender.conf
+    cat <<EOF > /etc/IntProc/IntProc.conf
 INTERFACE="$interface"
 IP="$ip"
 GATEWAY="$gw"
 DNS="$dns"
 EOF
-    echo -e "${GREEN}Configuration saved to /etc/IntProc/net-defender.conf.${RESET}"
+    echo -e "${GREEN}Configuration saved to /etc/IntProc/IntProc.conf.${RESET}"
 
     # Create systemd service file
-    cat <<EOF > /etc/systemd/system/net-defender.service
+    cat <<EOF > /etc/systemd/system/intproc.service
 [Unit]
-Description=Network Interface Defender
+Description=Network Interface Protecter (InterfaceProtection)
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/net-defender.sh
+ExecStart=/usr/local/bin/IntProc.sh
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    echo -e "${GREEN}Systemd service file created at /etc/systemd/system/net-defender.service.${RESET}"
+    echo -e "${GREEN}Systemd service file created at /etc/systemd/system/intproc.service.${RESET}"
 
     # Reload, enable, and start service
     systemctl daemon-reload
-    if ! systemctl enable net-defender.service; then
+    if ! systemctl enable intproc.service; then
         echo -e "${RED}Error enabling service.${RESET}"
         exit 1
     fi
-    if ! systemctl start net-defender.service; then
+    if ! systemctl start intproc.service; then
         echo -e "${RED}Error starting service.${RESET}"
         exit 1
     fi
     echo -e "${GREEN}Service enabled and started successfully!${RESET}"
 
-    echo -e "${YELLOW}Installation complete. Check service status with: sudo systemctl status net-defender.service${RESET}"
+    echo -e "${YELLOW}Installation complete. Check service status with: sudo systemctl status intproc.service${RESET}"
     exit 0
 fi
 
 # Monitoring mode (default)
 # Load configuration
-config_file="/etc/IntProc/net-defender.conf"
+config_file="/etc/IntProc/IntProc.conf"
 if [ ! -f "$config_file" ]; then
     echo "Error: Configuration file $config_file not found. Run with --install first."
     exit 1
 fi
 source "$config_file"  # Loads INTERFACE, IP, GATEWAY, DNS
 
-log_file="/var/log/net-defender.log"
+log_file="/var/log/IntProc.log"
 touch "$log_file"  # Ensure log file exists
 
 while true; do
