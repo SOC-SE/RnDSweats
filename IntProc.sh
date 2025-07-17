@@ -4,17 +4,22 @@
 # This script operates in two modes:
 # 1. Installation mode (--install): Sets up the script as a systemd service.
 # 2. Monitoring mode (no arguments): Monitors and reverts network changes.
+#
+#    Designed by Samuel Brucker 2025
+#    AI was heavily used in creating this script. 
+#
 
 # Color codes for output (used in install mode)
 RED="\e[31m"
 GREEN="\e[32m"
 YELLOW="\e[33m"
-RESET="\e[0m"
+# NCs back to no colour
+NC="\e[0m" 
 
 # Function to check if running as root
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        echo -e "${RED}Error: This script must be run as root (use sudo).${RESET}"
+        echo -e "${RED}Error: This script must be run as root (use sudo).${NC}"
         exit 1
     fi
 }
@@ -128,15 +133,15 @@ revert_settings() {
 if [ "$1" = "--install" ]; then
     check_root
 
-    echo -e "${YELLOW}Starting installation mode...${RESET}"
+    echo -e "${YELLOW}Starting installation mode...${NC}"
 
     # Copy script to /usr/local/bin
     cp "$0" /usr/local/bin/IntProc.sh
     chmod +x /usr/local/bin/IntProc.sh
-    echo -e "${GREEN}Script copied to /usr/local/bin/IntProc.sh.${RESET}"
+    echo -e "${GREEN}Script copied to /usr/local/bin/IntProc.sh.${NC}"
 
     # Interactive configuration
-    echo -e "${YELLOW}Detecting available network interfaces...${RESET}"
+    echo -e "${YELLOW}Detecting available network interfaces...${NC}"
     available_ifaces=$(get_available_interfaces)
     interfaces=($available_ifaces)
     echo "Available interfaces:"
@@ -145,7 +150,7 @@ if [ "$1" = "--install" ]; then
     done
     read -p "Enter the number of the interface to protect: " num
     if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#interfaces[@]}" ]; then
-        echo -e "${RED}Error: Invalid selection.${RESET}"
+        echo -e "${RED}Error: Invalid selection.${NC}"
         exit 1
     fi
     interface="${interfaces[$((num-1))]}"
@@ -170,7 +175,7 @@ IP="$ip"
 GATEWAY="$gw"
 DNS="$dns"
 EOF
-    echo -e "${GREEN}Configuration saved to /etc/IntProc/IntProc.conf.${RESET}"
+    echo -e "${GREEN}Configuration saved to /etc/IntProc/IntProc.conf.${NC}"
 
     # Create systemd service file
     cat <<EOF > /etc/systemd/system/intproc.service
@@ -186,21 +191,21 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-    echo -e "${GREEN}Systemd service file created at /etc/systemd/system/intproc.service.${RESET}"
+    echo -e "${GREEN}Systemd service file created at /etc/systemd/system/intproc.service.${NC}"
 
     # Reload, enable, and start service
     systemctl daemon-reload
     if ! systemctl enable intproc.service; then
-        echo -e "${RED}Error enabling service.${RESET}"
+        echo -e "${RED}Error enabling service.${NC}"
         exit 1
     fi
     if ! systemctl start intproc.service; then
-        echo -e "${RED}Error starting service.${RESET}"
+        echo -e "${RED}Error starting service.${NC}"
         exit 1
     fi
-    echo -e "${GREEN}Service enabled and started successfully!${RESET}"
+    echo -e "${GREEN}Service enabled and started successfully!${NC}"
 
-    echo -e "${YELLOW}Installation complete. Check service status with: sudo systemctl status intproc.service${RESET}"
+    echo -e "${YELLOW}Installation complete. Check service status with: sudo systemctl status intproc.service${NC}"
     exit 0
 fi
 
