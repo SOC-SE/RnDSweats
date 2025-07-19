@@ -9,11 +9,11 @@
 #
 # This script performs the following actions:
 # 1. Checks for root privileges.
-# 2. Fixes CentOS 7 EOL repositories to point to vault.centos.org.
-# 3. Installs and configures a LAMP stack (Apache, MariaDB, PHP 7.1).
+# 2. Fixes CentOS 7 EOL repositories.
+# 3. Installs a LAMP stack (Apache, MariaDB, PHP 7.1).
 # 4. Creates a database and user for PrestaShop.
 # 5. Downloads and installs PrestaShop 1.6.1.23 via CLI.
-# 6. Sets appropriate file permissions.
+# 6. Sets appropriate permissions in two stages (pre- and post-install).
 # 7. Cleans up installation files and reports the admin URL.
 #
 # WARNING: This script creates an intentionally insecure environment for
@@ -23,25 +23,23 @@
 # ==============================================================================
 
 # --- Script Configuration ---
-# Exit immediately if a command exits with a non-zero status.
 set -e
-# Treat unset variables as an error.
 set -u
-# Pipelines return the exit status of the last command to exit with a non-zero status.
 set -o pipefail
 
 # --- Variables ---
 DB_NAME="prestashop_db"
 DB_USER="ps_user"
-DB_PASS="Changeme1!" # Intentionally weak password for competition
+DB_PASS="Changeme1!"
 ADMIN_EMAIL="sysadmin@comp.local"
-ADMIN_PASS="Changeme1!" # Intentionally weak password for competition
+ADMIN_PASS="Changeme1!"
 PRESTASHOP_VERSION="1.6.1.23"
 PRESTASHOP_URL="https://github.com/PrestaShop/PrestaShop/releases/download/1.6.1.23/prestashop_1.6.1.23.zip"
 PRESTASHOP_ZIP="prestashop.zip"
 INSTALL_DIR="/var/www/html"
 SHOP_DIR="${INSTALL_DIR}/prestashop"
 SERVER_IP=$(hostname -I | awk '{print $1}')
+APACHE_USER="apache" # Use 'www-data' on Debian/Ubuntu
 
 # --- Helper Functions ---
 log_info() {
@@ -55,8 +53,8 @@ log_error() {
 
 # --- Main Logic ---
 
-# 1. Prerequisite Check: Ensure script is run as root
-if [ -d "/var/www/html/prestashop" ]; then
+# 1. Prerequisite Check
+if [ -d "${SHOP_DIR}" ]; then
     log_error "PrestaShop directory already exists. Aborting to prevent overwriting."
 fi
 
@@ -75,85 +73,67 @@ else
     log_info "CentOS 7 vault mirrors are already configured."
 fi
 
-# 3. Install LAMP Stack components
-log_info "Installing Apache (httpd) and MariaDB..."
+# 3. Install LAMP Stack
+log_info "Installing Apache, MariaDB, and utilities..."
 yum install -y httpd mariadb-server wget unzip
 
-log_info "Starting and enabling httpd and mariadb services..."
-systemctl start httpd
-systemctl enable httpd
-systemctl start mariadb
-systemctl enable mariadb
+log_info "Starting and enabling services..."
+systemctl start httpd && systemctl enable httpd
+systemctl start mariadb && systemctl enable mariadb
 
-log_info "Configuring firewall to allow HTTP and HTTPS traffic..."
-firewall-cmd --permanent --add-service=http
-firewall-cmd --permanent --add-service=https
+log_info "Configuring firewall..."
+firewall-cmd --permanent --add-service=http --add-service=https
 firewall-cmd --reload
 
-# WARNING: Intentionally skipping mysql_secure_installation to create a vulnerable server.
-log_info "Skipping mysql_secure_installation to maintain a challenge environment."
-
-# 4. Install PHP 7.1 and required extensions
-log_info "Installing EPEL and Remi repositories for PHP 7.1..."
+# 4. Install PHP 7.1
+log_info "Installing PHP 7.1 repositories..."
 yum install -y epel-release yum-utils
 yum install -y http://rpms.remirepo.net/enterprise/remi-release-7.rpm
-
-log_info "Enabling Remi PHP 7.1 repository..."
 yum-config-manager --enable remi-php71
 
-log_info "Installing PHP 7.1 and required PrestaShop extensions..."
-# List of extensions required by PrestaShop 1.6
+log_info "Installing PHP 7.1 and extensions..."
 yum install -y php php-cli php-fpm php-mysqlnd php-zip php-devel php-gd php-mcrypt \
                php-mbstring php-curl php-xml php-pear php-bcmath php-json php-intl php-opcache
 
-log_info "Restarting Apache to load PHP module..."
+log_info "Restarting Apache..."
 systemctl restart httpd
 
 # 5. Database and Application Provisioning
-log_info "Creating MariaDB database and user for PrestaShop..."
+log_info "Creating MariaDB database and user..."
 mysql -u root <<-MYSQL_SCRIPT
 CREATE DATABASE ${DB_NAME};
 CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 MYSQL_SCRIPT
-log_info "Database '${DB_NAME}' and user '${DB_USER}' created."
+log_info "Database and user created."
 
 log_info "Downloading PrestaShop ${PRESTASHOP_VERSION}..."
 wget -O "${INSTALL_DIR}/${PRESTASHOP_ZIP}" "${PRESTASHOP_URL}"
 
 log_info "Extracting PrestaShop files..."
-# Unzip the main archive, which contains another 'prestashop.zip' file
 unzip -o "${INSTALL_DIR}/${PRESTASHOP_ZIP}" -d "${INSTALL_DIR}"
-# Unzip the inner prestashop.zip to the final directory
 unzip -o "${INSTALL_DIR}/prestashop.zip" -d "${INSTALL_DIR}"
-# The files are extracted into a 'prestashop' directory by default.
 
-log_info "Setting file ownership and permissions..."
-# Set ownership for the entire directory
-chown -R apache:apache "${SHOP_DIR}"
-
-# Set baseline permissions: 755 for directories, 644 for files
+# 6. Set Pre-Installation Permissions (Stage 1)
+log_info "Setting pre-installation permissions (Stage 1)..."
+chown -R "${APACHE_USER}:${APACHE_USER}" "${SHOP_DIR}"
 find "${SHOP_DIR}" -type d -exec chmod 755 {} \;
 find "${SHOP_DIR}" -type f -exec chmod 644 {} \;
 
-# ** FIX STARTS HERE **
-# Set specific writable permissions for directories PrestaShop needs to access
-log_info "Setting specific writable permissions for PrestaShop directories..."
-chmod -R 775 "${SHOP_DIR}/cache"
-chmod -R 775 "${SHOP_DIR}/log"
-chmod -R 775 "${SHOP_DIR}/img"
-chmod -R 775 "${SHOP_DIR}/mails"
-chmod -R 775 "${SHOP_DIR}/modules"
-chmod -R 775 "${SHOP_DIR}/themes/default-bootstrap/cache"
-chmod -R 775 "${SHOP_DIR}/themes/default-bootstrap/lang"
-chmod -R 775 "${SHOP_DIR}/translations"
-chmod -R 775 "${SHOP_DIR}/upload"
-chmod -R 775 "${SHOP_DIR}/download"
-# ** FIX ENDS HERE **
-log_info "Permissions set for ${SHOP_DIR}."
+# Grant specific write permissions needed by the installer
+chmod -R u+w "${SHOP_DIR}/config"
+chmod -R u+w "${SHOP_DIR}/cache"
+chmod -R u+w "${SHOP_DIR}/log"
+chmod -R u+w "${SHOP_DIR}/img"
+chmod -R u+w "${SHOP_DIR}/mails"
+chmod -R u+w "${SHOP_DIR}/modules"
+chmod -R u+w "${SHOP_DIR}/themes/default-bootstrap/cache"
+chmod -R u+w "${SHOP_DIR}/translations"
+chmod -R u+w "${SHOP_DIR}/upload"
+chmod -R u+w "${SHOP_DIR}/download"
 
-# 6. Run PrestaShop CLI Installer
+# 7. Run PrestaShop CLI Installer
 log_info "Running PrestaShop command-line installer..."
 if [ -f "${SHOP_DIR}/install/index_cli.php" ]; then
     php "${SHOP_DIR}/install/index_cli.php" --domain="${SERVER_IP}" \
@@ -164,14 +144,25 @@ else
     log_error "PrestaShop installation script not found. Aborting."
 fi
 
-# 7. Post-Installation Cleanup
+# 8. Post-Installation Cleanup
 log_info "Cleaning up installation files..."
 rm -rf "${SHOP_DIR}/install"
 rm -f "${INSTALL_DIR}/${PRESTASHOP_ZIP}"
-rm -f "${INSTALL_DIR}/prestashop.zip" # Remove inner zip
-rm -f "${INSTALL_DIR}/Install_PrestaShop.html" # Remove instructional file
+rm -f "${INSTALL_DIR}/prestashop.zip"
+rm -f "${INSTALL_DIR}/Install_PrestaShop.html"
 
-# 8. Discover and Report Admin URL
+# 9. Set Post-Installation Permissions (Stage 2 - Hardening)
+log_info "Setting final, hardened permissions (Stage 2)..."
+# Reset all directories to 755 and files to 644
+find "${SHOP_DIR}" -type d -exec chmod 755 {} \;
+find "${SHOP_DIR}" -type f -exec chmod 644 {} \;
+# Lock down the config directory - make it read-only
+chmod -R 555 "${SHOP_DIR}/config/"
+# But the theme cache still needs to be writable
+chmod -R 755 "${SHOP_DIR}/themes/default-bootstrap/cache/"
+log_info "Permissions have been hardened."
+
+# 10. Discover and Report Admin URL
 log_info "Discovering the randomized admin directory..."
 ADMIN_DIR_NAME=$(find "${SHOP_DIR}" -maxdepth 1 -type d -name "admin*" -printf "%f\n")
 if [ -n "${ADMIN_DIR_NAME}" ]; then
