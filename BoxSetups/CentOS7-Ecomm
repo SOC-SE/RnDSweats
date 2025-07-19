@@ -63,18 +63,21 @@ fi
 log_info "Starting PrestaShop ${PRESTASHOP_VERSION} installation on CentOS 7..."
 
 # 2. CentOS 7 EOL Repository Fix
-log_info "Checking and fixing CentOS 7 repositories..."
-# Check if the vault URL is already configured to make the script idempotent.
-if! grep -q 'vault.centos.org' /etc/yum.repos.d/CentOS-Base.repo; then
-    log_info "Standard mirrors are active. Switching to vault.centos.org for EOL support."
-    # Use sed to comment out mirrorlist and uncomment/update baseurl to point to the vault.
-    sed -i -e '/^mirrorlist/d' -e 's/^#baseurl/baseurl/' -e 's/mirror.centos.org/vault.centos.org/' /etc/yum.repos.d/CentOS-*.repo
-    log_info "Repository files updated. Cleaning and rebuilding yum cache."
+if ! grep -q "vault.centos.org" /etc/yum.repos.d/CentOS-Base.repo; then
+    echo "CentOS 7 mirrors are not set to vault. Correcting..."
+
+    # Backup the original repository file
+    cp /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak
+
+    # Replace mirror URLs with vault URLs
+    sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Base.repo
+    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo
+
+    echo "Cleaning YUM cache and rebuilding..."
     yum clean all
     yum makecache
-    log_info "Yum cache rebuilt successfully."
 else
-    log_info "Repositories already point to vault.centos.org. Skipping fix."
+    echo "CentOS 7 vault mirrors are already configured."
 fi
 
 # 3. Install LAMP Stack components
