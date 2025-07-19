@@ -56,8 +56,9 @@ log_error() {
 # --- Main Logic ---
 
 # 1. Prerequisite Check: Ensure script is run as root
-if]; then
-   log_error "This script must be run as root."
+if [ -d "/var/www/html/prestashop" ]; then
+    echo "PrestaShop directory already exists. Aborting to prevent overwriting."
+    exit 1
 fi
 
 log_info "Starting PrestaShop ${PRESTASHOP_VERSION} installation on CentOS 7..."
