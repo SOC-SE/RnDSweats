@@ -49,7 +49,7 @@ log_info() {
 }
 
 log_error() {
-    echo " $(date +'%Y-%m-%d %H:%M:%S') - $1" >&2
+    echo "[ERROR] $(date +'%Y-%m-%d %H:%M:%S') - $1" >&2
     exit 1
 }
 
@@ -57,28 +57,22 @@ log_error() {
 
 # 1. Prerequisite Check: Ensure script is run as root
 if [ -d "/var/www/html/prestashop" ]; then
-    echo "PrestaShop directory already exists. Aborting to prevent overwriting."
-    exit 1
+    log_error "PrestaShop directory already exists. Aborting to prevent overwriting."
 fi
 
 log_info "Starting PrestaShop ${PRESTASHOP_VERSION} installation on CentOS 7..."
 
 # 2. CentOS 7 EOL Repository Fix
 if ! grep -q "vault.centos.org" /etc/yum.repos.d/CentOS-Base.repo; then
-    echo "CentOS 7 mirrors are not set to vault. Correcting..."
-
-    # Backup the original repository file
+    log_info "CentOS 7 mirrors are not set to vault. Correcting..."
     cp /etc/yum.repos.d/CentOS-Base.repo /etc/yum.repos.d/CentOS-Base.repo.bak
-
-    # Replace mirror URLs with vault URLs
     sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Base.repo
     sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo
-
-    echo "Cleaning YUM cache and rebuilding..."
+    log_info "Cleaning YUM cache and rebuilding..."
     yum clean all
     yum makecache
 else
-    echo "CentOS 7 vault mirrors are already configured."
+    log_info "CentOS 7 vault mirrors are already configured."
 fi
 
 # 3. Install LAMP Stack components
@@ -129,21 +123,38 @@ log_info "Downloading PrestaShop ${PRESTASHOP_VERSION}..."
 wget -O "${INSTALL_DIR}/${PRESTASHOP_ZIP}" "${PRESTASHOP_URL}"
 
 log_info "Extracting PrestaShop files..."
-# Unzip the main archive, then unzip the inner prestashop.zip to the final directory
+# Unzip the main archive, which contains another 'prestashop.zip' file
 unzip -o "${INSTALL_DIR}/${PRESTASHOP_ZIP}" -d "${INSTALL_DIR}"
-# The initial zip contains another zip file named 'prestashop.zip'
+# Unzip the inner prestashop.zip to the final directory
 unzip -o "${INSTALL_DIR}/prestashop.zip" -d "${INSTALL_DIR}"
 # The files are extracted into a 'prestashop' directory by default.
 
 log_info "Setting file ownership and permissions..."
+# Set ownership for the entire directory
 chown -R apache:apache "${SHOP_DIR}"
+
+# Set baseline permissions: 755 for directories, 644 for files
 find "${SHOP_DIR}" -type d -exec chmod 755 {} \;
 find "${SHOP_DIR}" -type f -exec chmod 644 {} \;
+
+# ** FIX STARTS HERE **
+# Set specific writable permissions for directories PrestaShop needs to access
+log_info "Setting specific writable permissions for PrestaShop directories..."
+chmod -R 775 "${SHOP_DIR}/cache"
+chmod -R 775 "${SHOP_DIR}/log"
+chmod -R 775 "${SHOP_DIR}/img"
+chmod -R 775 "${SHOP_DIR}/mails"
+chmod -R 775 "${SHOP_DIR}/modules"
+chmod -R 775 "${SHOP_DIR}/themes/default-bootstrap/cache"
+chmod -R 775 "${SHOP_DIR}/themes/default-bootstrap/lang"
+chmod -R 775 "${SHOP_DIR}/translations"
+chmod -R 775 "${SHOP_DIR}/upload"
+chmod -R 775 "${SHOP_DIR}/download"
+# ** FIX ENDS HERE **
 log_info "Permissions set for ${SHOP_DIR}."
 
 # 6. Run PrestaShop CLI Installer
 log_info "Running PrestaShop command-line installer..."
-# Ensure the install directory exists before attempting to run the CLI installer
 if [ -f "${SHOP_DIR}/install/index_cli.php" ]; then
     php "${SHOP_DIR}/install/index_cli.php" --domain="${SERVER_IP}" \
     --db_server=127.0.0.1 --db_name="${DB_NAME}" --db_user="${DB_USER}" \
@@ -162,8 +173,6 @@ rm -f "${INSTALL_DIR}/Install_PrestaShop.html" # Remove instructional file
 
 # 8. Discover and Report Admin URL
 log_info "Discovering the randomized admin directory..."
-# PrestaShop renames the 'admin' directory to a random string for security.
-# We find it and report it to the user.
 ADMIN_DIR_NAME=$(find "${SHOP_DIR}" -maxdepth 1 -type d -name "admin*" -printf "%f\n")
 if [ -n "${ADMIN_DIR_NAME}" ]; then
     ADMIN_URL="http://${SERVER_IP}/prestashop/${ADMIN_DIR_NAME}"
