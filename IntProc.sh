@@ -2,19 +2,24 @@
 
 # IntProc - A self-contained Bash script for network interface protection.
 # This script operates in two modes:
-# 1. Installation mode (--install): Sets up the script as a systemd service.
-# 2. Monitoring mode (no arguments): Monitors and reverts network changes.
+# 1. Installation mode (--install): Sets up the script as a systemd service. If config exists, enters update mode.
+# 2. Monitoring mode (no arguments): Monitors and reverts network changes, including iptables and routes.
 #
 #    Designed by Samuel Brucker 2025
-#    AI was heavily used in creating this script. 
+#    AI was heavily used in creating this script.
 #
 
 # Color codes for output (used in install mode)
 RED="\e[31m"
 GREEN="\e[32m"
 YELLOW="\e[33m"
-# NCs back to no colour
-NC="\e[0m" 
+NC="\e[0m"
+
+# Config and log files
+config_file="/etc/IntProc/IntProc.conf"
+log_file="/var/log/IntProc.log"
+iptables_file="/etc/IntProc/iptables.rules"
+routes_file="/etc/IntProc/routes.txt"
 
 # Function to check if running as root
 check_root() {
@@ -70,6 +75,7 @@ revert_settings() {
     local target_gw="$3"
     local target_dns="$4"      # space-separated
     local change_type="$5"     # "ip", "gateway", or "dns"
+    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
 
     # Parse IP and CIDR
     local target_ip="${target_ip_cidr%%/*}"
@@ -83,13 +89,14 @@ revert_settings() {
             local con_name
             con_name=$(nmcli dev status | grep "^$iface" | awk '{print $4}')
             if [ -z "$con_name" ] || [ "$con_name" = "--" ]; then
-                # Create a new connection if none exists
+                # Log deleted/missing profile and recreate
+                echo "[$timestamp] Connection profile for $iface deleted or missing. Recreating." >> "$log_file"
                 nmcli con add con-name "net-defender-$iface" type ethernet ifname "$iface" ipv4.method manual ipv4.addresses "$target_ip_cidr" ipv4.gateway "$target_gw" ipv4.dns "$target_dns"
                 con_name="net-defender-$iface"
             else
                 nmcli con mod "$con_name" ipv4.addresses "$target_ip_cidr" ipv4.gateway "$target_gw" ipv4.dns "$target_dns" ipv4.method manual
             fi
-            nmcli con up "$con_name"
+            nmcli con up "$con_name" || { echo "[$timestamp] Failed to bring up connection $con_name." >> "$log_file"; return 1; }
         elif command -v ip >/dev/null 2>&1; then
             echo "Using ip command to revert $change_type..."
             ip addr flush dev "$iface"
@@ -103,7 +110,7 @@ revert_settings() {
             route del default 2>/dev/null
             route add default gw "$target_gw"
         else
-            echo "No suitable tool (nmcli, ip, ifconfig) found to revert changes."
+            echo "[$timestamp] No suitable tool (nmcli, ip, ifconfig) found to revert changes." >> "$log_file"
             return 1
         fi
     fi
@@ -118,7 +125,7 @@ revert_settings() {
             resolvectl dns "$iface" $target_dns
             resolvectl flush-caches
         else
-            echo "Editing /etc/resolv.conf to revert DNS..."
+            echo "[$timestamp] Editing /etc/resolv.conf to revert DNS..." >> "$log_file"
             > /etc/resolv.conf
             IFS=' ' read -r -a dns_array <<< "$target_dns"
             for dns in "${dns_array[@]}"; do
@@ -129,58 +136,120 @@ revert_settings() {
     return 0
 }
 
-# Installation mode
+# Function to backup iptables rules
+backup_iptables() {
+    if command -v iptables-save >/dev/null 2>&1; then
+        iptables-save > "$iptables_file" || { echo -e "${RED}Error backing up iptables.${NC}"; return 1; }
+        echo -e "${GREEN}iptables rules backed up to $iptables_file.${NC}"
+    else
+        echo -e "${YELLOW}iptables not available. Skipping backup.${NC}"
+    fi
+}
+
+# Function to backup route table
+backup_routes() {
+    if command -v ip >/dev/null 2>&1; then
+        ip route show > "$routes_file" || { echo -e "${RED}Error backing up routes.${NC}"; return 1; }
+        echo -e "${GREEN}Route table backed up to $routes_file.${NC}"
+    else
+        echo -e "${YELLOW}ip command not available. Skipping routes backup.${NC}"
+    fi
+}
+
+# Installation/Update mode
 if [ "$1" = "--install" ]; then
     check_root
 
-    echo -e "${YELLOW}Starting installation mode...${NC}"
+    echo -e "${YELLOW}Starting installation/update mode...${NC}"
 
-    # Copy script to /usr/local/bin
+    # Create config directory if needed
+    mkdir -p /etc/IntProc
+
+    # Default values (empty initially)
+    INTERFACE=""
+    IP=""
+    GATEWAY=""
+    DNS=""
+    UPDATE_ONLY="no"
+
+    # If config exists, load it and enter update mode
+    if [ -f "$config_file" ]; then
+        source "$config_file"
+        echo -e "${GREEN}Existing config found. Entering update mode.${NC}"
+        echo "Current settings:"
+        echo "INTERFACE: $INTERFACE"
+        echo "IP: $IP"
+        echo "GATEWAY: $GATEWAY"
+        echo "DNS: $DNS"
+        UPDATE_ONLY="yes"
+    fi
+
+    # Copy script to /usr/local/bin (always, in case of updates)
     cp "$0" /usr/local/bin/IntProc.sh
     chmod +x /usr/local/bin/IntProc.sh
     echo -e "${GREEN}Script copied to /usr/local/bin/IntProc.sh.${NC}"
 
-    # Interactive configuration
-    echo -e "${YELLOW}Detecting available network interfaces...${NC}"
-    available_ifaces=$(get_available_interfaces)
-    interfaces=($available_ifaces)
-    echo "Available interfaces:"
-    for i in "${!interfaces[@]}"; do
-        echo "$((i+1)). ${interfaces[i]}"
-    done
-    read -p "Enter the number of the interface to protect: " num
-    if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#interfaces[@]}" ]; then
-        echo -e "${RED}Error: Invalid selection.${NC}"
-        exit 1
+    # Interactive configuration (prompt with current values as defaults)
+    if [ "$UPDATE_ONLY" = "no" ]; then
+        echo -e "${YELLOW}Detecting available network interfaces...${NC}"
+        available_ifaces=$(get_available_interfaces)
+        interfaces=($available_ifaces)
+        echo "Available interfaces:"
+        for i in "${!interfaces[@]}"; do
+            echo "$((i+1)). ${interfaces[i]}"
+        done
+        read -p "Enter the number of the interface to protect: " num
+        if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#interfaces[@]}" ]; then
+            echo -e "${RED}Error: Invalid selection.${NC}"
+            exit 1
+        fi
+        interface="${interfaces[$((num-1))]}"
+    else
+        read -p "Enter the interface to protect [$INTERFACE]: " interface
+        interface=${interface:-$INTERFACE}
     fi
-    interface="${interfaces[$((num-1))]}"
 
     current_ip=$(get_current_ip "$interface")
-    read -p "Enter the correct static IPv4 address and subnet mask in CIDR notation (e.g., 192.168.1.100/24) [$current_ip]: " ip
-    ip=${ip:-$current_ip}
+    read -p "Enter the correct static IPv4 address and subnet mask in CIDR notation (e.g., 192.168.1.100/24) [$IP or $current_ip]: " ip
+    ip=${ip:-${IP:-$current_ip}}
 
     current_gw=$(get_current_gateway)
-    read -p "Enter the correct default gateway [$current_gw]: " gw
-    gw=${gw:-$current_gw}
+    read -p "Enter the correct default gateway [$GATEWAY or $current_gw]: " gw
+    gw=${gw:-${GATEWAY:-$current_gw}}
 
     current_dns=$(get_current_dns "$interface")
-    read -p "Enter space-separated list of DNS servers (e.g., '8.8.8.8 1.1.1.1') [$current_dns]: " dns
-    dns=${dns:-$current_dns}
+    read -p "Enter space-separated list of DNS servers (e.g., '8.8.8.8 1.1.1.1') [$DNS or $current_dns]: " dns
+    dns=${dns:-${DNS:-$current_dns}}
 
-    # Create config directory and file
-    mkdir -p /etc/IntProc
-    cat <<EOF > /etc/IntProc/IntProc.conf
+    # Backup iptables and routes (prompt to update/backup)
+    read -p "Backup/update current iptables rules? (y/n) [y]: " backup_ipt
+    backup_ipt=${backup_ipt:-y}
+    if [ "$backup_ipt" = "y" ]; then
+        backup_iptables
+    fi
+
+    read -p "Backup/update current route table? (y/n) [y]: " backup_rts
+    backup_rts=${backup_rts:-y}
+    if [ "$backup_rts" = "y" ]; then
+        backup_routes
+    fi
+
+    # Save config
+    cat <<EOF > "$config_file"
 INTERFACE="$interface"
 IP="$ip"
 GATEWAY="$gw"
 DNS="$dns"
+IPTABLES_FILE="$iptables_file"
+ROUTES_FILE="$routes_file"
 EOF
-    echo -e "${GREEN}Configuration saved to /etc/IntProc/IntProc.conf.${NC}"
+    echo -e "${GREEN}Configuration saved/updated to $config_file.${NC}"
 
-    # Create systemd service file
-    cat <<EOF > /etc/systemd/system/intproc.service
+    # If not update-only, create systemd service
+    if [ "$UPDATE_ONLY" = "no" ]; then
+        cat <<EOF > /etc/systemd/system/intproc.service
 [Unit]
-Description=Network Interface Protecter (InterfaceProtection)
+Description=Network Interface Protector (IntProc)
 After=network.target
 
 [Service]
@@ -191,37 +260,48 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-    echo -e "${GREEN}Systemd service file created at /etc/systemd/system/intproc.service.${NC}"
+        echo -e "${GREEN}Systemd service file created at /etc/systemd/system/intproc.service.${NC}"
 
-    # Reload, enable, and start service
-    systemctl daemon-reload
-    if ! systemctl enable intproc.service; then
-        echo -e "${RED}Error enabling service.${NC}"
-        exit 1
+        # Reload, enable, and start service
+        systemctl daemon-reload
+        if ! systemctl enable intproc.service; then
+            echo -e "${RED}Error enabling service.${NC}"
+            exit 1
+        fi
+        if ! systemctl start intproc.service; then
+            echo -e "${RED}Error starting service.${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}Service enabled and started successfully!${NC}"
+    else
+        # Restart service to apply updates
+        systemctl restart intproc.service
+        echo -e "${GREEN}Service restarted to apply updates.${NC}"
     fi
-    if ! systemctl start intproc.service; then
-        echo -e "${RED}Error starting service.${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}Service enabled and started successfully!${NC}"
 
-    echo -e "${YELLOW}Installation complete. Check service status with: sudo systemctl status intproc.service${NC}"
+    echo -e "${YELLOW}Operation complete. Check service status with: sudo systemctl status intproc.service${NC}"
     exit 0
 fi
 
 # Monitoring mode (default)
-# Load configuration
-config_file="/etc/IntProc/IntProc.conf"
 if [ ! -f "$config_file" ]; then
     echo "Error: Configuration file $config_file not found. Run with --install first."
     exit 1
 fi
-source "$config_file"  # Loads INTERFACE, IP, GATEWAY, DNS
+source "$config_file"  # Loads INTERFACE, IP, GATEWAY, DNS, IPTABLES_FILE, ROUTES_FILE
 
-log_file="/var/log/IntProc.log"
 touch "$log_file"  # Ensure log file exists
+chmod 644 "$log_file"  # Secure permissions
 
 while true; do
+    timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+
+    # Check if interface is up
+    if ! ip link show "$INTERFACE" up >/dev/null 2>&1; then
+        echo "[$timestamp] Interface $INTERFACE is down or missing. Attempting to bring up." >> "$log_file"
+        ip link set "$INTERFACE" up 2>> "$log_file"
+    fi
+
     # Get current settings
     current_ip=$(get_current_ip "$INTERFACE")
     current_gw=$(get_current_gateway)
@@ -232,21 +312,43 @@ while true; do
 
     # Compare and revert if necessary
     if [ "$current_ip" != "$IP" ]; then
-        timestamp=$(date +"%Y-%m-%d %H:%M:%S")
         echo "[$timestamp] Change detected on $INTERFACE: IP changed from $IP to $current_ip. Reverting." >> "$log_file"
         revert_settings "$INTERFACE" "$IP" "$GATEWAY" "$DNS" "ip"
     fi
 
     if [ "$current_gw" != "$GATEWAY" ]; then
-        timestamp=$(date +"%Y-%m-%d %H:%M:%S")
         echo "[$timestamp] Change detected on $INTERFACE: Gateway changed from $GATEWAY to $log_gw. Reverting." >> "$log_file"
         revert_settings "$INTERFACE" "$IP" "$GATEWAY" "$DNS" "gateway"
     fi
 
     if [ "$(echo "$current_dns" | xargs)" != "$(echo "$DNS" | xargs)" ]; then
-        timestamp=$(date +"%Y-%m-%d %H:%M:%S")
         echo "[$timestamp] Change detected on $INTERFACE: DNS changed from $DNS to $current_dns. Reverting." >> "$log_file"
         revert_settings "$INTERFACE" "$IP" "$GATEWAY" "$DNS" "dns"
+    fi
+
+    # Check and revert iptables if backed up
+    if [ -f "$IPTABLES_FILE" ] && command -v iptables-save >/dev/null 2>&1; then
+        current_ipt=$(iptables-save)
+        saved_ipt=$(cat "$IPTABLES_FILE")
+        if [ "$current_ipt" != "$saved_ipt" ]; then
+            echo "[$timestamp] iptables rules changed. Reverting to backup." >> "$log_file"
+            iptables-restore < "$IPTABLES_FILE" || echo "[$timestamp] Failed to restore iptables." >> "$log_file"
+        fi
+    fi
+
+    # Check and revert route table if backed up
+    if [ -f "$ROUTES_FILE" ] && command -v ip >/dev/null 2>&1; then
+        current_routes=$(ip route show | sort)
+        saved_routes=$(sort "$ROUTES_FILE")
+        if [ "$current_routes" != "$saved_routes" ]; then
+            echo "[$timestamp] Route table changed. Reverting to backup." >> "$log_file"
+            ip route flush table main
+            while IFS= read -r line; do
+                if [ -n "$line" ]; then
+                    ip route add $line 2>> "$log_file" || echo "[$timestamp] Failed to add route: $line" >> "$log_file"
+                fi
+            done < "$ROUTES_FILE"
+        fi
     fi
 
     sleep 5
