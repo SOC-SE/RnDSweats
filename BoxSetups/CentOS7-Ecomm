@@ -144,13 +144,13 @@ log_info "Permissions set for ${SHOP_DIR}."
 # 6. Run PrestaShop CLI Installer
 log_info "Running PrestaShop command-line installer..."
 # Ensure the install directory exists before attempting to run the CLI installer
-if; then
+if [ -f "${SHOP_DIR}/install/index_cli.php" ]; then
     php "${SHOP_DIR}/install/index_cli.php" --domain="${SERVER_IP}" \
     --db_server=127.0.0.1 --db_name="${DB_NAME}" --db_user="${DB_USER}" \
     --db_password="${DB_PASS}" --prefix=ps_ --name="CCDC Store" \
     --email="${ADMIN_EMAIL}" --password="${ADMIN_PASS}" --language=en
 else
-    log_error "PrestaShop installation directory not found. Aborting."
+    log_error "PrestaShop installation script not found. Aborting."
 fi
 
 # 7. Post-Installation Cleanup
@@ -165,9 +165,9 @@ log_info "Discovering the randomized admin directory..."
 # PrestaShop renames the 'admin' directory to a random string for security.
 # We find it and report it to the user.
 ADMIN_DIR_NAME=$(find "${SHOP_DIR}" -maxdepth 1 -type d -name "admin*" -printf "%f\n")
-if; then
+if [ -n "${ADMIN_DIR_NAME}" ]; then
     ADMIN_URL="http://${SERVER_IP}/prestashop/${ADMIN_DIR_NAME}"
-    log_info "Installation Complete!"
+    log_info "Installation Complete! ✅"
     echo "========================================================================"
     echo " PrestaShop Admin Panel:"
     echo " URL: ${ADMIN_URL}"
