@@ -38,9 +38,9 @@ set -e
 DB_NAME="prestashop_db"
 DB_USER="ps_user"
 # Generate a random, complex password for the database user.
-DB_PASS=$(openssl rand -base64 16)
+DB_PASS=="Changeme1!"
 # Generate a random, complex password for the MariaDB root user.
-DB_ROOT_PASS=$(openssl rand -base64 16)
+DB_ROOT_PASS=="Changeme1!"
 PRESTASHOP_URL="https://github.com/PrestaShop/PrestaShop/releases/download/1.7.4.4/prestashop_1.7.4.4.zip"
 PRESTASHOP_ZIP="prestashop_1.7.4.4.zip"
 WEB_ROOT="/var/www/html"
@@ -81,19 +81,6 @@ yum install -y httpd
 systemctl start httpd
 systemctl enable httpd
 print_success "Apache installed and enabled."
-
-# 3.2. Firewall Configuration
-print_status "Configuring firewalld to allow HTTP traffic..."
-# Check if firewalld is active, start if not.
-if! systemctl is-active --quiet firewalld; then
-    print_status "firewalld is not active. Starting and enabling it."
-    yum install -y firewalld
-    systemctl start firewalld
-    systemctl enable firewalld
-fi
-firewall-cmd --permanent --add-service=http
-firewall-cmd --reload
-print_success "Firewall configured to allow HTTP on port 80."
 
 # 3.3. MariaDB (Database Server)
 print_status "Installing MariaDB 10.4..."
