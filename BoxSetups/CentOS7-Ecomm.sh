@@ -38,9 +38,9 @@ set -e
 DB_NAME="prestashop_db"
 DB_USER="ps_user"
 # Generate a random, complex password for the database user.
-DB_PASS=="Changeme1!"
+DB_PASS="Changeme1!"
 # Generate a random, complex password for the MariaDB root user.
-DB_ROOT_PASS=="Changeme1!"
+DB_ROOT_PASS="Changeme1!"
 PRESTASHOP_URL="https://github.com/PrestaShop/PrestaShop/releases/download/1.7.4.4/prestashop_1.7.4.4.zip"
 PRESTASHOP_ZIP="prestashop_1.7.4.4.zip"
 WEB_ROOT="/var/www/html"
@@ -48,7 +48,22 @@ WEB_ROOT="/var/www/html"
 # --- Helper Functions ---
 # Function to print colored status messages.
 print_status() {
-    echo -e "\n\e[1;34m[INFO]\e\e\e]; then
+    echo -e "\n\e[1;34m[INFO]\e[0m $1"
+}
+
+print_success() {
+    echo -e "\e[1;32m[SUCCESS]\e[0m $1"
+}
+
+print_error() {
+    echo -e "\e[1;31m[ERROR]\e[0m $1"
+}
+
+# --- Main Execution ---
+
+# 1. Root Privilege Check
+print_status "Checking for root privileges..."
+if [[ $EUID -ne 0 ]]; then
    print_error "This script must be run as root. Exiting."
    exit 1
 fi
@@ -136,7 +151,7 @@ wget -q -O ${PRESTASHOP_ZIP} ${PRESTASHOP_URL}
 print_success "PrestaShop downloaded."
 
 print_status "Extracting PrestaShop to web root..."
-# Clear the default Apache welcome page.
+# Clear the default Apache welcome page if it exists.
 rm -f ${WEB_ROOT}/index.html
 # Unzip the main application archive.
 unzip -q ${PRESTASHOP_ZIP} -d ${WEB_ROOT}/
@@ -175,7 +190,7 @@ print_success "File permissions and ownership correctly set."
 # 6. Post-Installation Cleanup and Finalization
 print_status "Performing post-installation cleanup..."
 # The installation directory MUST be removed for security.
-if; then
+if [ -d "${WEB_ROOT}/install" ]; then
     rm -rf ${WEB_ROOT}/install
     print_success "Installation directory removed."
 else
@@ -183,8 +198,8 @@ else
 fi
 
 # PrestaShop renames the 'admin' directory for security. Find the new name.
-ADMIN_DIR=$(find ${WEB_ROOT} -type d -name "admin*" | tail -n 1)
-if; then
+ADMIN_DIR=$(find ${WEB_ROOT} -type d -name "admin*" -print -quit)
+if [ -n "${ADMIN_DIR}" ]; then
     ADMIN_FOLDER_NAME=$(basename ${ADMIN_DIR})
     print_success "Detected randomized admin folder: ${ADMIN_FOLDER_NAME}"
 else
@@ -209,11 +224,10 @@ echo ""
 echo "---------------------- Access Information ----------------------"
 echo "PrestaShop Admin URL: http://${SERVER_IP}/${ADMIN_FOLDER_NAME}"
 echo "---------------------- Database Credentials ----------------------"
-echo "Database Name:    ${DB_NAME}"
-echo "Database User:    ${DB_USER}"
-echo "Database Pass:    ${DB_PASS}"
+echo "Database Name:   ${DB_NAME}"
+echo "Database User:   ${DB_USER}"
+echo "Database Pass:   ${DB_PASS}"
 echo "-------------------- MariaDB Root Credentials --------------------"
-echo "MariaDB Root User:  root"
-echo "MariaDB Root Pass:  ${DB_ROOT_PASS}"
+echo "MariaDB Root User: root"
+echo "MariaDB Root Pass: ${DB_ROOT_PASS}"
 echo "========================================================================"
-echo -e "\n\e\e]`. This is a fundamental security and stability measure. Executing the script without root privileges would result in permission errors for nearly every command, from package installation to file system manipulation. By checking for root access upfront, the script fails early and cleanly, providing a clear error message to the user.
