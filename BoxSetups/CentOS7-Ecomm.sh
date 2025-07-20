@@ -78,10 +78,10 @@ sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /
 print_success "Yum repositories have been successfully pointed to the vault."
 
 # Clean yum cache and update system packages.
-print_status "Cleaning yum cache and updating base system packages..."
-yum clean all
-yum -y update
-print_success "System packages updated."
+#print_status "Cleaning yum cache and updating base system packages..."
+#yum clean all
+#yum -y update
+#print_success "System packages updated."
 
 # Install essential utilities needed for the script.
 print_status "Installing prerequisite utilities (wget, unzip, policycoreutils-python)..."
@@ -98,16 +98,17 @@ systemctl enable httpd
 print_success "Apache installed and enabled."
 
 # 3.3. MariaDB (Database Server)
-print_status "Installing MariaDB 10.4..."
+#print_status "Installing MariaDB 10.4..."
 # PrestaShop 1.7 requires MySQL 5.6+. CentOS 7 default is MariaDB 5.5.
 # We will add the official MariaDB repository to install a compatible version.
-cat <<-EOF > /etc/yum.repos.d/MariaDB.repo
-[mariadb]
-name = MariaDB
-baseurl = http://yum.mariadb.org/10.4/centos7-amd64
-gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
-gpgcheck=1
-EOF
+#cat << EOF > /etc/yum.repos.d/MariaDB.repo
+#[mariadb]
+#name = MariaDB
+#baseurl = http://yum.mariadb.org/10.4/centos7-amd64
+#gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
+#gpgcheck=1
+#EOF
+
 yum install -y MariaDB-server MariaDB-client
 systemctl start mariadb
 systemctl enable mariadb
@@ -210,6 +211,9 @@ fi
 # Clean up downloaded zip file.
 rm -f /tmp/${PRESTASHOP_ZIP}
 print_success "Temporary files cleaned up."
+
+#Remove extra packages
+yum remove -y curl unzip 
 
 # 7. Final Output
 # Display all the generated information for the user.
