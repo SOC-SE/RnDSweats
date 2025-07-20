@@ -3,176 +3,230 @@
 # ==============================================================================
 # CentOS-Install.sh
 #
-# Description:
-# This script automates the installation of PrestaShop 1.7.4.4 and its
-# dependencies (Apache, MariaDB, PHP 7.2) on a CentOS 7 system.
-# It is specifically designed for the MWCCDC competition environment,
-# creating a standardized but intentionally insecure baseline.
-#
 # Author: Linux System Administration Expert
-# Version: 1.1
+# Date:
+#
+# Description:
+# This script automates the installation of PrestaShop 1.7.4.4 on a
+# CentOS 7 server. It is designed for creating a cybersecurity competition
+# environment, meaning it sets up a functional but intentionally insecure
+# legacy system.
+#
+# Key Operations:
+# 1. Checks for root privileges.
+# 2. Fixes CentOS 7 EOL repositories to point to vault.centos.org.
+# 3. Installs Apache, MariaDB 10.4, and PHP 7.1 with all required extensions.
+# 4. Creates a database and user for PrestaShop.
+# 5. Downloads and unpacks PrestaShop 1.7.4.4.
+# 6. Sets appropriate file permissions and ownership for functionality.
+# 7. Performs post-installation cleanup.
+# 8. Outputs necessary credentials and the randomized admin URL.
+#
+# Usage:
+# Run this script as root on a fresh CentOS 7 installation.
+# # bash CentOS-Install.sh
+#
 # ==============================================================================
 
-# --- Configuration Variables ---
-PRESTASHOP_VERSION="1.7.4.4"
-PRESTASHOP_URL="https://github.com/PrestaShop/PrestaShop/releases/download/${PRESTASHOP_VERSION}/prestashop_${PRESTASHOP_VERSION}.zip"
+# --- Script Configuration ---
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+# --- Variables ---
+# Define variables for database credentials and PrestaShop source.
+# Using variables makes the script easier to read and modify.
 DB_NAME="prestashop_db"
 DB_USER="ps_user"
-DB_PASS="Changeme1!" # Intentionally weak password for competition purposes
+# Generate a random, complex password for the database user.
+DB_PASS=$(openssl rand -base64 16)
+# Generate a random, complex password for the MariaDB root user.
+DB_ROOT_PASS=$(openssl rand -base64 16)
+PRESTASHOP_URL="https://github.com/PrestaShop/PrestaShop/releases/download/1.7.4.4/prestashop_1.7.4.4.zip"
+PRESTASHOP_ZIP="prestashop_1.7.4.4.zip"
 WEB_ROOT="/var/www/html"
-LOG_FILE="/var/log/prestashop_install.log"
 
 # --- Helper Functions ---
-log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
-}
-
-check_root() {
-    # Corrected: Added condition to check for root user
-    if [ "$EUID" -ne 0 ]; then
-        log "ERROR: This script must be run as root."
-        exit 1
-    fi
-}
-
-# --- Main Script Logic ---
-
-# Step 0: Initial Setup
-check_root
-log "Starting PrestaShop ${PRESTASHOP_VERSION} installation on CentOS 7."
-touch "$LOG_FILE"
-chown root:root "$LOG_FILE"
-chmod 600 "$LOG_FILE"
-
-# Step 1: Fix CentOS 7 EOL Repositories
-log "Phase 1: System Preparation and Repository Correction"
-if grep -q "mirror.centos.org" /etc/yum.repos.d/CentOS-Base.repo; then
-    log "CentOS 7 repositories appear to be pointing to standard mirrors. Fixing for EOL..."
-    sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo &>> "$LOG_FILE"
-    sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo &>> "$LOG_FILE"
-    log "Repositories updated to point to vault.centos.org."
-    yum clean all &>> "$LOG_FILE"
-    yum makecache &>> "$LOG_FILE"
-    log "Yum cache rebuilt."
-else
-    log "Repositories already seem to be configured for vault or are custom. Skipping modification."
+# Function to print colored status messages.
+print_status() {
+    echo -e "\n\e[1;34m[INFO]\e\e\e]; then
+   print_error "This script must be run as root. Exiting."
+   exit 1
 fi
-yum -y update &>> "$LOG_FILE"
-log "System packages updated."
+print_success "Root privilege check passed."
 
-# Step 2: Install LAMP Stack (Apache & MariaDB)
-log "Phase 2: LAMP Stack Installation"
-log "Installing Apache (httpd) and MariaDB..."
-yum install -y httpd mariadb-server wget unzip &>> "$LOG_FILE"
-if [ $? -ne 0 ]; then
-    log "ERROR: Failed to install httpd or mariadb-server. Check yum configuration."
-    exit 1
+# 2. Fix CentOS 7 EOL Repositories
+print_status "CentOS 7 is EOL. Fixing repositories to point to vault.centos.org..."
+# The standard mirrorlist.centos.org is offline. These commands redirect yum to the official archive.
+# This is the most critical first step for any package installation on a modern CentOS 7 system.
+sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+print_success "Yum repositories have been successfully pointed to the vault."
+
+# Clean yum cache and update system packages.
+print_status "Cleaning yum cache and updating base system packages..."
+yum clean all
+yum -y update
+print_success "System packages updated."
+
+# Install essential utilities needed for the script.
+print_status "Installing prerequisite utilities (wget, unzip, policycoreutils-python)..."
+yum install -y wget unzip policycoreutils-python
+print_success "Prerequisite utilities installed."
+
+# 3. Install and Configure LAMP Stack
+
+# 3.1. Apache (httpd)
+print_status "Installing and configuring Apache web server (httpd)..."
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+print_success "Apache installed and enabled."
+
+# 3.2. Firewall Configuration
+print_status "Configuring firewalld to allow HTTP traffic..."
+# Check if firewalld is active, start if not.
+if! systemctl is-active --quiet firewalld; then
+    print_status "firewalld is not active. Starting and enabling it."
+    yum install -y firewalld
+    systemctl start firewalld
+    systemctl enable firewalld
 fi
-log "Enabling and starting httpd and mariadb services..."
-systemctl enable --now httpd &>> "$LOG_FILE"
-systemctl enable --now mariadb &>> "$LOG_FILE"
-log "Apache and MariaDB installed and started."
-# Note: mysql_secure_installation is intentionally NOT run to leave a less secure default state for the competition.
+firewall-cmd --permanent --add-service=http
+firewall-cmd --reload
+print_success "Firewall configured to allow HTTP on port 80."
 
-# Step 3: Install and Configure PHP 7.2
-log "Phase 3: PHP 7.2 Environment Configuration"
-log "Installing EPEL and REMI repositories for PHP 7.2..."
-yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm &>> "$LOG_FILE"
-yum install -y http://rpms.remirepo.net/enterprise/remi-release-7.rpm &>> "$LOG_FILE"
-yum install -y yum-utils &>> "$LOG_FILE"
+# 3.3. MariaDB (Database Server)
+print_status "Installing MariaDB 10.4..."
+# PrestaShop 1.7 requires MySQL 5.6+. CentOS 7 default is MariaDB 5.5.
+# We will add the official MariaDB repository to install a compatible version.
+cat <<-EOF > /etc/yum.repos.d/MariaDB.repo
+[mariadb]
+name = MariaDB
+baseurl = http://yum.mariadb.org/10.4/centos7-amd64
+gpgkey=https://yum.mariadb.org/RPM-GPG-KEY-MariaDB
+gpgcheck=1
+EOF
+yum install -y MariaDB-server MariaDB-client
+systemctl start mariadb
+systemctl enable mariadb
+print_success "MariaDB 10.4 installed and enabled."
 
-log "Enabling REMI repository for PHP 7.2..."
-yum-config-manager --enable remi-php72 &>> "$LOG_FILE"
-
-log "Installing PHP 7.2 and required extensions for PrestaShop..."
-# This list is based on PrestaShop 1.7 system requirements
-yum install -y php php-cli php-fpm php-mysqlnd php-zip php-devel php-gd php-mcrypt php-mbstring php-curl php-xml php-pear php-bcmath php-json php-opcache php-intl php-soap &>> "$LOG_FILE"
-if [ $? -ne 0 ]; then
-    log "ERROR: Failed to install PHP 7.2 or its extensions. Check repository configuration."
-    exit 1
-fi
-log "PHP 7.2 and extensions installed successfully."
-
-# Step 4: Automated Database and User Provisioning
-log "Phase 4: Automated Database and User Provisioning"
-log "Creating MariaDB database and user..."
-# Using a here document for non-interactive SQL execution
+# Secure MariaDB installation non-interactively.
+print_status "Securing MariaDB installation..."
 mysql -u root <<-EOF
-CREATE DATABASE ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${DB_ROOT_PASS}');
+DELETE FROM mysql.user WHERE User='';
+DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+DROP DATABASE IF EXISTS test;
+DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+FLUSH PRIVILEGES;
+EOF
+print_success "MariaDB installation secured."
+
+# 3.4. PHP 7.1
+print_status "Installing PHP 7.1 and required extensions from Remi repository..."
+# PrestaShop 1.7.4.4 recommended PHP version is 7.1.
+# This requires the EPEL and Remi repositories.
+yum install -y epel-release yum-utils
+yum install -y http://rpms.remirepo.net/enterprise/remi-release-7.rpm
+yum-config-manager --enable remi-php71
+
+# Install PHP 7.1 and all extensions required by PrestaShop.
+yum install -y php php-cli php-common php-gd php-intl php-mbstring php-mysqlnd php-pdo php-opcache php-xml php-zip php-curl php-fileinfo php-json php-openssl
+print_success "PHP 7.1 and all required extensions installed."
+
+# Restart Apache to load the new PHP module.
+print_status "Restarting Apache to apply PHP configuration..."
+systemctl restart httpd
+print_success "Apache restarted."
+
+# 4. Deploy PrestaShop Application
+
+# 4.1. Download and Extract PrestaShop
+print_status "Downloading PrestaShop 1.7.4.4..."
+cd /tmp
+wget -q -O ${PRESTASHOP_ZIP} ${PRESTASHOP_URL}
+print_success "PrestaShop downloaded."
+
+print_status "Extracting PrestaShop to web root..."
+# Clear the default Apache welcome page.
+rm -f ${WEB_ROOT}/index.html
+# Unzip the main application archive.
+unzip -q ${PRESTASHOP_ZIP} -d ${WEB_ROOT}/
+# PrestaShop unzips into a 'prestashop' subdirectory, which contains the actual files.
+# We need to move the contents up to the web root.
+mv ${WEB_ROOT}/prestashop/* ${WEB_ROOT}/
+rmdir ${WEB_ROOT}/prestashop
+# The initial zip also contains an index.php file we don't need at the root.
+rm -f ${WEB_ROOT}/index.php
+print_success "PrestaShop extracted to ${WEB_ROOT}."
+
+# 4.2. Create PrestaShop Database and User
+print_status "Creating PrestaShop database and user..."
+mysql -u root -p"${DB_ROOT_PASS}" <<-EOF
+CREATE DATABASE ${DB_NAME};
 CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
-if [ $? -eq 0 ]; then
-    log "Database '${DB_NAME}' and user '${DB_USER}' created successfully."
-else
-    log "ERROR: Failed to create MariaDB database or user."
-    exit 1
-fi
-# Note: GRANT ALL is intentionally overly permissive for the competition.
+print_success "Database '${DB_NAME}' and user '${DB_USER}' created."
 
-# Step 5: PrestaShop Application Deployment and Permissions
-log "Phase 5: PrestaShop Application Deployment"
-log "Downloading PrestaShop version ${PRESTASHOP_VERSION}..."
-wget -O /tmp/prestashop.zip "$PRESTASHOP_URL" &>> "$LOG_FILE"
-# Corrected: Added spaces for valid syntax
-if [ ! -f /tmp/prestashop.zip ]; then
-    log "ERROR: Failed to download PrestaShop zip file."
-    exit 1
-fi
+# 5. Set File Permissions and Ownership
+print_status "Setting file ownership and permissions for PrestaShop..."
+# Set ownership to the Apache user to allow the web server to manage files.
+chown -R apache:apache ${WEB_ROOT}
 
-log "Preparing web root directory..."
-rm -rf ${WEB_ROOT}/*
-unzip -o /tmp/prestashop.zip -d ${WEB_ROOT}/ &>> "$LOG_FILE"
-# PrestaShop unzips into a 'prestashop' directory, we need to move contents up
-mv ${WEB_ROOT}/prestashop/* ${WEB_ROOT}/
-rm -rf ${WEB_ROOT}/prestashop
-rm -f /tmp/prestashop.zip
-
-log "Setting correct file and directory permissions..."
-# These permissions are critical for the PrestaShop installer and runtime
+# Set recommended permissions: 755 for directories, 644 for files.
 find ${WEB_ROOT}/ -type d -exec chmod 755 {} \;
 find ${WEB_ROOT}/ -type f -exec chmod 644 {} \;
 
-log "Setting ownership to Apache user..."
-chown -R apache:apache ${WEB_ROOT}
+# SELinux context adjustment for web content.
+semanage fcontext -a -t httpd_sys_rw_content_t "${WEB_ROOT}(/.*)?"
+restorecon -R -v ${WEB_ROOT}
+print_success "File permissions and ownership correctly set."
 
-log "PrestaShop files deployed and permissions set."
+# 6. Post-Installation Cleanup and Finalization
+print_status "Performing post-installation cleanup..."
+# The installation directory MUST be removed for security.
+if; then
+    rm -rf ${WEB_ROOT}/install
+    print_success "Installation directory removed."
+else
+    print_status "Installation directory not found, skipping removal."
+fi
 
-# Step 6: Service Configuration and Finalization
-log "Phase 6: Final Service Configuration"
-log "Configuring Apache for PrestaShop..."
-# Allow .htaccess overrides for PrestaShop's friendly URLs
-sed -i '/<Directory "\/var\/www\/html">/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/httpd/conf/httpd.conf
+# PrestaShop renames the 'admin' directory for security. Find the new name.
+ADMIN_DIR=$(find ${WEB_ROOT} -type d -name "admin*" | tail -n 1)
+if; then
+    ADMIN_FOLDER_NAME=$(basename ${ADMIN_DIR})
+    print_success "Detected randomized admin folder: ${ADMIN_FOLDER_NAME}"
+else
+    ADMIN_FOLDER_NAME="[Could not be determined - check manually]"
+    print_error "Could not automatically determine the admin folder name."
+fi
 
-log "Disabling SELinux..."
-# SELinux can interfere with web server operations; disabling it is an intentional security reduction for the competition.
-setenforce 0
-sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
+# Clean up downloaded zip file.
+rm -f /tmp/${PRESTASHOP_ZIP}
+print_success "Temporary files cleaned up."
 
-log "Restarting Apache to apply all changes..."
-systemctl restart httpd
-
-# --- Completion Message ---
+# 7. Final Output
+# Display all the generated information for the user.
 SERVER_IP=$(hostname -I | awk '{print $1}')
-log "INSTALLATION COMPLETE"
+print_status "========================================================================"
+print_success "PrestaShop 1.7.4.4 Installation Complete!"
+echo ""
+echo "You can now complete the installation through your web browser."
+echo "However, this script is intended for a non-interactive CLI installation."
+echo "The setup is functional but requires manual web setup to finalize."
+echo ""
+echo "---------------------- Access Information ----------------------"
+echo "PrestaShop Admin URL: http://${SERVER_IP}/${ADMIN_FOLDER_NAME}"
+echo "---------------------- Database Credentials ----------------------"
+echo "Database Name:    ${DB_NAME}"
+echo "Database User:    ${DB_USER}"
+echo "Database Pass:    ${DB_PASS}"
+echo "-------------------- MariaDB Root Credentials --------------------"
+echo "MariaDB Root User:  root"
+echo "MariaDB Root Pass:  ${DB_ROOT_PASS}"
 echo "========================================================================"
-echo " PrestaShop Installation Script Finished"
-echo "========================================================================"
-echo ""
-echo " The server is now ready for the final web-based installation step."
-echo ""
-echo " Please open a web browser and navigate to:"
-echo "    http://${SERVER_IP}"
-echo ""
-echo " Use the following database credentials during the setup process:"
-echo "    Database server address: 127.0.0.1"
-echo "    Database name:           ${DB_NAME}"
-echo "    Database user:           ${DB_USER}"
-echo "    Database password:       ${DB_PASS}"
-echo ""
-echo " IMPORTANT: For security, you must delete the '/install' directory"
-echo " located at ${WEB_ROOT}/install after the web setup is complete."
-echo "========================================================================"
-
-exit 0
+echo -e "\n\e\e]`. This is a fundamental security and stability measure. Executing the script without root privileges would result in permission errors for nearly every command, from package installation to file system manipulation. By checking for root access upfront, the script fails early and cleanly, providing a clear error message to the user.
