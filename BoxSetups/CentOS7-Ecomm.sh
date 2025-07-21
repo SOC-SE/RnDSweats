@@ -1,5 +1,6 @@
 #!/bin/bash
 set -x
+
 # ==============================================================================
 # CentOS-Install.sh
 #
@@ -67,7 +68,7 @@ log() {
 # Function to check for root privileges
 check_root() {
     if [ $EUID -ne 0 ]; then
-        log "ERROR: This script must be run as root."
+#        log "ERROR: This script must be run as root."
         exit 1
     fi
 }
