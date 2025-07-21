@@ -66,7 +66,7 @@ log() {
 
 # Function to check for root privileges
 check_root() {
-    if [ "$EUID" -ne 0 ]; then
+    if [[ "$EUID" -ne 0 ]]; then
         log "ERROR: This script must be run as root."
         exit 1
     fi
