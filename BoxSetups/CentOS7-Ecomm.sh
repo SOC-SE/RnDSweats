@@ -74,19 +74,27 @@ check_root() {
 
 # Function to fix CentOS 7 EOL repositories
 fix_centos_repos() {
-    log "Checking and fixing CentOS 7 repositories..."
-    if grep -q "mirror.centos.org" /etc/yum.repos.d/CentOS-*.repo; then
-        log "Standard mirrors found. Switching to vault.centos.org."
-        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
-        log "Repositories successfully pointed to vault."
-        yum clean all && yum makecache
-        log "YUM cache cleaned and rebuilt."
-    else
-        log "Repositories appear to be already fixed or are non-standard. Skipping fix."
-    fi
+    log "Checking and fixing CentOS 7 repositories..."
+    # Check if the domain needs to be changed to the vault archive.
+    if grep -q "mirror.centos.org" /etc/yum.repos.d/CentOS-*.repo; then
+        log "Standard mirrors found. Switching to vault.centos.org."
+        
+        # Comment out the mirrorlist line to enable the baseurl.
+        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*.repo
+        
+        # Uncomment the baseurl line. This is more robust than matching the full URL.
+        sed -i 's/^#baseurl/baseurl/' /etc/yum.repos.d/CentOS-*.repo
+        
+        # Replace the domain with the vault server. This handles all repo files.
+        sed -i 's/mirror.centos.org/vault.centos.org/g' /etc/yum.repos.d/CentOS-*.repo
+        
+        log "Repositories successfully pointed to vault."
+        yum clean all && yum makecache
+        log "YUM cache cleaned and rebuilt."
+    else
+        log "Repositories appear to be already fixed or are non-standard. Skipping fix."
+    fi
 }
-
 # Function to install required packages
 install_dependencies() {
     log "Installing prerequisite packages and third-party repositories..."
