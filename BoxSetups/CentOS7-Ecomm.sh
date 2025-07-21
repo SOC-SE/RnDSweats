@@ -54,7 +54,7 @@ LOG_FILE="/var/log/prestashop_install.log"
 
 # --- Global Variable ---
 # Declared globally to be accessible after being set in a function.
-ADMIN_DIR=""
+#ADMIN_DIR=""
 
 
 # --- Function Definitions ---
