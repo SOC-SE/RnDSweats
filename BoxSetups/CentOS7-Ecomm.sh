@@ -1,5 +1,4 @@
 #!/bin/bash
-set -x
 
 # ==============================================================================
 # CentOS-Install.sh
@@ -53,11 +52,6 @@ LOG_FILE="/var/log/prestashop_install.log"
 # --- End Configuration Block ---
 
 
-# --- Global Variable ---
-# Declared globally to be accessible after being set in a function.
-#ADMIN_DIR=""
-
-
 # --- Function Definitions ---
 
 # Function to log messages with a timestamp
@@ -67,8 +61,8 @@ log() {
 
 # Function to check for root privileges
 check_root() {
-    if [ $EUID -ne 0 ]; then
-#        log "ERROR: This script must be run as root."
+    if [ "$EUID" -ne 0 ]; then
+        log "ERROR: This script must be run as root."
         exit 1
     fi
 }
