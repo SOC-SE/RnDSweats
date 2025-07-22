@@ -238,7 +238,7 @@ log_message "Importing Roundcube SQL schema..."
 mysql -u "$RCUBE_USER" -p"$RCUBE_PASS" "$RCUBE_DB" < /usr/share/roundcubemail/SQL/mysql.initial.sql
 
 # Create the config file from the default template
-cp /etc/roundcubemail/defaults.inc.php /etc/roundcubemail/config.inc.php
+cp -p /etc/roundcubemail/defaults.inc.php /etc/roundcubemail/config.inc.php
 
 # Configure the database connection and mail server settings
 log_message "Configuring /etc/roundcubemail/config.inc.php..."
@@ -259,7 +259,7 @@ sed -i "/^\$config\['default_host'\].*/a \$config['imap_auth_type'] = 'LOGIN';\n
 # Configure Apache for Roundcube
 log_message "Configuring Apache for Roundcube access..."
 # The default roundcubemail.conf may restrict access. We will make it open.
-sed -i "s/Require ip 127.0.0.1/Require all granted/" /etc/httpd/conf.d/roundcubemail.conf
+sed -i "s/Require local/Require all granted/" /etc/httpd/conf.d/roundcubemail.conf
 sed -i "s/Require ip ::1/ /" /etc/httpd/conf.d/roundcubemail.conf
 
 # Set ownership and permissions for apache user
