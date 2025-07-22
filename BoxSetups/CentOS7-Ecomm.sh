@@ -104,11 +104,11 @@ install_dependencies() {
                    php71w-mysqlnd php71w-pdo php71w-xml php71w-mbstring \
                    php71w-curl php71w-zip php71w-intl php71w-soap \
                    php71w-bcmath php71w-json php71w-opcache
-    
-    if [ $? -ne 0 ]; then
+
+    if [ $? -ne 0 ]; then
         log "ERROR: Failed to install one or more required packages."
-        exit 1
-    fi
+       exit 1
+    fi
     log "All dependencies installed successfully."
 }
 
