@@ -61,7 +61,7 @@ log() {
 
 # Function to check for root privileges
 check_root() {
-    if [ "$(id -u)" != "0" ]; then
+    if [ "$(id -u)" != "0" ] ; then
        echo "This script must be run as root" 1>&2
        exit 1
     fi
@@ -127,7 +127,7 @@ DROP DATABASE IF EXISTS test;
 DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
 FLUSH PRIVILEGES;
 EOF
-    if [ $? -ne 0 ]; then
+    if [ $? -ne 0 ] ; then
         log "ERROR: Failed to secure MariaDB."
         exit 1
     fi
@@ -140,7 +140,7 @@ CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
-    if [ $? -ne 0 ]; then
+    if [ $? -ne 0 ] ; then
         log "ERROR: Failed to create PrestaShop database or user."
         exit 1
     fi
@@ -176,7 +176,7 @@ EOF
 install_prestashop() {
     log "Downloading PrestaShop version ${PS_VERSION}..."
     wget -q -O /tmp/prestashop.zip "${PS_DOWNLOAD_URL}"
-    if [ $? -ne 0 ]; then
+    if [ $? -ne 0 ] ; then
         log "ERROR: Failed to download PrestaShop."
         exit 1
     fi
@@ -184,7 +184,7 @@ install_prestashop() {
     log "Extracting PrestaShop to ${WEB_ROOT}..."
     unzip -q /tmp/prestashop.zip -d "${WEB_ROOT}"
     
-    if [ ! -d "${PS_INSTALL_DIR}" ]; then
+    if [ ! -d "${PS_INSTALL_DIR}" ] ; then
         log "ERROR: PrestaShop installation directory not found at ${PS_INSTALL_DIR} after extraction."
         exit 1
     fi
@@ -205,7 +205,7 @@ install_prestashop() {
                       --newsletter=0 \
                       --send_email=0
 
-    if [ $? -ne 0 ]; then
+    if [ $? -ne 0 ] ; then
         log "ERROR: PrestaShop CLI installation failed."
         exit 1
     fi
@@ -221,14 +221,14 @@ finalize_installation() {
     log "Permissions set."
 
     log "Performing post-installation cleanup..."
-    if [ -d "${PS_INSTALL_DIR}/install" ]; then
+    if [ -d "${PS_INSTALL_DIR}/install" ] ; then
         rm -rf "${PS_INSTALL_DIR}/install"
         log "Installation directory removed."
     fi
 
     ADMIN_DIR=$(find "${PS_INSTALL_DIR}" -maxdepth 1 -type d -name "admin*" | xargs basename)
     
-    if [ -n "${ADMIN_DIR}" ]; then
+    if [ -n "${ADMIN_DIR}" ] ; then
         log "IMPORTANT: Your admin directory has been renamed to: /${ADMIN_DIR}"
         echo "Admin URL: http://${PS_DOMAIN}/${ADMIN_DIR}" >> "${LOG_FILE}"
         echo "Admin User: ${PS_ADMIN_EMAIL}" >> "${LOG_FILE}"
