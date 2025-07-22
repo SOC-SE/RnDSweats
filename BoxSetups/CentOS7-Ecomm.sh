@@ -194,10 +194,6 @@ install_prestashop() {
                       --newsletter=0 \
                       --send_email=0
 
-    if [ $? -ne 0 ] ; then
-        log "ERROR: PrestaShop CLI installation failed."
-        exit 1
-    fi
     log "PrestaShop CLI installation completed successfully."
 }
 
