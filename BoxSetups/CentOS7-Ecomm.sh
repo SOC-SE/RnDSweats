@@ -313,5 +313,8 @@ log "Database User:  ${DB_USER}"
 log "Database Pass:  ${DB_PASS}"
 log "Full installation log is available at: ${LOG_FILE}"
 log "--- SCRIPT FINISHED ---"
+log "==============================="
+log "====== Cleaning Log File ======"
+rm -f /var/log/prestashop_install.log
 
 exit 0
