@@ -285,6 +285,27 @@ systemctl enable dovecot
 systemctl start dovecot
 log_message "dovecot service started and enabled."
 
+# Flush all rules and set the default policies to ACCEPT for the current session.
+# This ensures immediate open access.
+log_message "Flushing all current iptables rules and setting policies to ACCEPT..."
+iptables -F
+iptables -X
+iptables -Z
+iptables -t nat -F
+iptables -t nat -X
+iptables -t nat -Z
+iptables -t mangle -F
+iptables -t mangle -X
+iptables -t mangle -Z
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+# CRITICAL: Save the now empty, "accept all" ruleset to the configuration file.
+# This overwrites the ruleset that gets loaded on reboot.
+log_message "Saving empty 'allow all' ruleset to /etc/sysconfig/iptables..."
+iptables-save > /etc/sysconfig/iptables
+
 log_message "All services have been configured, started, and enabled."
 log_message "Deployment script finished successfully."
 echo ""
