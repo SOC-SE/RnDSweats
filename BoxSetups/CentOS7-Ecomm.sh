@@ -105,7 +105,7 @@ install_dependencies() {
                    php71w-curl php71w-zip php71w-intl php71w-soap \
                    php71w-bcmath php71w-json php71w-opcache
 
-    if [ $? -ne 0 ]; then
+    if [ $? -ne 0 ] ; then
         log "ERROR: Failed to install one or more required packages."
        exit 1
     fi
