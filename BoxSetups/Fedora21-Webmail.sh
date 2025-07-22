@@ -4,7 +4,7 @@
 # Fedora-Install.sh
 #
 # Author: Linux System Administration Expert
-# Date:   July 21, 2025
+# Date:   July 21, 2025
 #
 # Description:
 # This script automates the installation and basic configuration of a
@@ -136,14 +136,14 @@ if [ $? -ne 0 ]; then
 fi
 log_message "Package installation complete."
 
-# --- Stage 3: MariaDB Configuration (Corrected) ---
+# --- Stage 3: MariaDB Configuration ---
 log_message "Stage 3: Configuring MariaDB..."
 
 # Start MariaDB to perform initial configuration
 systemctl start mariadb
 systemctl enable mariadb
 
-# CORRECTED: Set the root password using mysqladmin first for reliability
+# Set the root password using mysqladmin first for reliability
 log_message "Setting MariaDB root password..."
 mysqladmin -u root password "$DB_ROOT_PASS"
 
@@ -219,8 +219,7 @@ sed -i 's/^ssl = .*/ssl = no/' /etc/dovecot/conf.d/10-ssl.conf
 
 # Configure /etc/dovecot/conf.d/10-master.conf for Postfix authentication socket
 log_message "Configuring 10-master.conf for Postfix auth socket..."
-# IMPROVED: This sed command is more robust than the original awk script.
-# It finds the 'service auth {' line and appends the unix_listener block.
+# This sed command is more robust. It finds the 'service auth {' line and appends the unix_listener block.
 sed -i '/service auth {/a \
   # Postfix smtp-auth\
   unix_listener /var/spool/postfix/private/auth {\
@@ -245,7 +244,7 @@ cp /etc/roundcubemail/defaults.inc.php /etc/roundcubemail/config.inc.php
 log_message "Configuring /etc/roundcubemail/config.inc.php..."
 CONFIG_FILE="/etc/roundcubemail/config.inc.php"
 
-# IMPROVED: Consolidated and anchored sed commands for clarity and reliability.
+# Consolidated and anchored sed commands for clarity and reliability.
 sed -i "s|^\$config\['db_dsnw'\].*|\$config\['db_dsnw'\] = 'mysql://$RCUBE_USER:$RCUBE_PASS@localhost/$RCUBE_DB';|" "$CONFIG_FILE"
 sed -i "s|^\$config\['default_host'\].*|\$config\['default_host'\] = 'localhost';|" "$CONFIG_FILE"
 sed -i "s|^\$config\['smtp_server'\].*|\$config\['smtp_server'\] = 'localhost';|" "$CONFIG_FILE"
@@ -263,14 +262,24 @@ log_message "Configuring Apache for Roundcube access..."
 sed -i "s/Require ip 127.0.0.1/Require all granted/" /etc/httpd/conf.d/roundcubemail.conf
 sed -i "s/Require ip ::1/ /" /etc/httpd/conf.d/roundcubemail.conf
 
+# Set ownership and permissions for apache user
+log_message "Setting ownership and permissions for Roundcube files..."
+chown -R apache:apache /usr/share/roundcubemail/
+chown -R apache:apache /etc/roundcubemail/
+
+# **FIX:** Ensure correct file and directory permissions
+find /usr/share/roundcubemail/ -type d -exec chmod 755 {} \;
+find /usr/share/roundcubemail/ -type f -exec chmod 644 {} \;
+chmod 644 /etc/roundcubemail/config.inc.php
+
 # Set SELinux boolean to allow HTTPD to make network connections (for SMTP/IMAP)
 log_message "Setting SELinux policy for HTTPD network connections..."
 setsebool -P httpd_can_network_connect on
 
-#Set apache user permissions
-chown -R apache:apache /usr/share/roundcubemail/
-chown apache:apache /etc/roundcubemail/config.inc.php
+# **FIX:** Set correct SELinux context for all Roundcube files, including /etc/roundcubemail
+log_message "Setting SELinux context for Roundcube directories..."
 chcon -R -t httpd_sys_content_t /usr/share/roundcubemail/
+chcon -R -t httpd_sys_content_t /etc/roundcubemail/
 
 log_message "Roundcube configuration complete."
 
