@@ -267,6 +267,11 @@ sed -i "s/Require ip ::1/ /" /etc/httpd/conf.d/roundcubemail.conf
 log_message "Setting SELinux policy for HTTPD network connections..."
 setsebool -P httpd_can_network_connect on
 
+#Set apache user permissions
+chown -R apache:apache /usr/share/roundcubemail/
+chown apache:apache /etc/roundcubemail/config.inc.php
+chcon -R -t httpd_sys_content_t /usr/share/roundcubemail/
+
 log_message "Roundcube configuration complete."
 
 # --- Stage 7: Service Finalization ---
