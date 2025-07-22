@@ -61,10 +61,10 @@ log() {
 
 # Function to check for root privileges
 check_root() {
-    if [ $EUID -ne 0 ]; then
-        log "ERROR: This script must be run as root."
-        exit 1
-    fi
+    if [ "$(id -u)" != "0" ]; then
+       echo "This script must be run as root" 1>&2
+       exit 1
+    fi
 }
 
 # Function to fix CentOS 7 EOL repositories
