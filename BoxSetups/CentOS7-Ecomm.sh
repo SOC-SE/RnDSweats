@@ -127,11 +127,6 @@ DROP DATABASE IF EXISTS test;
 DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
 FLUSH PRIVILEGES;
 EOF
-    if [ $? -ne 0 ] ; then
-        log "ERROR: Failed to secure MariaDB."
-        exit 1
-    fi
-    log "MariaDB secured."
 
     log "Creating PrestaShop database and user..."
     mysql -u root -p"${DB_ROOT_PASS}" <<-EOF
@@ -140,11 +135,7 @@ CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
-    if [ $? -ne 0 ] ; then
-        log "ERROR: Failed to create PrestaShop database or user."
-        exit 1
-    fi
-    log "PrestaShop database and user created successfully."
+
 }
 
 # Function to configure Apache
@@ -183,11 +174,6 @@ install_prestashop() {
 
     log "Extracting PrestaShop to ${WEB_ROOT}..."
     unzip -q /tmp/prestashop.zip -d "${WEB_ROOT}"
-    
-    if [ ! -d "${PS_INSTALL_DIR}" ] ; then
-        log "ERROR: PrestaShop installation directory not found at ${PS_INSTALL_DIR} after extraction."
-        exit 1
-    fi
     
     log "PrestaShop extracted. Running CLI installer..."
     cd "${PS_INSTALL_DIR}/install"
@@ -228,7 +214,7 @@ finalize_installation() {
 
     ADMIN_DIR=$(find "${PS_INSTALL_DIR}" -maxdepth 1 -type d -name "admin*" | xargs basename)
     
-    if [ -n "${ADMIN_DIR}" ] ; then
+    if [ -n "${ADMIN_DIR}" ] ; then 
         log "IMPORTANT: Your admin directory has been renamed to: /${ADMIN_DIR}"
         echo "Admin URL: http://${PS_DOMAIN}/${ADMIN_DIR}" >> "${LOG_FILE}"
         echo "Admin User: ${PS_ADMIN_EMAIL}" >> "${LOG_FILE}"
