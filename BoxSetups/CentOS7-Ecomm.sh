@@ -281,12 +281,6 @@ create_insecure_baseline() {
     # This overwrites the ruleset that gets loaded on reboot.
     log "Saving empty 'allow all' ruleset to /etc/sysconfig/iptables..."
     iptables-save > /etc/sysconfig/iptables
-
-    # Stop and disable the iptables service. This is a final measure to prevent
-    # it from starting at boot, even if another process were to enable it.
-    log "Stopping and disabling the iptables service..."
-    systemctl stop iptables
-    systemctl disable iptables
     
     log "The firewall persistent rules have been flushed and deleted. All ports will remain open after reboot."
     log "Insecure baseline established."
