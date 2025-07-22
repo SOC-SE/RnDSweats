@@ -167,10 +167,13 @@ EOF
 install_prestashop() {
     log "Downloading PrestaShop version ${PS_VERSION}..."
     wget -q -O /tmp/prestashop.zip "${PS_DOWNLOAD_URL}"
-    if [ $? -ne 0 ] ; then
-        log "ERROR: Failed to download PrestaShop."
-        exit 1
-    fi
+
+    #Don't ask me why I had to do it this way. CentOS was being weird and hated my if statements.
+    #FML writing a simple check this way makes me want turn my head into a redhat all over my walls and ceiling.
+    if ! wget -q -O /tmp/prestashop.zip "${PS_DOWNLOAD_URL}"; then
+        log "ERROR: Failed to download PrestaShop."
+        exit 1
+    fi
 
     log "Extracting PrestaShop to ${WEB_ROOT}..."
     unzip -q /tmp/prestashop.zip -d "${WEB_ROOT}"
