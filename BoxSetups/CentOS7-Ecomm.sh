@@ -205,12 +205,6 @@ finalize_installation() {
     find "${PS_INSTALL_DIR}" -type f -exec chmod 644 {} \;
     log "Permissions set."
 
-    log "Performing post-installation cleanup..."
-    if [ -d "${PS_INSTALL_DIR}/install" ] ; then
-        rm -rf "${PS_INSTALL_DIR}/install"
-        log "Installation directory removed."
-    fi
-
     ADMIN_DIR=$(find "${PS_INSTALL_DIR}" -maxdepth 1 -type d -name "admin*" | xargs basename)
     
     if [ -n "${ADMIN_DIR}" ] ; then 
