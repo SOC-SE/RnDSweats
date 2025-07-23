@@ -1,47 +1,18 @@
 #!/bin/bash
 
-# ==============================================================================
-# CentOS-Install.sh
-#
-# Author: Linux System Administration Expert
-# Date:   07/20/2025
-#
-# Description:
-# This script automates the installation of PrestaShop 1.6.1.20 on a clean
-# CentOS 7 system. It is designed for non-interactive execution.
-#
-# Key Operations:
-# 1.  Validates root execution and sets up logging.
-# 2.  Fixes CentOS 7 YUM repositories to point to the vault archives.
-# 3.  Installs Apache (httpd), MariaDB, and PHP 7.1 with required extensions.
-# 4.  Performs a non-interactive, secure installation of MariaDB.
-# 5.  Downloads and installs PrestaShop 1.6.1.20 using the CLI installer.
-# 6.  Sets appropriate file and directory permissions.
-# 7.  Configures the system to an insecure baseline for cybersecurity exercises
-#     by permanently disabling the firewall and setting SELinux to Permissive.
-#
-# Usage:
-#     chmod +x CentOS-Install.sh
-#     sudo ./CentOS-Install.sh
-#
-# ==============================================================================
-
-# --- Script Configuration Block ---
-# All user-configurable variables are defined here for easy modification.
-
 # MariaDB/MySQL Credentials
 DB_ROOT_PASS="Changeme1!"
 DB_NAME="prestashop"
 DB_USER="prestashop_user"
-DB_PASS="Changeme1!" # As per user request, can be changed.
+DB_PASS="Changeme1!" 
 
 # PrestaShop Configuration
 PS_VERSION="1.6.1.20"
-PS_DOMAIN="ecomm.comp.local" # Use a valid FQDN or IP address
+PS_DOMAIN="ecomm.comp.local" 
 PS_STORE_NAME="Greg's Store"
 PS_ADMIN_EMAIL="admin@comp.local"
 PS_ADMIN_PASS="Changeme1!"
-PS_COUNTRY_ISO="us" # ISO 3166-1 alpha-2 code for the store's country
+PS_COUNTRY_ISO="us" 
 
 # System Paths and URLs
 WEB_ROOT="/var/www/html"
@@ -49,10 +20,7 @@ PS_INSTALL_DIR="${WEB_ROOT}/prestashop"
 PS_DOWNLOAD_URL="https://download.prestashop.com/download/releases/prestashop_${PS_VERSION}.zip"
 LOG_FILE="/var/log/prestashop_install.log"
 
-# --- End Configuration Block ---
 
-
-# --- Function Definitions ---
 
 # Function to log messages with a timestamp
 log() {
