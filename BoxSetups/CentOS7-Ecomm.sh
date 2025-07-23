@@ -199,25 +199,27 @@ install_prestashop() {
 
 # Function to set permissions and perform cleanup
 finalize_installation() {
-    log "Setting file and directory permissions..."
-    chown -R apache:apache "${PS_INSTALL_DIR}"
-    find "${PS_INSTALL_DIR}" -type d -exec chmod 755 {} \;
-    find "${PS_INSTALL_DIR}" -type f -exec chmod 644 {} \;
-    log "Permissions set."
+    log "Setting file and directory permissions..."
+    chown -R apache:apache "${PS_INSTALL_DIR}"
+    find "${PS_INSTALL_DIR}" -type d -exec chmod 755 {} \;
+    find "${PS_INSTALL_DIR}" -type f -exec chmod 644 {} \;
+    log "Permissions set."
 
-    ADMIN_DIR=$(find "${PS_INSTALL_DIR}" -maxdepth 1 -type d -name "admin*" | xargs basename)
-    
-    if [ -n "${ADMIN_DIR}" ] ; then 
-        log "IMPORTANT: Your admin directory has been renamed to: /${ADMIN_DIR}"
-        echo "Admin URL: http://${PS_DOMAIN}/${ADMIN_DIR}" >> "${LOG_FILE}"
-        echo "Admin User: ${PS_ADMIN_EMAIL}" >> "${LOG_FILE}"
-        echo "Admin Pass: ${PS_ADMIN_PASS}" >> "${LOG_FILE}"
-    else
-        log "WARNING: Could not determine the new admin directory name."
-    fi
+    # Find the admin directory
+    ADMIN_DIR=$(find "${PS_INSTALL_DIR}" -maxdepth 1 -type d -name "admin*" | xargs basename)
 
-    rm -f /tmp/prestashop.zip
-    log "Cleanup complete."
+    if [ -n "${ADMIN_DIR}" ]
+    then
+        log "IMPORTANT: Your admin directory has been renamed to: /${ADMIN_DIR}"
+        echo "Admin URL: http://${PS_DOMAIN}/${ADMIN_DIR}" >> "${LOG_FILE}"
+        echo "Admin User: ${PS_ADMIN_EMAIL}" >> "${LOG_FILE}"
+        echo "Admin Pass: ${PS_ADMIN_PASS}" >> "${LOG_FILE}"
+    else
+        log "WARNING: Could not determine the new admin directory name."
+    fi
+
+    rm -f /tmp/prestashop.zip
+    log "Cleanup complete."
 }
 
 # --- SCRIPT EDITED HERE ---
