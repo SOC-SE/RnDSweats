@@ -1,24 +1,48 @@
 #!/bin/bash
 
+# ==============================================================================
+# CentOS-Install.sh
+#
+# Author: Linux System Administration Expert
+# Date:   07/20/2025
+#
+# Description:
+# This script automates the installation of PrestaShop 1.6.1.20 on a clean
+# CentOS 7 system. It is designed for non-interactive execution.
+#
+# Key Operations:
+# 1.  Validates root execution and sets up logging.
+# 2.  Fixes CentOS 7 YUM repositories to point to the vault archives.
+# 3.  Installs Apache (httpd), MariaDB, and PHP 7.1 with required extensions.
+# 4.  Performs a non-interactive, secure installation of MariaDB.
+# 5.  Downloads and installs PrestaShop 1.6.1.20 using the CLI installer.
+# 6.  Sets appropriate file and directory permissions.
+# 7.  Configures the system to an insecure baseline for cybersecurity exercises
+#     by disabling the default apache firewall rules and setting SELinux to Permissive.
+#
+# ==============================================================================
+
 # MariaDB/MySQL Credentials
 DB_ROOT_PASS="Changeme1!"
 DB_NAME="prestashop"
 DB_USER="prestashop_user"
-DB_PASS="Changeme1!" 
+DB_PASS="Changeme1!" # As per user request, can be changed.
 
 # PrestaShop Configuration
 PS_VERSION="1.6.1.20"
-PS_DOMAIN="ecomm.comp.local" 
+PS_DOMAIN="ecomm.comp.local" # Use a valid FQDN or IP address
 PS_STORE_NAME="Greg's Store"
 PS_ADMIN_EMAIL="admin@comp.local"
 PS_ADMIN_PASS="Changeme1!"
-PS_COUNTRY_ISO="us" 
+PS_COUNTRY_ISO="us" # ISO 3166-1 alpha-2 code for the store's country
 
 # System Paths and URLs
 WEB_ROOT="/var/www/html"
 PS_INSTALL_DIR="${WEB_ROOT}/prestashop"
 PS_DOWNLOAD_URL="https://download.prestashop.com/download/releases/prestashop_${PS_VERSION}.zip"
 LOG_FILE="/var/log/prestashop_install.log"
+
+# --- End Configuration Block ---
 
 
 
@@ -29,7 +53,7 @@ log() {
 
 # Function to check for root privileges
 check_root() {
-    if [ "$(id -u)" != "0" ] ; then
+    if [ "$(id -u)" != "0" ]; then
        echo "This script must be run as root" 1>&2
        exit 1
     fi
@@ -73,7 +97,7 @@ install_dependencies() {
                    php71w-curl php71w-zip php71w-intl php71w-soap \
                    php71w-bcmath php71w-json php71w-opcache
 
-    if [ $? -ne 0 ] ; then
+    if [ $? -ne 0 ]; then
         log "ERROR: Failed to install one or more required packages."
        exit 1
     fi
@@ -95,6 +119,11 @@ DROP DATABASE IF EXISTS test;
 DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
 FLUSH PRIVILEGES;
 EOF
+    if [ $? -ne 0 ]; then
+        log "ERROR: Failed to secure MariaDB."
+        exit 1
+    fi
+    log "MariaDB secured."
 
     log "Creating PrestaShop database and user..."
     mysql -u root -p"${DB_ROOT_PASS}" <<-EOF
@@ -103,7 +132,11 @@ CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 EOF
-
+    if [ $? -ne 0 ]; then
+        log "ERROR: Failed to create PrestaShop database or user."
+        exit 1
+    fi
+    log "PrestaShop database and user created successfully."
 }
 
 # Function to configure Apache
@@ -135,16 +168,18 @@ EOF
 install_prestashop() {
     log "Downloading PrestaShop version ${PS_VERSION}..."
     wget -q -O /tmp/prestashop.zip "${PS_DOWNLOAD_URL}"
-
-    #Don't ask me why I had to do it this way. CentOS was being weird and hated my if statements.
-    #FML writing a simple check this way makes me want turn my head into a redhat all over my walls and ceiling.
-    if ! wget -q -O /tmp/prestashop.zip "${PS_DOWNLOAD_URL}"; then
-        log "ERROR: Failed to download PrestaShop."
-        exit 1
-    fi
+    if [ $? -ne 0 ]; then
+        log "ERROR: Failed to download PrestaShop."
+        exit 1
+    fi
 
     log "Extracting PrestaShop to ${WEB_ROOT}..."
     unzip -q /tmp/prestashop.zip -d "${WEB_ROOT}"
+    
+    if [ ! -d "${PS_INSTALL_DIR}" ]; then
+        log "ERROR: PrestaShop installation directory not found at ${PS_INSTALL_DIR} after extraction."
+        exit 1
+    fi
     
     log "PrestaShop extracted. Running CLI installer..."
     cd "${PS_INSTALL_DIR}/install"
@@ -162,32 +197,40 @@ install_prestashop() {
                       --newsletter=0 \
                       --send_email=0
 
+    if [ $? -ne 0 ]; then
+        log "ERROR: PrestaShop CLI installation failed."
+        exit 1
+    fi
     log "PrestaShop CLI installation completed successfully."
 }
 
 # Function to set permissions and perform cleanup
 finalize_installation() {
-    log "Setting file and directory permissions..."
-    chown -R apache:apache "${PS_INSTALL_DIR}"
-    find "${PS_INSTALL_DIR}" -type d -exec chmod 755 {} \;
-    find "${PS_INSTALL_DIR}" -type f -exec chmod 644 {} \;
-    log "Permissions set."
+    log "Setting file and directory permissions..."
+    chown -R apache:apache "${PS_INSTALL_DIR}"
+    find "${PS_INSTALL_DIR}" -type d -exec chmod 755 {} \;
+    find "${PS_INSTALL_DIR}" -type f -exec chmod 644 {} \;
+    log "Permissions set."
 
-    # Find the admin directory
-    ADMIN_DIR=$(find "${PS_INSTALL_DIR}" -maxdepth 1 -type d -name "admin*" | xargs basename)
+    log "Performing post-installation cleanup..."
+    if [ -d "${PS_INSTALL_DIR}/install" ]; then
+        rm -rf "${PS_INSTALL_DIR}/install"
+        log "Installation directory removed."
+    fi
 
-    if [ -n "${ADMIN_DIR}" ]
-    then
-        log "IMPORTANT: Your admin directory has been renamed to: /${ADMIN_DIR}"
-        echo "Admin URL: http://${PS_DOMAIN}/${ADMIN_DIR}" >> "${LOG_FILE}"
-        echo "Admin User: ${PS_ADMIN_EMAIL}" >> "${LOG_FILE}"
-        echo "Admin Pass: ${PS_ADMIN_PASS}" >> "${LOG_FILE}"
-    else
-        log "WARNING: Could not determine the new admin directory name."
-    fi
+    ADMIN_DIR=$(find "${PS_INSTALL_DIR}" -maxdepth 1 -type d -name "admin*" | xargs basename)
+    
+    if [ -n "${ADMIN_DIR}" ]; then
+        log "IMPORTANT: Your admin directory has been renamed to: /${ADMIN_DIR}"
+        echo "Admin URL: http://${PS_DOMAIN}/${ADMIN_DIR}" >> "${LOG_FILE}"
+        echo "Admin User: ${PS_ADMIN_EMAIL}" >> "${LOG_FILE}"
+        echo "Admin Pass: ${PS_ADMIN_PASS}" >> "${LOG_FILE}"
+    else
+        log "WARNING: Could not determine the new admin directory name."
+    fi
 
-    rm -f /tmp/prestashop.zip
-    log "Cleanup complete."
+    rm -f /tmp/prestashop.zip
+    log "Cleanup complete."
 }
 
 # --- SCRIPT EDITED HERE ---
@@ -234,9 +277,6 @@ create_insecure_baseline() {
     log "The firewall persistent rules have been flushed and deleted. All ports will remain open after reboot."
     log "Insecure baseline established."
 }
-# --- END EDIT ---
-
-# --- Main Execution Logic ---
 
 # Redirect all output to log file and console
 exec > >(tee -a "$LOG_FILE") 2>&1
