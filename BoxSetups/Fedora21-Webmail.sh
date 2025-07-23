@@ -320,6 +320,9 @@ iptables -P OUTPUT ACCEPT
 log_message "Saving empty 'allow all' ruleset to /etc/sysconfig/iptables..."
 iptables-save > /etc/sysconfig/iptables
 
+log_message "Removing the installation logs."
+rm -f var/log/Fedora-Install.log
+
 log_message "All services have been configured, started, and enabled."
 log_message "Deployment script finished successfully."
 echo ""
