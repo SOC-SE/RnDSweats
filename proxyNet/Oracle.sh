@@ -10,7 +10,7 @@ set -u  # Treat unset variables as error
 # --- Variables ---
 # Generate a secure, random password for agent registration.
 # This password will be used by the 'agent-auth' utility on the agent side.
-WAZUH_REGISTRATION_PASSWORD="Dkhfdas8210L:KJDf=0942q_*k13j*D*879414"
+#WAZUH_REGISTRATION_PASSWORD="Dkhfdas8210L:KJDf=0942q_*k13j*D*879414"
 
 # --- Step 1: Update system and install dependencies ---
 echo "INFO: Updating system and installing dependencies..."
