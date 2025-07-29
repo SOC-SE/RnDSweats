@@ -1,6 +1,7 @@
 #!/bin/bash
 # setup_security_appliance.sh
 # EDITED: Now stops and disables apache2 if it is running.
+# EDITED: Implemented JA4+ fingerprinting in Suricata configuration and rules.
 # Configures Ubuntu 18.04 server as a security appliance with IP forwarding, NGINX WAF reverse proxy, and Suricata IPS.
 # Assumes running as root. Prioritizes speed and uptime; changes are reversible.
 
@@ -21,7 +22,7 @@ apt-get update -y
 # Install software-properties-common to manage repositories
 apt-get install -y software-properties-common
 
-# Add the official Suricata PPA to get version 7.x
+# Add the official Suricata PPA to get version 7.x or newer
 add-apt-repository ppa:oisf/suricata-stable -y
 apt-get update -y
 
@@ -80,13 +81,28 @@ sed -i '/# - nfq/a \
 # Disable af-packet to prevent conflicts with NFQUEUE
 sed -i '/- interface: eth0/,$ s/^/#/' /etc/suricata/suricata.yaml
 
+# --- Step 4.5: Enable JA4+ Fingerprinting ---
+echo "INFO: Enabling JA4+ fingerprinting in Suricata..."
+
+# Enable JA4/S (TLS) and JA4H (HTTP) in the Suricata config by changing 'no' to 'yes'
+sed -i 's/ja4-fingerprints: no/ja4-fingerprints: yes/' /etc/suricata/suricata.yaml
+sed -i 's/ja4h-fingerprint: no/ja4h-fingerprint: yes/' /etc/suricata/suricata.yaml
+
+# Ensure local.rules is loaded by Suricata by uncommenting it
+sed -i 's/#- local.rules/- local.rules/' /etc/suricata/suricata.yaml
+
+# Add a sample JA4 rule to local.rules to detect a known Cobalt Strike fingerprint
+echo 'alert tls any any -> any any (msg:"ET POLICY Cobalt Strike JA4 Hash Observed (e145c3b5a7a401c680f433989f55e5c6)"; tls.ja4.hash; content:"e145c3b5a7a401c680f433989f55e5c6"; classtype:trojan-activity; sid:9000002; rev:1;)' >> /etc/suricata/rules/local.rules
+
+# --- Step 5: Update Rules and Restart Suricata ---
+echo "INFO: Updating rule sets and restarting Suricata..."
 # Update rules
 suricata-update
 
-# Restart Suricata and check status
+# Restart Suricata to apply all configuration changes and check status
 systemctl restart suricata && systemctl status suricata --no-pager
 
-# --- Step 5: Set up reliable iptables rules ---
+# --- Step 6: Set up reliable iptables rules ---
 echo "INFO: Configuring iptables rules..."
 # Flush existing rules for a clean setup
 iptables -F
