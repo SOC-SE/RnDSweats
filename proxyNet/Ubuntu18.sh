@@ -1,36 +1,52 @@
 #!/bin/bash
 # setup_security_appliance.sh
-# Configures Ubuntu 18.04 server as security appliance with IP forwarding, NGINX WAF reverse proxy, Suricata IPS, and iptables rules.
+# EDITED: Now stops and disables apache2 if it is running.
+# Configures Ubuntu 18.04 server as a security appliance with IP forwarding, NGINX WAF reverse proxy, and Suricata IPS.
 # Assumes running as root. Prioritizes speed and uptime; changes are reversible.
 
 set -e  # Exit on error
 set -u  # Treat unset variables as error
 
-# Variables
-WEB_SERVER_IP="172.20.241.30"  # CentOS Web Server
-MAIL_SERVER_IP="172.20.241.40" # Fedora Mail Server
-DNS_DEBIAN_IP="172.20.240.20"  # Debian DNS
-DNS_WINDOWS_IP="172.20.242.200" # Windows DNS
+# --- Variables ---
+WEB_SERVER_IP="172.20.241.30"    # CentOS Web Server
+MAIL_SERVER_IP="172.20.241.40"   # Fedora Mail Server
+DNS_DEBIAN_IP="172.20.240.20"    # Debian DNS
+DNS_WINDOWS_IP="172.20.242.200"  # Windows DNS
 SPLUNK_SERVER_IP="172.20.241.20" # Splunk Server
-APPLIANCE_IP="172.20.242.10"   # This machine's IP
-
-# Dynamically detect outbound interface
 OUT_IFACE=$(ip route | grep default | awk '{print $5}' || echo "eth0")
 
-# Step 1: Update system and install dependencies
-apt update -y
-apt install -y nginx suricata libnetfilter-queue-dev iptables-persistent
+# --- Step 1: Update system and install LATEST Suricata ---
+echo "INFO: Installing dependencies and latest Suricata from PPA..."
+apt-get update -y
+# Install software-properties-common to manage repositories
+apt-get install -y software-properties-common
 
-# Step 2: Enable IP forwarding persistently
+# Add the official Suricata PPA to get version 7.x
+add-apt-repository ppa:oisf/suricata-stable -y
+apt-get update -y
+
+# Install NGINX, Suricata, and other tools
+apt-get install -y nginx suricata libnetfilter-queue-dev iptables-persistent
+
+# --- Step 2: Enable IP forwarding persistently ---
+echo "INFO: Enabling IP Forwarding..."
 if ! grep -q "^net.ipv4.ip_forward=1" /etc/sysctl.conf; then
     echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
 fi
 sysctl -p
 
-# Step 3: Configure NGINX as WAF/Reverse Proxy for HTTP
-# Backup original config
-cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.bak
+# --- Step 2.5: Ensure Port 80 is Free ---
+echo "INFO: Checking for and stopping apache2 service..."
+if systemctl is-active --quiet apache2; then
+    echo "INFO: Apache2 is active. Stopping and disabling it now."
+    systemctl stop apache2
+    systemctl disable apache2
+else
+    echo "INFO: Apache2 service not found or is inactive. No action needed."
+fi
 
+# --- Step 3: Configure NGINX as WAF/Reverse Proxy for HTTP ---
+echo "INFO: Configuring NGINX as reverse proxy..."
 # Create reverse proxy config for HTTP to Web Server
 cat > /etc/nginx/sites-available/default << EOF
 server {
@@ -43,11 +59,6 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-
-        # Basic WAF rules (expand as needed)
-        if (\$request_method !~ ^(GET|HEAD|POST)$) {
-            return 444;
-        }
     }
 }
 EOF
@@ -55,65 +66,59 @@ EOF
 # Test and reload NGINX
 nginx -t && systemctl reload nginx
 
-# Step 4: Configure Suricata for IPS mode with NFQUEUE
-# Backup Suricata config
-cp /etc/suricata/suricata.yaml /etc/suricata/suricata.yaml.bak
+# --- Step 4: Configure Suricata for IPS mode with NFQUEUE ---
+echo "INFO: Configuring Suricata for IPS mode..."
+# Configure Suricata to listen on NFQUEUE 0 in IPS mode
+# This uses fail-open to prioritize uptime, as required.
+sed -i 's/- nfq/#- nfq/g' /etc/suricata/suricata.yaml # Comment out any existing nfq
+sed -i '/# - nfq/a \
+- nfq:\n\
+    mode: ips\n\
+    queue: 0\n\
+    fail-open: yes' /etc/suricata/suricata.yaml
 
-# Enable NFQ in suricata.yaml (assuming queue 0 for IPS)
-sed -i 's/# - nfq/- nfq/' /etc/suricata/suricata.yaml
-sed -i '/- nfq:/a \  mode: ips\n  fail-open: yes' /etc/suricata/suricata.yaml  # fail-open to maintain uptime
-sed -i 's/af-packet:/#af-packet:/' /etc/suricata/suricata.yaml  # Disable af-packet if conflicting
+# Disable af-packet to prevent conflicts with NFQUEUE
+sed -i '/- interface: eth0/,$ s/^/#/' /etc/suricata/suricata.yaml
 
-# Update rules (assuming emerging threats or similar; adjust if needed)
+# Update rules
 suricata-update
 
-# Restart Suricata
-systemctl restart suricata
+# Restart Suricata and check status
+systemctl restart suricata && systemctl status suricata --no-pager
 
-# Step 5: Set up iptables rules
-# Flush existing rules for clean setup (be cautious in production)
+# --- Step 5: Set up reliable iptables rules ---
+echo "INFO: Configuring iptables rules..."
+# Flush existing rules for a clean setup
 iptables -F
 iptables -t nat -F
-iptables -t mangle -F
 
-# Permit all ICMP traffic (required by competition rules)
-iptables -A INPUT -p icmp -j ACCEPT
-iptables -A OUTPUT -p icmp -j ACCEPT
+# Set default FORWARD policy to DROP for security
+iptables -P FORWARD DROP
+
+# --- FORWARD Chain Rules (processed in order) ---
+# 1. Allow return traffic for established connections (CRITICAL for two-way communication)
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 2. Allow all ICMP traffic (required by competition rules)
 iptables -A FORWARD -p icmp -j ACCEPT
 
-# Redirect HTTP (80) to local NGINX (already listening on 80, but ensure forwarding if needed)
-# Since NGINX is on this machine, no redirect needed; Palo Alto sends to this IP:80
+# 3. Queue specific new connections to Suricata for inspection
+# SMTP (25)
+iptables -A FORWARD -d $MAIL_SERVER_IP -p tcp --dport 25 -m conntrack --ctstate NEW -j NFQUEUE --queue-num 0
+# POP3 (110)
+iptables -A FORWARD -d $MAIL_SERVER_IP -p tcp --dport 110 -m conntrack --ctstate NEW -j NFQUEUE --queue-num 0
+# DNS (TCP/53)
+iptables -A FORWARD -d $DNS_DEBIAN_IP -p tcp --dport 53 -m conntrack --ctstate NEW -j NFQUEUE --queue-num 0
+iptables -A FORWARD -d $DNS_WINDOWS_IP -p tcp --dport 53 -m conntrack --ctstate NEW -j NFQUEUE --queue-num 0
+# DNS (UDP/53)
+iptables -A FORWARD -d $DNS_DEBIAN_IP -p udp --dport 53 -m conntrack --ctstate NEW -j NFQUEUE --queue-num 0
+iptables -A FORWARD -d $DNS_WINDOWS_IP -p udp --dport 53 -m conntrack --ctstate NEW -j NFQUEUE --queue-num 0
+# Splunk GUI (8000)
+iptables -A FORWARD -d $SPLUNK_SERVER_IP -p tcp --dport 8000 -m conntrack --ctstate NEW -j NFQUEUE --queue-num 0
 
-# For other protocols, redirect to NFQUEUE for Suricata inspection (queue 0)
-# SMTP (25) to Mail Server via NFQUEUE
-iptables -A FORWARD -d $MAIL_SERVER_IP -p tcp --dport 25 -j NFQUEUE --queue-num 0
-
-# POP3 (110) to Mail Server via NFQUEUE
-iptables -A FORWARD -d $MAIL_SERVER_IP -p tcp --dport 110 -j NFQUEUE --queue-num 0
-
-# DNS TCP/53 to DNS servers via NFQUEUE
-iptables -A FORWARD -d $DNS_DEBIAN_IP -p tcp --dport 53 -j NFQUEUE --queue-num 0
-iptables -A FORWARD -d $DNS_WINDOWS_IP -p tcp --dport 53 -j NFQUEUE --queue-num 0
-
-# DNS UDP/53 to DNS servers via NFQUEUE
-iptables -A FORWARD -d $DNS_DEBIAN_IP -p udp --dport 53 -j NFQUEUE --queue-num 0
-iptables -A FORWARD -d $DNS_WINDOWS_IP -p udp --dport 53 -j NFQUEUE --queue-num 0
-
-# Splunk GUI (8000) to Splunk Server via NFQUEUE
-iptables -A FORWARD -d $SPLUNK_SERVER_IP -p tcp --dport 8000 -j NFQUEUE --queue-num 0
-
-# Allow forwarding for egress from protected servers (assuming they use this as gateway)
-iptables -A FORWARD -s 172.20.240.0/24 -j ACCEPT  # Internal LAN
-iptables -A FORWARD -s 172.20.241.0/24 -j ACCEPT  # Public LAN
-iptables -A FORWARD -s 172.20.242.0/24 -j ACCEPT  # User LAN
-
-# NAT for outbound traffic (masquerade)
+# --- NAT Configuration ---
+# NAT for outbound traffic from your internal networks
 iptables -t nat -A POSTROUTING -o $OUT_IFACE -j MASQUERADE
-
-# Default policies
-iptables -P INPUT ACCEPT
-iptables -P OUTPUT ACCEPT
-iptables -P FORWARD DROP  # Drop by default, only allow specified
 
 # Save iptables rules persistently
 netfilter-persistent save
