@@ -1,46 +1,108 @@
 #!/bin/bash
-set -euo pipefail
+# setup_linux_client.sh
+# Configures Linux servers (CentOS 7, Fedora 21, Debian 10) to install Wazuh Agent, point to manager, and change default gateway.
+# Assumes running as root. Detects distro and handles accordingly. Prioritizes speed and uptime.
 
-# Define variables
+set -e  # Exit on error
+set -u  # Treat unset variables as error
+
+# Variables
 WAZUH_MANAGER_IP="172.20.241.20"
-GATEWAY_IP="172.20.242.10"
+NEW_GATEWAY_IP="172.20.242.10"
 
-# Detect distro for package manager
-if [ -f /etc/debian_version ]; then  # Debian 10
-    PKG_MGR="apt-get"
-    INSTALL_CMD="install -y"
-    UPDATE_CMD="update -y"
-    KEY_CMD="apt-key add -"
-    REPO_FILE="/etc/apt/sources.list.d/wazuh.list"
-    REPO_LINE="deb https://packages.wazuh.com/4.x/apt/ stable main"
-elif [ -f /etc/redhat-release ]; then  # CentOS 7 or Fedora 21
-    PKG_MGR="yum"
-    INSTALL_CMD="install -y"
-    UPDATE_CMD="update -y"
-    KEY_CMD="rpm --import -"
-    REPO_FILE="/etc/yum.repos.d/wazuh.repo"
-    REPO_LINE=$(curl -s https://packages.wazuh.com/4.x/yum/wazuh.repo)
+# Step 1: Detect distribution and version
+if [ -f /etc/redhat-release ]; then
+    DISTRO="rpm"  # CentOS or Fedora (yum-based)
+    if grep -q "Fedora" /etc/redhat-release; then
+        FEDORA_VERSION=$(awk '{print $3}' /etc/fedora-release)
+        if [ "$FEDORA_VERSION" -lt 22 ]; then
+            echo "Warning: Fedora version $FEDORA_VERSION is not supported by Wazuh (requires 22+). Skipping Wazuh installation, but proceeding with gateway change."
+            SKIP_WAZUH=true
+        else
+            SKIP_WAZUH=false
+        fi
+    else
+        SKIP_WAZUH=false
+    fi
+elif [ -f /etc/debian_version ]; then
+    DISTRO="deb"  # Debian
+    SKIP_WAZUH=false
 else
-    echo "Unsupported distro" && exit 1
+    echo "Unsupported distribution. Exiting."
+    exit 1
 fi
 
-# Install Wazuh Agent (idempotent)
-if ! command -v /var/ossec/bin/wazuh-control &> /dev/null; then
-    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | $KEY_CMD
-    echo "$REPO_LINE" | tee $REPO_FILE > /dev/null
-    $PKG_MGR $UPDATE_CMD
-    $PKG_MGR $INSTALL_CMD wazuh-agent
+# Step 2: Update system
+if [ "$DISTRO" == "rpm" ]; then
+    yum update -y
+elif [ "$DISTRO" == "deb" ]; then
+    apt update -y
 fi
-sed -i "s/<address>MANAGER_IP<\/address>/<address>${WAZUH_MANAGER_IP}<\/address>/g" /var/ossec/etc/ossec.conf
-/var/ossec/bin/wazuh-control restart || /var/ossec/bin/wazuh-control start
 
-# Change default gateway and persist (idempotent: overwrite config)
-ip route del default || true
-ip route add default via $GATEWAY_IP
-if [ -f /etc/debian_version ]; then
-    echo "up ip route add default via $GATEWAY_IP" | tee -a /etc/network/interfaces > /dev/null
-elif [ -f /etc/redhat-release ]; then
-    IFACE=$(nmcli -t -f NAME c show --active | head -1) || IFACE="eth0"
-    nmcli con mod "$IFACE" ipv4.gateway $GATEWAY_IP || sed -i "s/GATEWAY=.*/GATEWAY=$GATEWAY_IP/g" /etc/sysconfig/network
+# Step 3: Add Wazuh repository and install agent (if not skipped)
+if [ "${SKIP_WAZUH:-false}" != "true" ]; then
+    if [ "$DISTRO" == "rpm" ]; then
+        if [ ! -f /etc/yum.repos.d/wazuh.repo ]; then
+            cat > /etc/yum.repos.d/wazuh.repo << EOF
+[wazuh]
+gpgcheck=1
+gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH
+enabled=1
+name=EL-\$releasever - Wazuh
+baseurl=https://packages.wazuh.com/4.x/yum/
+protect=1
+EOF
+        fi
+        rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
+        yum install -y wazuh-agent
+    elif [ "$DISTRO" == "deb" ]; then
+        if [ ! -f /usr/share/keyrings/wazuh.gpg ]; then
+            curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
+            chmod 644 /usr/share/keyrings/wazuh.gpg
+        fi
+        echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee -a /etc/apt/sources.list.d/wazuh.list
+        apt update -y
+        apt install -y wazuh-agent
+    fi
+
+    # Step 4: Configure Wazuh agent to point to manager
+    sed -i "s/<address>.*<\/address>/<address>${WAZUH_MANAGER_IP}<\/address>/g" /var/ossec/etc/ossec.conf
+
+    # Step 5: Enable and start Wazuh agent service
+    systemctl daemon-reload
+    systemctl enable wazuh-agent
+    systemctl start wazuh-agent
 fi
-systemctl restart networking || systemctl restart NetworkManager
+
+# Step 6: Change default gateway (temporary and persistent)
+# Temporary change
+ip route del default || true  # Remove existing if any
+ip route add default via ${NEW_GATEWAY_IP}
+
+# Persistent change based on distro
+if [ "$DISTRO" == "rpm" ]; then
+    # For CentOS/Fedora: Edit /etc/sysconfig/network
+    if ! grep -q "^GATEWAY=${NEW_GATEWAY_IP}" /etc/sysconfig/network; then
+        echo "GATEWAY=${NEW_GATEWAY_IP}" >> /etc/sysconfig/network
+    fi
+    systemctl restart NetworkManager || systemctl restart network
+elif [ "$DISTRO" == "deb" ]; then
+    # For Debian: Edit /etc/network/interfaces (assume primary iface is eth0; adjust if needed)
+    IFACE=$(ip route | grep default | awk '{print $5}' || echo "eth0")
+    if ! grep -q "^gateway ${NEW_GATEWAY_IP}" /etc/network/interfaces; then
+        sed -i "/iface ${IFACE} inet static/a gateway ${NEW_GATEWAY_IP}" /etc/network/interfaces || echo "gateway ${NEW_GATEWAY_IP}" >> /etc/network/interfaces
+    fi
+    /etc/init.d/networking restart || systemctl restart networking
+fi
+
+# Step 7: Basic verification
+if [ "${SKIP_WAZUH:-false}" != "true" ] && systemctl is-active --quiet wazuh-agent; then
+    echo "Wazuh Agent installed, configured, and started successfully."
+elif [ "${SKIP_WAZUH:-false}" == "true" ]; then
+    echo "Wazuh installation skipped due to unsupported OS version."
+else
+    echo "Error: Wazuh Agent service failed to start."
+    exit 1
+fi
+
+ip route show | grep default && echo "Default gateway updated successfully."
