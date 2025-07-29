@@ -1,20 +1,48 @@
-# Define variables
-$WazuhManagerIP = "172.20.241.20"
-$GatewayIP = "172.20.242.10"
+#!/bin/bash
+# setup_wazuh_manager.sh
+# Configures Oracle Linux 9.2 server to install Wazuh Manager and enable the service.
+# Assumes running as root. Prioritizes speed and minimal changes.
 
-# Download and install Wazuh Agent MSI silently (idempotent: check if installed)
-$InstallerUrl = "https://packages.wazuh.com/4.x/windows/wazuh-agent-4.8.0-1.msi"
-$InstallerPath = "$env:TEMP\wazuh-agent.msi"
-if (-not (Get-Service -Name "WazuhSvc" -ErrorAction SilentlyContinue)) {
-    Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath
-    Start-Process msiexec.exe -ArgumentList "/i $InstallerPath /qn WAZUH_MANAGER=$WazuhManagerIP" -Wait
-    Remove-Item $InstallerPath
-}
+set -e  # Exit on error
+set -u  # Treat unset variables as error
 
-# Start agent service (idempotent)
-Start-Service -Name "WazuhSvc" -ErrorAction SilentlyContinue
+# Step 1: Update system and install dependencies
+dnf update -y
+dnf install -y curl gnupg2
 
-# Change default gateway on primary interface (idempotent: remove old, add new)
-$Interface = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1 -ExpandProperty InterfaceAlias
-Remove-NetRoute -InterfaceAlias $Interface -DestinationPrefix "0.0.0.0/0" -Confirm:$false -ErrorAction SilentlyContinue
-New-NetRoute -InterfaceAlias $Interface -DestinationPrefix "0.0.0.0/0" -NextHop $GatewayIP -Confirm:$false
+# Step 2: Add Wazuh repository if not exists
+if [ ! -f /etc/yum.repos.d/wazuh.repo ]; then
+    cat > /etc/yum.repos.d/wazuh.repo << EOF
+[wazuh]
+name=Wazuh repository
+baseurl=https://packages.wazuh.com/4.x/yum/
+gpgcheck=1
+gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH
+enabled=1
+protect=1
+EOF
+fi
+
+# Step 3: Import GPG key if not already imported
+if ! rpm -qa gpg-pubkey* | grep -q WAZUH; then
+    curl -o /etc/pki/rpm-gpg/RPM-GPG-KEY-WAZUH https://packages.wazuh.com/key/GPG-KEY-WAZUH
+    rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-WAZUH
+fi
+
+# Step 4: Install wazuh-manager if not installed
+if ! rpm -q wazuh-manager &> /dev/null; then
+    dnf install -y wazuh-manager
+fi
+
+# Step 5: Enable and start the service
+systemctl daemon-reload
+systemctl enable wazuh-manager
+systemctl start wazuh-manager
+
+# Step 6: Basic verification
+if systemctl is-active --quiet wazuh-manager; then
+    echo "Wazuh Manager installed and enabled successfully."
+else
+    echo "Error: Wazuh Manager service failed to start."
+    exit 1
+fi
