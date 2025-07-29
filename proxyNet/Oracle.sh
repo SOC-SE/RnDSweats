@@ -12,8 +12,7 @@ WAZUH_REGISTRATION_PASSWORD="Dkhfdas8210L:KJDf=0942q_*k13j*D*879414"
 
 # --- Step 1: Update system and install dependencies ---
 echo "INFO: Updating system and installing dependencies..."
-dnf update -y
-dnf install -y curl gnupg2 firewalld
+dnf install -y curl gnupg2 
 
 # --- Step 2: Add Wazuh repository if not exists ---
 if [ ! -f /etc/yum.repos.d/wazuh.repo ]; then
@@ -53,11 +52,6 @@ sed -i '/<remote>/a \
   </auth>' /var/ossec/etc/ossec.conf
 
 # --- Step 6: Configure Firewall ---
-echo "INFO: Configuring firewall rules..."
-systemctl enable --now firewalld
-firewall-cmd --permanent --add-port=1514/udp # Wazuh agent communication
-firewall-cmd --permanent --add-port=1515/tcp # Wazuh agent registration
-firewall-cmd --reload
 
 # --- Step 7: Enable and start the service ---
 echo "INFO: Starting Wazuh manager service..."
