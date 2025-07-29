@@ -71,4 +71,43 @@ EOF
 
 # --- Step 4: Configure Wazuh agent to point to manager ---
     echo "INFO: Configuring Wazuh agent..."
-    sed -i "s/<address>.*<\/address>/<address>${WAZUH_MANAGER_IP}<\/address>/g" /var/ossec/etc/os
+    sed -i "s/<address>.*<\/address>/<address>${WAZUH_MANAGER_IP}<\/address>/g" /var/ossec/etc/ossec.conf
+
+# --- Step 5: Enable and start Wazuh agent service ---
+    echo "INFO: Starting Wazuh agent..."
+    systemctl daemon-reload
+    systemctl enable wazuh-agent
+    systemctl start wazuh-agent
+fi
+
+# --- Step 6: Change default gateway ---
+echo "INFO: Updating default gateway..."
+# Temporary change
+ip route del default || true  # Remove existing if any
+ip route add default via ${NEW_GATEWAY_IP}
+
+# Persistent change based on distro
+if [ "$DISTRO" == "rpm" ]; then
+    if ! grep -q "^GATEWAY=${NEW_GATEWAY_IP}" /etc/sysconfig/network; then
+        echo "GATEWAY=${NEW_GATEWAY_IP}" >> /etc/sysconfig/network
+    fi
+    systemctl restart NetworkManager || systemctl restart network
+elif [ "$DISTRO" == "deb" ]; then
+    # For Debian: Edit /etc/network/interfaces (assume primary iface is eth0; adjust if needed)
+    IFACE=$(ip -o -4 route show to default | awk '{print $5}')
+    sed -i '/^\s*gateway/d' /etc/network/interfaces # Remove old gateway lines
+    echo "gateway ${NEW_GATEWAY_IP}" >> /etc/network/interfaces
+    /etc/init.d/networking restart || systemctl restart networking
+fi
+
+# --- Step 7: Basic verification ---
+if [ "${SKIP_WAZUH:-false}" != "true" ] && systemctl is-active --quiet wazuh-agent; then
+    echo "Wazuh Agent installed, configured, and started successfully."
+elif [ "${SKIP_WAZUH:-false}" == "true" ]; then
+    echo "Wazuh installation skipped due to unsupported OS version."
+else
+    echo "Error: Wazuh Agent service failed to start."
+    exit 1
+fi
+
+ip route show | grep default && echo "Default gateway updated successfully."
