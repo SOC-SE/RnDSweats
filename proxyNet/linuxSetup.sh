@@ -36,10 +36,8 @@ fi
 # --- Step 2: Update system and install prerequisites ---
 echo "INFO: Updating system and installing prerequisites..."
 if [ "$DISTRO" == "rpm" ]; then
-    yum update -y
     yum install -y curl
 elif [ "$DISTRO" == "deb" ]; then
-    apt-get update -y
     apt-get install -y curl gnupg
 fi
 
