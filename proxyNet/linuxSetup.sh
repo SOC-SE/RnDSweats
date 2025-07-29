@@ -62,9 +62,9 @@ EOF
         curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | apt-key add -
         echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
         apt-get update -y
-        apt-get install -y wazuh-agent
+        apt-get install wazuh-agent -y
     fi
-
+    
     # Configure agent to point to manager
     sed -i "s/<address>.*<\/address>/<address>${WAZUH_MANAGER_IP}<\/address>/g" /var/ossec/etc/ossec.conf
 
