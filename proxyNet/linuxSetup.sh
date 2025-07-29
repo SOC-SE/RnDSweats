@@ -1,6 +1,6 @@
 #!/bin/bash
 # setup_linux_client.sh
-# EDITED: Removed incorrect gateway-changing logic. Egress filtering must be done on the Palo Alto firewall.
+# EDITED: Fixed missing 'then' keyword in the elif block.
 # Configures Linux servers (CentOS 7, Fedora 21, Debian 10) to install and configure the Wazuh Agent.
 # Assumes running as root. Detects distro and handles accordingly.
 
@@ -57,14 +57,14 @@ baseurl=https://packages.wazuh.com/4.x/yum/
 protect=1
 EOF
         yum install -y wazuh-agent
-    elif [ "$DISTRO" == "deb" ];
+    elif [ "$DISTRO" == "deb" ]; then # <-- THIS LINE WAS CORRECTED
         # On older Debian systems, directly adding the key with apt-key is more reliable.
         curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | apt-key add -
         echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
         apt-get update -y
         apt-get install wazuh-agent -y
     fi
-    
+
     # Configure agent to point to manager
     sed -i "s/<address>.*<\/address>/<address>${WAZUH_MANAGER_IP}<\/address>/g" /var/ossec/etc/ossec.conf
 
