@@ -57,18 +57,17 @@ name=EL-\$releasever - Wazuh
 baseurl=https://packages.wazuh.com/4.x/yum/
 protect=1
 EOF
-        yum install -y wazuh-agent
+        WAZUH_MANAGER="10.0.0.2" yum install -y wazuh-agent
+
+        
     elif [ "$DISTRO" == "deb" ]; then # <-- THIS LINE WAS CORRECTED
         # On older Debian systems, directly adding the key with apt-key is more reliable.
         curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | apt-key add -
         echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
         apt-get update -y
-        apt-get install wazuh-agent -y
+        WAZUH_MANAGER="10.0.0.2" apt-get install wazuh-agent -y
     fi
     
-    echo "INFO: Registering agent with manager ${WAZUH_MANAGER_IP}..."
-    # Use agent-auth for automatic registration. It also configures the manager IP.
-    /var/ossec/bin/agent-auth -m ${WAZUH_MANAGER_IP} -P "${WAZUH_REGISTRATION_PASSWORD}"
 
     # Enable and start service
     systemctl daemon-reload
