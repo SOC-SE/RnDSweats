@@ -64,7 +64,7 @@ server {
 EOF
 
 # Test and reload NGINX
-nginx -t && systemctl reload nginx
+nginx -t && systemctl start nginx
 
 # --- Step 4: Configure Suricata for IPS mode with NFQUEUE ---
 echo "INFO: Configuring Suricata for IPS mode..."
