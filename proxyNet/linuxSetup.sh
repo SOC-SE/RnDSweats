@@ -9,6 +9,7 @@ set -u  # Treat unset variables as error
 
 # --- Variables ---
 WAZUH_MANAGER_IP="172.20.241.20"
+WAZUH_REGISTRATION_PASSWORD="Dkhfdas8210L:KJDf=0942q_*k13j*D*879414"
 
 # --- Step 1: Detect distribution and version ---
 if [ -f /etc/redhat-release ]; then
@@ -64,15 +65,17 @@ EOF
         apt-get update -y
         apt-get install wazuh-agent -y
     fi
-
-    # Configure agent to point to manager
-    sed -i "s/<address>.*<\/address>/<address>${WAZUH_MANAGER_IP}<\/address>/g" /var/ossec/etc/ossec.conf
+    
+    echo "INFO: Registering agent with manager ${WAZUH_MANAGER_IP}..."
+    # Use agent-auth for automatic registration. It also configures the manager IP.
+    /var/ossec/bin/agent-auth -m ${WAZUH_MANAGER_IP} -P "${WAZUH_REGISTRATION_PASSWORD}"
 
     # Enable and start service
     systemctl daemon-reload
     systemctl enable wazuh-agent
     systemctl start wazuh-agent
-    echo "INFO: Wazuh Agent installed and started."
+    
+    echo "INFO: Wazuh Agent installed, registered, and started."
 else
     echo "INFO: Wazuh installation skipped due to unsupported OS version."
 fi
