@@ -57,7 +57,7 @@ name=EL-\$releasever - Wazuh
 baseurl=https://packages.wazuh.com/4.x/yum/
 protect=1
 EOF
-        WAZUH_MANAGER="10.0.0.2" yum install -y wazuh-agent
+        WAZUH_MANAGER="$WAZUH_MANAGER_IP" yum install -y wazuh-agent
 
         
     elif [ "$DISTRO" == "deb" ]; then # <-- THIS LINE WAS CORRECTED
@@ -65,7 +65,7 @@ EOF
         curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | apt-key add -
         echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
         apt-get update -y
-        WAZUH_MANAGER="10.0.0.2" apt-get install wazuh-agent -y
+        WAZUH_MANAGER="$WAZUH_MANAGER_IP" apt-get install wazuh-agent -y
     fi
     
 
