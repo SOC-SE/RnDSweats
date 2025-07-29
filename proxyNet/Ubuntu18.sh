@@ -1,7 +1,7 @@
 #!/bin/bash
 # setup_security_appliance.sh
 # EDITED: Now stops and disables apache2 if it is running.
-# EDITED: Implemented JA4+ fingerprinting in Suricata configuration and rules.
+# EDITED: Implemented JA4+ fingerprinting and added the abuse.ch JA4+ ruleset.
 # Configures Ubuntu 18.04 server as a security appliance with IP forwarding, NGINX WAF reverse proxy, and Suricata IPS.
 # Assumes running as root. Prioritizes speed and uptime; changes are reversible.
 
@@ -81,7 +81,7 @@ sed -i '/# - nfq/a \
 # Disable af-packet to prevent conflicts with NFQUEUE
 sed -i '/- interface: eth0/,$ s/^/#/' /etc/suricata/suricata.yaml
 
-# --- Step 4.5: Enable JA4+ Fingerprinting ---
+# --- Step 4.5: Enable JA4+ and Add External Rulesets ---
 echo "INFO: Enabling JA4+ fingerprinting in Suricata..."
 
 # Enable JA4/S (TLS) and JA4H (HTTP) in the Suricata config by changing 'no' to 'yes'
@@ -92,11 +92,19 @@ sed -i 's/ja4h-fingerprint: no/ja4h-fingerprint: yes/' /etc/suricata/suricata.ya
 sed -i 's/#- local.rules/- local.rules/' /etc/suricata/suricata.yaml
 
 # Add a sample JA4 rule to local.rules to detect a known Cobalt Strike fingerprint
-echo 'alert tls any any -> any any (msg:"ET POLICY Cobalt Strike JA4 Hash Observed (e145c3b5a7a401c680f433989f55e5c6)"; tls.ja4.hash; content:"e145c3b5a7a401c680f433989f55e5c6"; classtype:trojan-activity; sid:9000002; rev:1;)' >> /etc/suricata/rules/local.rules
+echo 'alert tls any any -> any any (msg:"ET POLICY Cobalt Strike JA4 Hash Observed (e145c3b5a7a401c680f433989f55e5c6)"; tls.ja4.hash; content:"e145c3b5a7a401c680f433989f55e5c6"; classtype:trojan-activity; sid:9000002; rev:1;)' > /etc/suricata/rules/local.rules
+
+# Add the abuse.ch JA4+ fingerprint blacklist if it's not already present
+echo "INFO: Adding abuse.ch JA4+ ruleset for Suricata..."
+if ! suricata-update list-sources | grep -q "ja4-abuse-ch"; then
+    suricata-update add-source ja4-abuse-ch "https://sslbl.abuse.ch/ja4/ja4_rules.tar.gz"
+else
+    echo "INFO: abuse.ch JA4+ ruleset already configured."
+fi
 
 # --- Step 5: Update Rules and Restart Suricata ---
-echo "INFO: Updating rule sets and restarting Suricata..."
-# Update rules
+echo "INFO: Updating rule sets (including abuse.ch) and restarting Suricata..."
+# Update rules from all configured sources
 suricata-update
 
 # Restart Suricata to apply all configuration changes and check status
