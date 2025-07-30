@@ -16,7 +16,7 @@ if [ -f /etc/redhat-release ]; then
     DISTRO="rpm"  # CentOS or Fedora (yum-based)
     if grep -q "Fedora" /etc/redhat-release; then
         FEDORA_VERSION=$(awk '{print $3}' /etc/fedora-release)
-        if [ "$FEDORA_VERSION" -lt 22 ]; then
+        if [ "$FEDORA_VERSION" -lt 21 ]; then
             echo "Warning: Fedora version $FEDORA_VERSION is not supported by Wazuh (requires 22+). Skipping Wazuh installation."
             SKIP_WAZUH=true
         else
