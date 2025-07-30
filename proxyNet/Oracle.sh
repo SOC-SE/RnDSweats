@@ -1,22 +1,39 @@
 #!/bin/bash
-# setup_wazuh_manager.sh
-# Configures Oracle Linux 9.2 server to install Wazuh Manager,
-# enables necessary firewall ports, and provides the password for agent registration.
-# Assumes running as root. Prioritizes speed and minimal changes.
+# ==============================================================================
+# setup_wazuh_manager_with_yara.sh
+#
+# Configures a server (designed for Oracle Linux 9, but adaptable) to install
+# the Wazuh Manager and the required components for the ADORSYS-GIS YARA
+# integration. This script ensures the manager can correctly interpret
+# alerts from agents running the yara.sh active response.
+#
+# ==============================================================================
 
-set -e  # Exit on error
-set -u  # Treat unset variables as error
+# Exit immediately if a command exits with a non-zero status.
+set -e
+# Treat unset variables as an error when substituting.
+set -u
 
-# --- Variables ---
+# --- Configuration ---
+# Repository for the Wazuh-YARA integration scripts, rules, and decoders.
+ADORSYS_YARA_REPO_URL="https://github.com/ADORSYS-GIS/wazuh-yara.git"
+
+
+# --- Script Validation ---
+if [ "$(id -u)" -ne 0 ]; then
+  echo "❌ ERROR: This script must be run as root. Please use sudo." >&2
+  exit 1
+fi
+
 
 # --- Step 1: Update system and install dependencies ---
 echo "INFO: Updating system and installing dependencies..."
-dnf install -y curl gnupg2
+dnf install -y curl git gnupg2
 
-# --- Step 2: Add Wazuh repository if not exists ---
-if [ ! -f /etc/yum.repos.d/wazuh.repo ]; then
-    echo "INFO: Adding Wazuh repository..."
-    cat > /etc/yum.repos.d/wazuh.repo << EOF
+
+# --- Step 2: Add Wazuh repository ---
+echo "INFO: Adding Wazuh repository..."
+cat > /etc/yum.repos.d/wazuh.repo << EOF
 [wazuh]
 name=Wazuh repository
 baseurl=https://packages.wazuh.com/4.x/yum/
@@ -25,46 +42,66 @@ gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH
 enabled=1
 protect=1
 EOF
-fi
-
-# --- Step 3: Import GPG key if not already imported ---
-if ! rpm -qa gpg-pubkey* | grep -q WAZUH; then
-    echo "INFO: Importing Wazuh GPG key..."
-    rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
-fi
-
-# --- Step 4: Install wazuh-manager if not installed ---
-if ! rpm -q wazuh-manager &> /dev/null; then
-    echo "INFO: Installing wazuh-manager package..."
-    dnf install -y wazuh-manager
-fi
-
-# --- Step 5: (No direct ossec.conf modification for password auth) ---
-# The previous attempt to insert an <auth> block into ossec.conf was incorrect.
-# Wazuh's password-based agent registration is handled by the 'authd' daemon,
-# which runs as part of the Wazuh manager. Agents use the 'agent-auth' utility
-# with a password to register, and 'authd' processes these requests.
-# There is no global password configured in ossec.conf for this purpose.
-echo "INFO: Wazuh Manager's 'authd' service handles password-based agent registration by default."
-echo "INFO: No direct ossec.conf modification is needed for this functionality."
 
 
-# --- Step 7: Enable and start the service ---
-echo "INFO: Starting Wazuh manager service..."
+# --- Step 3: Import Wazuh GPG key ---
+echo "INFO: Importing Wazuh GPG key..."
+rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
+
+
+# --- Step 4: Install wazuh-manager ---
+echo "INFO: Installing wazuh-manager package..."
+dnf install -y wazuh-manager
+
+
+# --- Step 5: Install YARA Manager Components ---
+echo "INFO: Deploying YARA decoders and rules for the manager..."
+TMP_DIR=$(mktemp -d)
+echo "INFO: Cloning repository from $ADORSYS_YARA_REPO_URL..."
+git clone --depth 1 "$ADORSYS_YARA_REPO_URL" "$TMP_DIR"
+
+# Define source and destination paths for manager components
+YARA_DECODER_SRC="$TMP_DIR/manager/decoders/yara_decoders.xml"
+YARA_RULE_SRC="$TMP_DIR/manager/rules/yara_rules.xml"
+DECODER_DEST_DIR="/var/ossec/etc/decoders"
+RULE_DEST_DIR="/var/ossec/etc/rules"
+
+# Copy decoder and rule files
+echo "INFO: Copying YARA decoder and rule files to Wazuh manager directories..."
+cp "$YARA_DECODER_SRC" "$DECODER_DEST_DIR/"
+cp "$YARA_RULE_SRC" "$RULE_DEST_DIR/"
+
+# Set correct ownership to ensure the manager can read the files
+echo "INFO: Setting correct ownership for new files..."
+chown root:wazuh "$DECODER_DEST_DIR/yara_decoders.xml"
+chown root:wazuh "$RULE_DEST_DIR/yara_rules.xml"
+
+echo "INFO: Cleaning up temporary directory..."
+rm -rf "$TMP_DIR"
+
+
+# --- Step 6: Enable and start the Wazuh Manager service ---
+echo "INFO: Enabling and starting the Wazuh manager service..."
 systemctl daemon-reload
 systemctl enable wazuh-manager
-systemctl restart wazuh-manager # Use restart to apply config changes
+systemctl restart wazuh-manager
 
-# --- Step 8: Verification and Password Display ---
+
+# --- Step 7: Verification and Final Instructions ---
+echo "INFO: Verifying Wazuh Manager service status..."
 if systemctl is-active --quiet wazuh-manager; then
-    echo -e "\n Wazuh Manager installed and configured successfully."
-    echo "Use this password in your agent deployment scripts with the 'agent-auth' utility:"
-    echo "-----------------------------------------------------"
-    echo "${WAZUH_REGISTRATION_PASSWORD}"
-    echo "-----------------------------------------------------"
-    echo "Example command to register an agent (run on the agent machine):"
-    echo "  /var/ossec/bin/agent-auth -m <MANAGER_IP_OR_HOSTNAME> -P \"${WAZUH_REGISTRATION_PASSWORD}\""
+  echo ""
+  echo "========================= ✅ SUCCESS ✅ ========================="
+  echo "Wazuh Manager is installed and running."
+  echo "The necessary YARA decoders and rules have been deployed."
+  echo "The manager is now ready to receive and process YARA alerts from your agents."
+  echo ""
+  echo "You can now proceed with registering your agents."
+  echo "================================================================"
 else
-    echo "Error: Wazuh Manager service failed to start."
-    exit 1
+  echo "❌ ERROR: Wazuh Manager service failed to start. Please check the logs for errors." >&2
+  echo "   # journalctl -u wazuh-manager"
+  exit 1
 fi
+
+echo "Script finished."
