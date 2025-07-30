@@ -1,52 +1,53 @@
 #!/bin/bash
+# ==============================================================================
 # setup_linux_client.sh
-# EDITED: Fixed missing 'then' keyword in the elif block.
-# Configures Linux servers (CentOS 7, Fedora 21, Debian 10) to install and configure the Wazuh Agent.
-# Assumes running as root. Detects distro and handles accordingly.
+#
+# Configures Linux servers (CentOS/RHEL/Fedora, Debian/Ubuntu) to install
+# and configure the Wazuh Agent.
+#
+# Usage:
+# sudo ./setup_linux_client.sh
+# ==============================================================================
 
-set -e  # Exit on error
-set -u  # Treat unset variables as error
+# Exit immediately if a command exits with a non-zero status.
+set -e
+# Treat unset variables as an error.
+set -u
 
-# --- Variables ---
+# --- Configuration ---
 WAZUH_MANAGER_IP="172.20.241.20"
-WAZUH_REGISTRATION_PASSWORD="Dkhfdas8210L:KJDf=0942q_*k13j*D*879414"
 
-# --- Step 1: Detect distribution and version ---
+# --- Script Validation ---
+
+# Check for root privileges
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root. Please use sudo." >&2
+  exit 1
+fi
+
+# --- Step 1: Detect distribution ---
+echo "INFO: Detecting Linux distribution..."
 if [ -f /etc/redhat-release ]; then
-    DISTRO="rpm"  # CentOS or Fedora (yum-based)
-    if grep -q "Fedora" /etc/redhat-release; then
-        FEDORA_VERSION=$(awk '{print $3}' /etc/fedora-release)
-        if [ "$FEDORA_VERSION" -lt 21 ]; then
-            echo "Warning: Fedora version $FEDORA_VERSION is not supported by Wazuh (requires 22+). Skipping Wazuh installation."
-            SKIP_WAZUH=true
-        else
-            SKIP_WAZUH=false
-        fi
-    else
-        SKIP_WAZUH=false
-    fi
+  DISTRO="rpm"
 elif [ -f /etc/debian_version ]; then
-    DISTRO="deb"  # Debian
-    SKIP_WAZUH=false
+  DISTRO="deb"
 else
-    echo "Unsupported distribution. Exiting."
-    exit 1
+  echo "ERROR: Unsupported distribution. This script supports RPM (CentOS, RHEL, Fedora) and DEB (Debian, Ubuntu) based systems." >&2
+  exit 1
 fi
+echo "INFO: Detected a $DISTRO-based system."
 
-# --- Step 2: Update system and install prerequisites ---
-echo "INFO: Updating system and installing prerequisites..."
+
+# --- Step 2: Install Wazuh Agent ---
+echo "INFO: Installing and configuring Wazuh Agent..."
+
 if [ "$DISTRO" == "rpm" ]; then
-    yum install -y curl
-elif [ "$DISTRO" == "deb" ]; then
-    apt-get install -y curl gnupg
-fi
+  # Install prerequisites
+  yum install -y curl
 
-# --- Step 3: Install and Configure Wazuh Agent (if not skipped) ---
-if [ "${SKIP_WAZUH:-false}" != "true" ]; then
-    echo "INFO: Installing and configuring Wazuh Agent..."
-    if [ "$DISTRO" == "rpm" ]; then
-        rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
-        cat > /etc/yum.repos.d/wazuh.repo << EOF
+  # Add the Wazuh repository
+  rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
+  cat > /etc/yum.repos.d/wazuh.repo << EOF
 [wazuh]
 gpgcheck=1
 gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH
@@ -55,26 +56,34 @@ name=EL-\$releasever - Wazuh
 baseurl=https://packages.wazuh.com/4.x/yum/
 protect=1
 EOF
-        WAZUH_MANAGER="$WAZUH_MANAGER_IP" yum install -y wazuh-agent
 
-        
-    elif [ "$DISTRO" == "deb" ]; then # <-- THIS LINE WAS CORRECTED
-        # On older Debian systems, directly adding the key with apt-key is more reliable.
-        curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | apt-key add -
-        echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
-        apt-get update -y
-        WAZUH_MANAGER="$WAZUH_MANAGER_IP" apt-get install wazuh-agent -y
-    fi
-    
+  # Install the agent with configuration
+  WAZUH_MANAGER="$WAZUH_MANAGER_IP"  yum install -y wazuh-agent
 
-    # Enable and start service
-    systemctl daemon-reload
-    systemctl enable wazuh-agent
-    systemctl start wazuh-agent
-    
-    echo "INFO: Wazuh Agent installed, registered, and started."
-else
-    echo "INFO: Wazuh installation skipped due to unsupported OS version."
+elif [ "$DISTRO" == "deb" ]; then
+  # Update package list and install prerequisites
+  apt-get update -y
+  apt-get install -y curl gnupg
+
+  # Add the Wazuh repository using the recommended secure method
+  install -m 0755 -d /etc/apt/keyrings
+  curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --dearmor -o /etc/apt/keyrings/wazuh.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
+
+  # Update package list again with the new repo and install the agent
+  apt-get update -y
+  WAZUH_MANAGER="$WAZUH_MANAGER_IP"  apt-get install -y wazuh-agent
 fi
 
+
+# --- Step 3: Enable and Start the Agent ---
+echo "INFO: Enabling and starting the Wazuh Agent service..."
+systemctl daemon-reload
+systemctl enable wazuh-agent
+systemctl start wazuh-agent
+
+# Verify service status
+systemctl status wazuh-agent --no-pager
+
+echo "✅ INFO: Wazuh Agent installation and configuration complete."
 echo "Script finished."
