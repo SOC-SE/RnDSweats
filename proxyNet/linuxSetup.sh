@@ -96,6 +96,12 @@ mkdir -p "$AR_BIN_DIR" "$YARA_RULES_DIR"
 cp "$TMP_DIR_ADORSYS/agent/linux/yara.sh" "$AR_BIN_DIR/"
 cp "$TMP_DIR_ADORSYS/yara_rules/yara_rules.yar" "$YARA_RULES_DIR/"
 
+# --- FIX: Modify the yara.sh script to scan the entire rules directory ---
+# The original script hardcodes a single file, ignoring all other rules.
+# This change ensures all .yar/.yara files in the directory are used.
+echo "INFO: Patching yara.sh to use the entire rules directory..."
+sed -i 's|YARA_RULES_PATH="/var/ossec/etc/yara/yara_rules.yar"|YARA_RULES_PATH="/var/ossec/etc/yara/"|' "$AR_BIN_DIR/yara.sh"
+
 echo "INFO: Cleaning up ADORSYS-GIS temporary directory..."
 rm -rf "$TMP_DIR_ADORSYS"
 
@@ -122,8 +128,7 @@ chmod 750 "$AR_BIN_DIR/yara.sh"
 
 # Set permissions for the entire YARA rules directory
 chown -R wazuh:wazuh "$YARA_RULES_DIR"
-find "$YARA_RULES_DIR" -type f -name "*.yar" -exec chmod 640 {} \;
-find "$YARA_RULES_DIR" -type f -name "*.yara" -exec chmod 640 {} \;
+find "$YARA_RULES_DIR" -type f \( -name "*.yar" -o -name "*.yara" \) -exec chmod 640 {} \;
 
 echo "INFO: Configuring Wazuh agent for YARA Active Response..."
 CONFIG_BACKUP_FILE="$OSSEC_CONF.bak-$(date +%F)"
