@@ -60,9 +60,29 @@ TMP_DIR=$(mktemp -d)
 echo "INFO: Cloning repository from $ADORSYS_YARA_REPO_URL..."
 git clone --depth 1 "$ADORSYS_YARA_REPO_URL" "$TMP_DIR"
 
-# Define source and destination paths for manager components
-YARA_DECODER_SRC="$TMP_DIR/manager/decoders/yara_decoders.xml"
-YARA_RULE_SRC="$TMP_DIR/manager/rules/yara_rules.xml"
+# --- FIX: Dynamically find files to be resilient to path changes in the repo ---
+echo "INFO: Locating YARA manager files within the cloned repository..."
+YARA_DECODER_SRC=$(find "$TMP_DIR" -type f -name "yara_decoders.xml")
+YARA_RULE_SRC=$(find "$TMP_DIR" -type f -name "yara_rules.xml")
+
+# Validate that the files were actually found before proceeding
+if [ -z "$YARA_DECODER_SRC" ] || [ ! -f "$YARA_DECODER_SRC" ]; then
+    echo "❌ ERROR: Could not find yara_decoders.xml in the cloned repository at $TMP_DIR." >&2
+    echo "The repository structure at $ADORSYS_YARA_REPO_URL may have changed." >&2
+    rm -rf "$TMP_DIR"
+    exit 1
+fi
+if [ -z "$YARA_RULE_SRC" ] || [ ! -f "$YARA_RULE_SRC" ]; then
+    echo "❌ ERROR: Could not find yara_rules.xml in the cloned repository at $TMP_DIR." >&2
+    echo "The repository structure at $ADORSYS_YARA_REPO_URL may have changed." >&2
+    rm -rf "$TMP_DIR"
+    exit 1
+fi
+
+echo "INFO: Found decoder at: $YARA_DECODER_SRC"
+echo "INFO: Found rules at: $YARA_RULE_SRC"
+
+# Define destination paths for manager components
 DECODER_DEST_DIR="/var/ossec/etc/decoders"
 RULE_DEST_DIR="/var/ossec/etc/rules"
 
