@@ -1,6 +1,8 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_with_yara.sh
+# setup_wazuh_manager_with_yara_v2.sh
+#
+# v2: Fixes an issue where config files might not exist before modification.
 #
 # Configures a server (designed for Oracle Linux 9, but adaptable) to install
 # the Wazuh Manager and configures it for the ADORSYS-GIS/wazuh-yara
@@ -45,8 +47,16 @@ echo "INFO: Installing wazuh-manager package..."
 dnf install -y wazuh-manager
 
 # --- Step 5: Add YARA decoders and rules ---
-echo "INFO: Adding YARA decoders to local_decoder.xml..."
-cat >> /var/ossec/etc/decoders/local_decoder.xml << EOF
+DECODER_FILE="/var/ossec/etc/decoders/local_decoder.xml"
+RULES_FILE="/var/ossec/etc/rules/local_rules.xml"
+
+echo "INFO: Ensuring local config files exist..."
+# Create the files if they don't exist to prevent "No such file" errors.
+touch "$DECODER_FILE"
+touch "$RULES_FILE"
+
+echo "INFO: Adding YARA decoders to $DECODER_FILE..."
+cat >> "$DECODER_FILE" << EOF
 
 <decoder name="yara_decoder">
   <prematch>wazuh-yara:</prematch>
@@ -59,8 +69,8 @@ cat >> /var/ossec/etc/decoders/local_decoder.xml << EOF
 </decoder>
 EOF
 
-echo "INFO: Adding YARA rules to local_rules.xml..."
-cat >> /var/ossec/etc/rules/local_rules.xml << EOF
+echo "INFO: Adding YARA rules to $RULES_FILE..."
+cat >> "$RULES_FILE" << EOF
 
 <group name="yara,">
   <rule id="100020" level="7">
