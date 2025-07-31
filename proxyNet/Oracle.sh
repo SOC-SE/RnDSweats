@@ -1,10 +1,12 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_and_agent_with_yara_v3.sh
+# setup_wazuh_manager_and_agent_with_yara_final.sh
 #
-# v3: - Adds verification after cloning the yara-rules repository.
-#     - Implements a more robust method for modifying ossec.conf to prevent
-#       sed errors.
+# Final Version: Corrects the Yara rules repository URL to bartblaze/Yara-rules
+# and includes robust error checking.
+#
+# Configures an Oracle Linux 9 server with the Wazuh Manager and also
+# hardens the manager's local agent with a comprehensive Yara ruleset.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -49,7 +51,6 @@ dnf install -y wazuh-manager
 echo "INFO: Verifying that Wazuh manager was installed correctly..."
 if [ ! -f /var/ossec/etc/ossec.conf ]; then
     echo "❌ ERROR: Wazuh installation failed. The configuration file /var/ossec/etc/ossec.conf was not found." >&2
-    echo "Please check the output of the 'dnf install' command above for errors." >&2
     exit 1
 fi
 echo "INFO: Wazuh installation verified."
@@ -57,9 +58,8 @@ echo "INFO: Wazuh installation verified."
 # --- Step 6: Configure Manager Decoders and Rules ---
 DECODER_FILE="/var/ossec/etc/decoders/local_decoder.xml"
 RULES_FILE="/var/ossec/etc/rules/local_rules.xml"
-echo "INFO: Ensuring local config files exist..."
+echo "INFO: Ensuring local config files exist and adding YARA decoders/rules..."
 touch "$DECODER_FILE" "$RULES_FILE"
-echo "INFO: Adding YARA decoders and rules..."
 cat >> "$DECODER_FILE" << EOF
 <decoder name="yara_decoder"><prematch>wazuh-yara:</prematch></decoder>
 <decoder name="yara_decoder1"><parent>yara_decoder</parent><regex>wazuh-yara: (\S+) - Scan result: (\S+) (\S+)</regex><order>log_type, yara_rule, yara_scanned_file</order></decoder>
@@ -69,28 +69,27 @@ cat >> "$RULES_FILE" << EOF
 EOF
 
 # --- Step 7: Clone Repositories for Local Agent Protection ---
-echo "INFO: Cloning the wazuh-yara integration script for the local agent..."
+echo "INFO: Cloning the wazuh-yara integration script..."
 git clone https://github.com/ADORSYS-GIS/wazuh-yara.git
 
-echo "INFO: Cloning the custom Yara rules repository..."
-git clone https://github.com/yara-rules/rules.git "$YARA_RULES_DIR"
+echo "INFO: Cloning the correct Yara rules repository from bartblaze..."
+git clone https://github.com/bartblaze/Yara-rules.git "$YARA_RULES_DIR"
 
 # --- Step 8: Verify Rule Download and Create Index ---
 echo "INFO: Verifying that Yara rules were downloaded..."
-if [ ! -d "$YARA_RULES_DIR" ]; then
-    echo "❌ ERROR: Cloning the Yara rules repository failed. The directory $YARA_RULES_DIR was not found." >&2
-    echo "Please check your network connection and the 'git clone' command output." >&2
+if [ ! -d "$YARA_RULES_DIR" ] || [ ! -f "$YARA_RULES_DIR/rules/index.yar" ]; then
+    echo "❌ ERROR: Cloning the Yara rules repository failed. The directory or main index file was not found." >&2
     exit 1
 fi
-echo "INFO: Yara rules successfully downloaded. Creating master index file..."
-find "$YARA_RULES_DIR" -type f -name "*.yar" -printf 'include "%p"\n' > "$YARA_RULES_DIR/index.yar"
+echo "INFO: Yara rules successfully downloaded. The repository includes a pre-built index file which will be used."
 
 # --- Step 9: Set Up Yara Integration on the Local Agent ---
 echo "INFO: Copying the yara.sh active response script..."
 cp wazuh-yara/scripts/yara.sh /var/ossec/active-response/bin/
 
 echo "INFO: Modifying yara.sh to use the new custom ruleset..."
-sed -i "s|YARA_RULES=\"/var/ossec/etc/rules\"|YARA_RULES=\"$YARA_RULES_DIR/index.yar\"|" /var/ossec/active-response/bin/yara.sh
+# The bartblaze repository conveniently includes a master index file.
+sed -i "s|YARA_RULES=\"/var/ossec/etc/rules\"|YARA_RULES=\"$YARA_RULES_DIR/rules/index.yar\"|" /var/ossec/active-response/bin/yara.sh
 
 # --- Step 10: Set Permissions ---
 echo "INFO: Setting correct file permissions for active response..."
@@ -102,27 +101,13 @@ chmod -R 750 "$YARA_RULES_DIR"
 # --- Step 11: Configure the Local Agent for Yara (Robust Method) ---
 echo "INFO: Configuring the local agent (ossec.conf) for Yara active response..."
 if ! grep -q "<name>yara</name>" /var/ossec/etc/ossec.conf; then
-  echo "INFO: Active response for Yara not found. Adding it."
   AR_BLOCK_FILE=$(mktemp)
   cat > "$AR_BLOCK_FILE" << 'EOF'
-
-  <command>
-    <name>yara</name>
-    <executable>yara.sh</executable>
-    <expect>filename</expect>
-    <timeout_allowed>yes</timeout_allowed>
-  </command>
-  <active-response>
-    <command>yara</command>
-    <location>local</location>
-    <rules_id>550,554</rules_id>
-  </active-response>
+  <command><name>yara</name><executable>yara.sh</executable><expect>filename</expect><timeout_allowed>yes</timeout_allowed></command>
+  <active-response><command>yara</command><location>local</location><rules_id>550,554</rules_id></active-response>
 EOF
-  # Insert the block before the closing </ossec_config> tag
   sed -i -e "/^<\/ossec_config>/r $AR_BLOCK_FILE" /var/ossec/etc/ossec.conf
   rm "$AR_BLOCK_FILE"
-else
-  echo "INFO: Yara active response is already configured."
 fi
 
 # --- Step 12: Enable and Restart the Wazuh Manager ---
@@ -135,13 +120,12 @@ systemctl restart wazuh-manager
 echo "INFO: Verifying Wazuh Manager service status..."
 sleep 5
 if systemctl is-active --quiet wazuh-manager; then
-  echo ""
-  echo "========================= ✅ SUCCESS ✅ ========================="
+  echo -e "\n========================= ✅ SUCCESS ✅ ========================="
   echo "Wazuh Manager is installed and running."
-  echo "The local agent is now protected with custom Yara rules."
+  echo "The local agent is now protected with the bartblaze Yara ruleset."
   echo "================================================================"
 else
-  echo "❌ ERROR: Wazuh Manager service failed to start. Please check the logs for errors." >&2
+  echo -e "\n❌ ERROR: Wazuh Manager service failed to start. Please check logs." >&2
   echo "   # journalctl -u wazuh-manager"
   exit 1
 fi
