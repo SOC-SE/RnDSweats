@@ -1,11 +1,10 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_and_agent_with_yara_final_v4.sh
+# setup_wazuh_manager_and_agent_with_yara_final_v5.sh
 #
-# Final Version 4:
-# - Adds a more robust verification step after installation to ensure that
-#   both the ossec.conf file and the ossec-control binary exist before
-#   proceeding with any configuration.
+# Final Version 5:
+# - Corrects the package installation order to prevent dependency conflicts.
+#   Wazuh Manager is now installed before Yara.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -24,9 +23,9 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# --- Step 1: Update system and install dependencies ---
-echo "INFO: Updating system and installing dependencies..."
-dnf install -y curl git gnupg2 yara
+# --- Step 1: Update system and install initial dependencies ---
+echo "INFO: Updating system and installing initial dependencies..."
+dnf install -y curl git gnupg2
 
 # --- Step 2: Add Wazuh repository ---
 echo "INFO: Adding Wazuh repository..."
@@ -44,9 +43,12 @@ EOF
 echo "INFO: Importing Wazuh GPG key..."
 rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
 
-# --- Step 4: Install wazuh-manager ---
+# --- Step 4: Install wazuh-manager and then Yara ---
 echo "INFO: Installing wazuh-manager package..."
 dnf install -y wazuh-manager
+
+echo "INFO: Installing Yara package..."
+dnf install -y yara
 
 # --- Step 5: Verify Wazuh Installation (Robust Check) ---
 echo "INFO: Verifying that Wazuh manager and its tools were installed correctly..."
