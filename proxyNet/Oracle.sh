@@ -1,11 +1,10 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_and_agent_with_yara.sh
+# setup_wazuh_manager_and_agent_with_yara_v2.sh
 #
-# Configures an Oracle Linux 9 server with the Wazuh Manager and also
-# hardens the manager's local agent with the ADORSYS-GIS/wazuh-yara
-# integration and a custom ruleset from the yara-rules/rules repository.
-#
+# v2: Adds a verification step after installation to ensure core files exist
+#     before attempting configuration. This prevents errors if the
+#     package installation fails.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -46,15 +45,20 @@ rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
 echo "INFO: Installing wazuh-manager package..."
 dnf install -y wazuh-manager
 
-# --- Step 5: Configure Manager Decoders and Rules ---
-DECODER_DIR="/var/ossec/etc/decoders"
-RULES_DIR="/var/ossec/etc/rules"
-DECODER_FILE="$DECODER_DIR/local_decoder.xml"
-RULES_FILE="$RULES_DIR/local_rules.xml"
+# --- Step 5: Verify Wazuh Installation ---
+echo "INFO: Verifying that Wazuh manager was installed correctly..."
+if [ ! -f /var/ossec/etc/ossec.conf ]; then
+    echo "❌ ERROR: Wazuh installation failed. The configuration file /var/ossec/etc/ossec.conf was not found." >&2
+    echo "Please check the output of the 'dnf install' command above for errors." >&2
+    exit 1
+fi
+echo "INFO: Wazuh installation verified."
 
-echo "INFO: Ensuring local config directories and files exist..."
-mkdir -p "$DECODER_DIR"
-mkdir -p "$RULES_DIR"
+# --- Step 6: Configure Manager Decoders and Rules ---
+DECODER_FILE="/var/ossec/etc/decoders/local_decoder.xml"
+RULES_FILE="/var/ossec/etc/rules/local_rules.xml"
+
+echo "INFO: Ensuring local config files exist..."
 touch "$DECODER_FILE"
 touch "$RULES_FILE"
 
@@ -90,14 +94,14 @@ cat >> "$RULES_FILE" << EOF
 </group>
 EOF
 
-# --- Step 6: Clone Repositories for Local Agent Protection ---
+# --- Step 7: Clone Repositories for Local Agent Protection ---
 echo "INFO: Cloning the wazuh-yara integration script for the local agent..."
 git clone https://github.com/ADORSYS-GIS/wazuh-yara.git
 
 echo "INFO: Cloning the custom Yara rules repository..."
 git clone https://github.com/yara-rules/rules.git "$YARA_RULES_DIR"
 
-# --- Step 7: Set Up Yara Integration on the Local Agent ---
+# --- Step 8: Set Up Yara Integration on the Local Agent ---
 echo "INFO: Copying the yara.sh active response script..."
 cp wazuh-yara/scripts/yara.sh /var/ossec/active-response/bin/
 
@@ -107,18 +111,18 @@ find "$YARA_RULES_DIR" -name "*.yar" -printf 'include "%p"\n' > "$YARA_RULES_DIR
 echo "INFO: Modifying yara.sh to use the new custom ruleset..."
 sed -i "s|YARA_RULES=\"/var/ossec/etc/rules\"|YARA_RULES=\"$YARA_RULES_DIR/index.yar\"|" /var/ossec/active-response/bin/yara.sh
 
-# --- Step 8: Set Permissions ---
+# --- Step 9: Set Permissions ---
 echo "INFO: Setting correct file permissions for active response..."
 chown root:wazuh /var/ossec/active-response/bin/yara.sh
 chmod 750 /var/ossec/active-response/bin/yara.sh
 chown -R root:wazuh "$YARA_RULES_DIR"
 chmod -R 750 "$YARA_RULES_DIR"
 
-# --- Step 9: Configure the Local Agent for Yara ---
+# --- Step 10: Configure the Local Agent for Yara ---
 echo "INFO: Configuring the local agent (ossec.conf) for Yara active response..."
-# Using a temporary file to avoid issues with redirecting to a file being read
-TMP_FILE=$(mktemp)
-sed '/<ossec_config>/a \
+# This block checks if the configuration already exists to prevent adding it multiple times.
+if ! grep -q "<command>yara</command>" /var/ossec/etc/ossec.conf; then
+  sed -i '//a \
   <command>\
     <name>yara</name>\
     <executable>yara.sh</executable>\
@@ -130,17 +134,18 @@ sed '/<ossec_config>/a \
     <command>yara</command>\
     <location>local</location>\
     <rules_id>550,554</rules_id>\
-  </active-response>' /var/ossec/etc/ossec.conf > "$TMP_FILE" && mv "$TMP_FILE" /var/ossec/etc/ossec.conf
+  </active-response>' /var/ossec/etc/ossec.conf
+fi
 
-
-# --- Step 10: Enable and Restart the Wazuh Manager ---
+# --- Step 11: Enable and Restart the Wazuh Manager ---
 echo "INFO: Enabling and restarting the Wazuh manager service..."
 systemctl daemon-reload
 systemctl enable wazuh-manager
 systemctl restart wazuh-manager
 
-# --- Step 11: Verification ---
+# --- Step 12: Final Verification ---
 echo "INFO: Verifying Wazuh Manager service status..."
+sleep 5 # Give the service a moment to start up
 if systemctl is-active --quiet wazuh-manager; then
   echo ""
   echo "========================= ✅ SUCCESS ✅ ========================="
