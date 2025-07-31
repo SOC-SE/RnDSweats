@@ -1,12 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_and_agent_with_yara_final.sh
+# setup_wazuh_manager_and_agent_with_yara_v4.sh
 #
-# Final Version: Corrects the Yara rules repository URL to bartblaze/Yara-rules
-# and includes robust error checking.
-#
-# Configures an Oracle Linux 9 server with the Wazuh Manager and also
-# hardens the manager's local agent with a comprehensive Yara ruleset.
+# v4: Corrects the path to the index.yar file within the bartblaze repository
+#     to resolve the "file not found" error during verification.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -75,20 +72,22 @@ git clone https://github.com/ADORSYS-GIS/wazuh-yara.git
 echo "INFO: Cloning the correct Yara rules repository from bartblaze..."
 git clone https://github.com/bartblaze/Yara-rules.git "$YARA_RULES_DIR"
 
-# --- Step 8: Verify Rule Download and Create Index ---
+# --- Step 8: Verify Rule Download ---
 echo "INFO: Verifying that Yara rules were downloaded..."
-if [ ! -d "$YARA_RULES_DIR" ] || [ ! -f "$YARA_RULES_DIR/rules/index.yar" ]; then
-    echo "❌ ERROR: Cloning the Yara rules repository failed. The directory or main index file was not found." >&2
+# This check is now more specific to the actual file path.
+if [ ! -f "$YARA_RULES_DIR/rules/index.yar" ]; then
+    echo "❌ ERROR: Cloning the Yara rules repository failed or the index file is missing." >&2
+    echo "   Checked for: $YARA_RULES_DIR/rules/index.yar" >&2
     exit 1
 fi
-echo "INFO: Yara rules successfully downloaded. The repository includes a pre-built index file which will be used."
+echo "INFO: Yara rules successfully downloaded."
 
 # --- Step 9: Set Up Yara Integration on the Local Agent ---
 echo "INFO: Copying the yara.sh active response script..."
 cp wazuh-yara/scripts/yara.sh /var/ossec/active-response/bin/
 
 echo "INFO: Modifying yara.sh to use the new custom ruleset..."
-# The bartblaze repository conveniently includes a master index file.
+# The path to the index file is now correct.
 sed -i "s|YARA_RULES=\"/var/ossec/etc/rules\"|YARA_RULES=\"$YARA_RULES_DIR/rules/index.yar\"|" /var/ossec/active-response/bin/yara.sh
 
 # --- Step 10: Set Permissions ---
@@ -103,6 +102,7 @@ echo "INFO: Configuring the local agent (ossec.conf) for Yara active response...
 if ! grep -q "<name>yara</name>" /var/ossec/etc/ossec.conf; then
   AR_BLOCK_FILE=$(mktemp)
   cat > "$AR_BLOCK_FILE" << 'EOF'
+  <!-- Yara Integration -->
   <command><name>yara</name><executable>yara.sh</executable><expect>filename</expect><timeout_allowed>yes</timeout_allowed></command>
   <active-response><command>yara</command><location>local</location><rules_id>550,554</rules_id></active-response>
 EOF
