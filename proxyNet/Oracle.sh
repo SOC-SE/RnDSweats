@@ -1,14 +1,12 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_with_yara_v2.sh
+# setup_wazuh_manager_with_yara_v3.sh
 #
-# v2: Fixes an issue where config files might not exist before modification.
+# v3: Fixes an issue where parent directories for config files might not
+#     exist immediately after installation.
 #
-# Configures a server (designed for Oracle Linux 9, but adaptable) to install
-# the Wazuh Manager and configures it for the ADORSYS-GIS/wazuh-yara
-# integration. This script ensures the manager can correctly interpret
-# alerts from agents running the yara.sh active response.
-#
+# Configures a server (designed for Oracle Linux 9) to install the Wazuh Manager
+# and configures it for Yara integration.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -47,11 +45,17 @@ echo "INFO: Installing wazuh-manager package..."
 dnf install -y wazuh-manager
 
 # --- Step 5: Add YARA decoders and rules ---
-DECODER_FILE="/var/ossec/etc/decoders/local_decoder.xml"
-RULES_FILE="/var/ossec/etc/rules/local_rules.xml"
+DECODER_DIR="/var/ossec/etc/decoders"
+RULES_DIR="/var/ossec/etc/rules"
+DECODER_FILE="$DECODER_DIR/local_decoder.xml"
+RULES_FILE="$RULES_DIR/local_rules.xml"
 
-echo "INFO: Ensuring local config files exist..."
-# Create the files if they don't exist to prevent "No such file" errors.
+echo "INFO: Ensuring local config directories and files exist..."
+# Create the parent directories if they don't exist.
+mkdir -p "$DECODER_DIR"
+mkdir -p "$RULES_DIR"
+
+# Create the files if they don't exist.
 touch "$DECODER_FILE"
 touch "$RULES_FILE"
 
