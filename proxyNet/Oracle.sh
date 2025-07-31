@@ -1,12 +1,12 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_and_agent_with_targeted_yara_rules.sh
+# setup_wazuh_manager_and_agent_with_yara_final_v3.sh
 #
-# Final Targeted Version:
-# - Correctly uses the bartblaze/Yara-rules repository.
-# - Builds a custom master index file by specifically targeting the rules
-#   within the /hacktools/, /generic/, /crimeware/, and /APT/ subdirectories
-#   as requested.
+# Final Version 3:
+# - Implements a safe-editing and verification process for ossec.conf.
+# - Backs up ossec.conf before modification.
+# - Uses Wazuh's own tools to verify the configuration before restarting.
+# - Automatically rolls back to the backup if verification fails.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -16,10 +16,8 @@ set -u
 
 # --- Configuration ---
 YARA_RULES_DIR="/var/ossec/etc/yara-rules"
-# This will be the name of our custom-built master index file
 CUSTOM_INDEX_FILE="$YARA_RULES_DIR/wazuh_master_rules.yar"
-# Define the specific subdirectories to get rules from
-declare -a RULE_SUBDIRS=("hacktools" "generic" "crimeware" "APT") # Using "crimeware" as per the repo structure
+declare -a RULE_SUBDIRS=("hacktools" "generic" "crimeware" "APT")
 
 # --- Script Validation ---
 if [ "$(id -u)" -ne 0 ]; then
@@ -86,11 +84,7 @@ if [ ! -d "$YARA_RULES_DIR/rules" ]; then
     exit 1
 fi
 echo "INFO: Yara rules directory successfully downloaded. Creating a custom master index file from specific subdirectories..."
-
-# Create/clear the custom index file
 > "$CUSTOM_INDEX_FILE"
-
-# Loop through the specified subdirectories and add their rules to the master index
 for subdir in "${RULE_SUBDIRS[@]}"; do
     SUBDIR_PATH="$YARA_RULES_DIR/rules/$subdir"
     if [ -d "$SUBDIR_PATH" ]; then
@@ -105,7 +99,6 @@ echo "INFO: Custom index file created at $CUSTOM_INDEX_FILE"
 # --- Step 9: Set Up Yara Integration on the Local Agent ---
 echo "INFO: Copying the yara.sh active response script..."
 cp wazuh-yara/scripts/yara.sh /var/ossec/active-response/bin/
-
 echo "INFO: Modifying yara.sh to use the new custom-built ruleset..."
 sed -i "s|YARA_RULES=\"/var/ossec/etc/rules\"|YARA_RULES=\"$CUSTOM_INDEX_FILE\"|" /var/ossec/active-response/bin/yara.sh
 
@@ -116,26 +109,41 @@ chmod 750 /var/ossec/active-response/bin/yara.sh
 chown -R root:wazuh "$YARA_RULES_DIR"
 chmod -R 750 "$YARA_RULES_DIR"
 
-# --- Step 11: Configure the Local Agent for Yara (Robust Method) ---
-echo "INFO: Configuring the local agent (ossec.conf) for Yara active response..."
-if ! grep -q "<name>yara</name>" /var/ossec/etc/ossec.conf; then
-  AR_BLOCK_FILE=$(mktemp)
-  cat > "$AR_BLOCK_FILE" << 'EOF'
-  <!-- Yara Integration -->
-  <command><name>yara</name><executable>yara.sh</executable><expect>filename</expect><timeout_allowed>yes</timeout_allowed></command>
-  <active-response><command>yara</command><location>local</location><rules_id>550,554</rules_id></active-response>
-EOF
-  sed -i -e "/^<\/ossec_config>/r $AR_BLOCK_FILE" /var/ossec/etc/ossec.conf
-  rm "$AR_BLOCK_FILE"
+# --- Step 11: Configure Local Agent for Yara (Safe Edit & Verify) ---
+OSSEC_CONF="/var/ossec/etc/ossec.conf"
+if ! grep -q "<name>yara</name>" "$OSSEC_CONF"; then
+    echo "INFO: Configuring local agent for Yara active response..."
+    # Create a backup before editing
+    cp "$OSSEC_CONF" "$OSSEC_CONF.bak"
+    echo "INFO: Backup of ossec.conf created at $OSSEC_CONF.bak"
+
+    # Prepare the configuration block to be inserted
+    AR_BLOCK_CONTENT="<!-- Yara Integration -->\n  <command>\n    <name>yara</name>\n    <executable>yara.sh</executable>\n    <expect>filename</expect>\n    <timeout_allowed>yes</timeout_allowed>\n  </command>\n  <active-response>\n    <command>yara</command>\n    <location>local</location>\n    <rules_id>550,554</rules_id>\n  </active-response>"
+
+    # Insert the block after the default active-response section
+    sed -i "/^  <\/active-response>/a $AR_BLOCK_CONTENT" "$OSSEC_CONF"
+    echo "INFO: ossec.conf has been modified."
+
+    # --- Step 12: Verify Configuration and Rollback on Failure ---
+    echo "INFO: Verifying configuration with ossec-control..."
+    if ! /var/ossec/bin/ossec-control check; then
+        echo "❌ ERROR: ossec.conf verification failed! The configuration is invalid." >&2
+        echo "INFO: Rolling back to the original configuration." >&2
+        mv "$OSSEC_CONF.bak" "$OSSEC_CONF"
+        exit 1
+    fi
+    echo "INFO: Configuration verified successfully."
+else
+    echo "INFO: Yara active response is already configured. Skipping modification."
 fi
 
-# --- Step 12: Enable and Restart the Wazuh Manager ---
+# --- Step 13: Enable and Restart the Wazuh Manager ---
 echo "INFO: Enabling and restarting the Wazuh manager service..."
 systemctl daemon-reload
 systemctl enable wazuh-manager
 systemctl restart wazuh-manager
 
-# --- Step 13: Final Verification ---
+# --- Step 14: Final Verification ---
 echo "INFO: Verifying Wazuh Manager service status..."
 sleep 5
 if systemctl is-active --quiet wazuh-manager; then
