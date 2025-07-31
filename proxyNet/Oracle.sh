@@ -56,11 +56,11 @@ dnf install -y wazuh-manager
 
 # --- Step 5: Install YARA Manager Components ---
 echo "INFO: Deploying YARA decoders and rules for the manager..."
-TMP_DIR=$(mktemp -d)
+TMP_DIR="/tmp/wazuh-yara/"
 echo "INFO: Cloning repository from $ADORSYS_YARA_REPO_URL into $TMP_DIR..."
 
 # --- FIX: Add robust error handling for the git clone command ---
-if ! git clone --depth 1 "$ADORSYS_YARA_REPO_URL" "$TMP_DIR"; then
+if ! git clone --depth 1 "$ADORSYS_YARA_REPO_URL" /tmp; then
     echo "❌ ERROR: Failed to clone the repository from $ADORSYS_YARA_REPO_URL." >&2
     echo "Please check your server's network connection and firewall rules." >&2
     echo "Ensure that it can reach github.com on port 443." >&2
@@ -70,7 +70,7 @@ if ! git clone --depth 1 "$ADORSYS_YARA_REPO_URL" "$TMP_DIR"; then
 fi
 
 # Add a secondary check to ensure the cloned directory is not empty
-if [ -z "$(ls -A "$TMP_DIR")" ]; then
+if [ -z "$(ls -A "/tmp" ]; then
     echo "❌ ERROR: The cloned repository directory at $TMP_DIR is empty." >&2
     echo "This might indicate a problem with the git clone process or the repository itself." >&2
     rm -rf "$TMP_DIR"
