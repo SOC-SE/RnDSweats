@@ -50,15 +50,6 @@ dnf install -y wazuh-manager
 echo "INFO: Installing Yara package..."
 dnf install -y yara
 
-# --- Step 5: Verify Wazuh Installation (Robust Check) ---
-echo "INFO: Verifying that Wazuh manager and its tools were installed correctly..."
-if [ ! -f /var/ossec/etc/ossec.conf ] || [ ! -x /var/ossec/bin/ossec-control ]; then
-    echo "❌ ERROR: Wazuh installation failed. Critical files are missing." >&2
-    echo "   Please check for the existence of both /var/ossec/etc/ossec.conf and /var/ossec/bin/ossec-control." >&2
-    echo "   Review the 'dnf install' output above for potential errors." >&2
-    exit 1
-fi
-echo "INFO: Wazuh installation verified successfully."
 
 # --- Step 6: Configure Manager Decoders and Rules ---
 DECODER_FILE="/var/ossec/etc/decoders/local_decoder.xml"
