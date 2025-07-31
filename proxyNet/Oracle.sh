@@ -1,12 +1,11 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_and_agent_with_yara_final_v3.sh
+# setup_wazuh_manager_and_agent_with_yara_final_v4.sh
 #
-# Final Version 3:
-# - Implements a safe-editing and verification process for ossec.conf.
-# - Backs up ossec.conf before modification.
-# - Uses Wazuh's own tools to verify the configuration before restarting.
-# - Automatically rolls back to the backup if verification fails.
+# Final Version 4:
+# - Adds a more robust verification step after installation to ensure that
+#   both the ossec.conf file and the ossec-control binary exist before
+#   proceeding with any configuration.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -49,13 +48,15 @@ rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
 echo "INFO: Installing wazuh-manager package..."
 dnf install -y wazuh-manager
 
-# --- Step 5: Verify Wazuh Installation ---
-echo "INFO: Verifying that Wazuh manager was installed correctly..."
-if [ ! -f /var/ossec/etc/ossec.conf ]; then
-    echo "❌ ERROR: Wazuh installation failed. The configuration file /var/ossec/etc/ossec.conf was not found." >&2
+# --- Step 5: Verify Wazuh Installation (Robust Check) ---
+echo "INFO: Verifying that Wazuh manager and its tools were installed correctly..."
+if [ ! -f /var/ossec/etc/ossec.conf ] || [ ! -x /var/ossec/bin/ossec-control ]; then
+    echo "❌ ERROR: Wazuh installation failed. Critical files are missing." >&2
+    echo "   Please check for the existence of both /var/ossec/etc/ossec.conf and /var/ossec/bin/ossec-control." >&2
+    echo "   Review the 'dnf install' output above for potential errors." >&2
     exit 1
 fi
-echo "INFO: Wazuh installation verified."
+echo "INFO: Wazuh installation verified successfully."
 
 # --- Step 6: Configure Manager Decoders and Rules ---
 DECODER_FILE="/var/ossec/etc/decoders/local_decoder.xml"
@@ -113,14 +114,9 @@ chmod -R 750 "$YARA_RULES_DIR"
 OSSEC_CONF="/var/ossec/etc/ossec.conf"
 if ! grep -q "<name>yara</name>" "$OSSEC_CONF"; then
     echo "INFO: Configuring local agent for Yara active response..."
-    # Create a backup before editing
     cp "$OSSEC_CONF" "$OSSEC_CONF.bak"
     echo "INFO: Backup of ossec.conf created at $OSSEC_CONF.bak"
-
-    # Prepare the configuration block to be inserted
     AR_BLOCK_CONTENT="<!-- Yara Integration -->\n  <command>\n    <name>yara</name>\n    <executable>yara.sh</executable>\n    <expect>filename</expect>\n    <timeout_allowed>yes</timeout_allowed>\n  </command>\n  <active-response>\n    <command>yara</command>\n    <location>local</location>\n    <rules_id>550,554</rules_id>\n  </active-response>"
-
-    # Insert the block after the default active-response section
     sed -i "/^  <\/active-response>/a $AR_BLOCK_CONTENT" "$OSSEC_CONF"
     echo "INFO: ossec.conf has been modified."
 
