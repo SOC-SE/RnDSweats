@@ -57,10 +57,26 @@ dnf install -y wazuh-manager
 # --- Step 5: Install YARA Manager Components ---
 echo "INFO: Deploying YARA decoders and rules for the manager..."
 TMP_DIR=$(mktemp -d)
-echo "INFO: Cloning repository from $ADORSYS_YARA_REPO_URL..."
-git clone --depth 1 "$ADORSYS_YARA_REPO_URL" "$TMP_DIR"
+echo "INFO: Cloning repository from $ADORSYS_YARA_REPO_URL into $TMP_DIR..."
 
-# --- FIX: Dynamically find files to be resilient to path changes in the repo ---
+# --- FIX: Add robust error handling for the git clone command ---
+if ! git clone --depth 1 "$ADORSYS_YARA_REPO_URL" "$TMP_DIR"; then
+    echo "❌ ERROR: Failed to clone the repository from $ADORSYS_YARA_REPO_URL." >&2
+    echo "Please check your server's network connection and firewall rules." >&2
+    echo "Ensure that it can reach github.com on port 443." >&2
+    echo "You can test connectivity with: curl -v https://github.com" >&2
+    rm -rf "$TMP_DIR"
+    exit 1
+fi
+
+# Add a secondary check to ensure the cloned directory is not empty
+if [ -z "$(ls -A "$TMP_DIR")" ]; then
+    echo "❌ ERROR: The cloned repository directory at $TMP_DIR is empty." >&2
+    echo "This might indicate a problem with the git clone process or the repository itself." >&2
+    rm -rf "$TMP_DIR"
+    exit 1
+fi
+
 echo "INFO: Locating YARA manager files within the cloned repository..."
 YARA_DECODER_SRC=$(find "$TMP_DIR" -type f -name "yara_decoders.xml")
 YARA_RULE_SRC=$(find "$TMP_DIR" -type f -name "yara_rules.xml")
