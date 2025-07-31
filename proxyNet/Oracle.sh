@@ -1,9 +1,12 @@
 #!/bin/bash
 # ==============================================================================
-# setup_wazuh_manager_and_agent_with_yara_v4.sh
+# setup_wazuh_manager_and_agent_with_targeted_yara_rules.sh
 #
-# v4: Corrects the path to the index.yar file within the bartblaze repository
-#     to resolve the "file not found" error during verification.
+# Final Targeted Version:
+# - Correctly uses the bartblaze/Yara-rules repository.
+# - Builds a custom master index file by specifically targeting the rules
+#   within the /hacktools/, /generic/, /crimeware/, and /APT/ subdirectories
+#   as requested.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -13,6 +16,10 @@ set -u
 
 # --- Configuration ---
 YARA_RULES_DIR="/var/ossec/etc/yara-rules"
+# This will be the name of our custom-built master index file
+CUSTOM_INDEX_FILE="$YARA_RULES_DIR/wazuh_master_rules.yar"
+# Define the specific subdirectories to get rules from
+declare -a RULE_SUBDIRS=("hacktools" "generic" "crimeware" "APT") # Using "crimeware" as per the repo structure
 
 # --- Script Validation ---
 if [ "$(id -u)" -ne 0 ]; then
@@ -69,26 +76,38 @@ EOF
 echo "INFO: Cloning the wazuh-yara integration script..."
 git clone https://github.com/ADORSYS-GIS/wazuh-yara.git
 
-echo "INFO: Cloning the correct Yara rules repository from bartblaze..."
+echo "INFO: Cloning the Yara rules repository from bartblaze..."
 git clone https://github.com/bartblaze/Yara-rules.git "$YARA_RULES_DIR"
 
-# --- Step 8: Verify Rule Download ---
-echo "INFO: Verifying that Yara rules were downloaded..."
-# This check is now more specific to the actual file path.
-if [ ! -f "$YARA_RULES_DIR/rules/index.yar" ]; then
-    echo "❌ ERROR: Cloning the Yara rules repository failed or the index file is missing." >&2
-    echo "   Checked for: $YARA_RULES_DIR/rules/index.yar" >&2
+# --- Step 8: Verify Rule Download and Create Targeted Index ---
+echo "INFO: Verifying that Yara rules directory was downloaded..."
+if [ ! -d "$YARA_RULES_DIR/rules" ]; then
+    echo "❌ ERROR: Cloning the Yara rules repository failed. The 'rules' subdirectory was not found." >&2
     exit 1
 fi
-echo "INFO: Yara rules successfully downloaded."
+echo "INFO: Yara rules directory successfully downloaded. Creating a custom master index file from specific subdirectories..."
+
+# Create/clear the custom index file
+> "$CUSTOM_INDEX_FILE"
+
+# Loop through the specified subdirectories and add their rules to the master index
+for subdir in "${RULE_SUBDIRS[@]}"; do
+    SUBDIR_PATH="$YARA_RULES_DIR/rules/$subdir"
+    if [ -d "$SUBDIR_PATH" ]; then
+        echo "INFO: Processing rules in '$subdir'..."
+        find "$SUBDIR_PATH" -type f -name "*.yar" -printf 'include "%p"\n' >> "$CUSTOM_INDEX_FILE"
+    else
+        echo "WARNING: Subdirectory '$subdir' not found in the repository. Skipping."
+    fi
+done
+echo "INFO: Custom index file created at $CUSTOM_INDEX_FILE"
 
 # --- Step 9: Set Up Yara Integration on the Local Agent ---
 echo "INFO: Copying the yara.sh active response script..."
 cp wazuh-yara/scripts/yara.sh /var/ossec/active-response/bin/
 
-echo "INFO: Modifying yara.sh to use the new custom ruleset..."
-# The path to the index file is now correct.
-sed -i "s|YARA_RULES=\"/var/ossec/etc/rules\"|YARA_RULES=\"$YARA_RULES_DIR/rules/index.yar\"|" /var/ossec/active-response/bin/yara.sh
+echo "INFO: Modifying yara.sh to use the new custom-built ruleset..."
+sed -i "s|YARA_RULES=\"/var/ossec/etc/rules\"|YARA_RULES=\"$CUSTOM_INDEX_FILE\"|" /var/ossec/active-response/bin/yara.sh
 
 # --- Step 10: Set Permissions ---
 echo "INFO: Setting correct file permissions for active response..."
@@ -122,7 +141,7 @@ sleep 5
 if systemctl is-active --quiet wazuh-manager; then
   echo -e "\n========================= ✅ SUCCESS ✅ ========================="
   echo "Wazuh Manager is installed and running."
-  echo "The local agent is now protected with the bartblaze Yara ruleset."
+  echo "The local agent is now protected with the targeted Yara ruleset."
   echo "================================================================"
 else
   echo -e "\n❌ ERROR: Wazuh Manager service failed to start. Please check logs." >&2
