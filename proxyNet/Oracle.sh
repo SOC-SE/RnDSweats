@@ -3,7 +3,7 @@
 # setup_wazuh_manager_with_yara.sh
 #
 # Configures a server (designed for Oracle Linux 9, but adaptable) to install
-# the Wazuh Manager and the required components for the ADORSYS-GIS YARA
+# the Wazuh Manager 
 # integration. This script ensures the manager can correctly interpret
 # alerts from agents running the yara.sh active response.
 #
@@ -15,8 +15,7 @@ set -e
 set -u
 
 # --- Configuration ---
-# Repository for the Wazuh-YARA integration scripts, rules, and decoders.
-ADORSYS_YARA_REPO_URL="https://github.com/ADORSYS-GIS/wazuh-yara"
+
 
 
 # --- Script Validation ---
