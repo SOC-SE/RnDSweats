@@ -2,11 +2,9 @@
 # ==============================================================================
 # setup_wazuh_manager_with_yara_v3.sh
 #
-# v3: Fixes an issue where parent directories for config files might not
-#     exist immediately after installation.
-#
 # Configures a server (designed for Oracle Linux 9) to install the Wazuh Manager
 # and configures it for Yara integration.
+#
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status.
@@ -51,11 +49,8 @@ DECODER_FILE="$DECODER_DIR/local_decoder.xml"
 RULES_FILE="$RULES_DIR/local_rules.xml"
 
 echo "INFO: Ensuring local config directories and files exist..."
-# Create the parent directories if they don't exist.
 mkdir -p "$DECODER_DIR"
 mkdir -p "$RULES_DIR"
-
-# Create the files if they don't exist.
 touch "$DECODER_FILE"
 touch "$RULES_FILE"
 
