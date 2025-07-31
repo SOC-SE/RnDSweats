@@ -60,7 +60,7 @@ TMP_DIR="/tmp/wazuh-yara"
 echo "INFO: Cloning repository from $ADORSYS_YARA_REPO_URL into $TMP_DIR..."
 
 # --- FIX: Add robust error handling for the git clone command ---
-if ! git clone --depth 1 "$ADORSYS_YARA_REPO_URL" "/tmp"; then
+if ! git clone --depth 1 "$ADORSYS_YARA_REPO_URL" "/tmp/"; then
     echo "❌ ERROR: Failed to clone the repository from $ADORSYS_YARA_REPO_URL." >&2
     echo "Please check your server's network connection and firewall rules." >&2
     echo "Ensure that it can reach github.com on port 443." >&2
