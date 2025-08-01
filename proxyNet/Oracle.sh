@@ -155,7 +155,8 @@ EOF
 
     # Add CDB list to ossec.conf
     if ! xmlstarlet sel -t -c "//ruleset/list[text()='etc/lists/suspicious-programs']" "$WMANAGER_CONF" >/dev/null; then
-        xmlstarlet ed --inplace --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" "$WMANAGER_CONF"
+        xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" "$WMANAGER_CONF" > "${WMANAGER_CONF}.tmp" \
+        && mv "${WMANAGER_CONF}.tmp" "$WMANAGER_CONF"
         check_success
         info "✔ OK: Added suspicious-programs list to manager ruleset."
     else
@@ -164,10 +165,11 @@ EOF
 
     # Add quarantine command to ossec.conf
     if ! xmlstarlet sel -t -c "//command[name='quarantine-host']" "$WMANAGER_CONF" >/dev/null; then
-        xmlstarlet ed --inplace --subnode "/ossec_config" --type elem -n "command" \
+        xmlstarlet ed --subnode "/ossec_config" --type elem -n "command" \
             -s "//command[last()]" --type elem -n "name" -v "quarantine-host" \
             -s "//command[last()]" --type elem -n "executable" -v "quarantine.sh" \
-            -s "//command[last()]" --type elem -n "timeout_allowed" -v "no" "$WMANAGER_CONF"
+            -s "//command[last()]" --type elem -n "timeout_allowed" -v "no" "$WMANAGER_CONF" > "${WMANAGER_CONF}.tmp" \
+            && mv "${WMANAGER_CONF}.tmp" "$WMANAGER_CONF"
         check_success
         info "✔ OK: Defined 'quarantine-host' active response command."
     else
@@ -176,10 +178,11 @@ EOF
 
     # Add active response trigger to ossec.conf
     if ! xmlstarlet sel -t -c "//active-response[command='quarantine-host']" "$WMANAGER_CONF" >/dev/null; then
-        xmlstarlet ed --inplace --subnode "/ossec_config" --type elem -n "active-response" \
+        xmlstarlet ed --subnode "/ossec_config" --type elem -n "active-response" \
             -s "//active-response[last()]" --type elem -n "command" -v "quarantine-host" \
             -s "//active-response[last()]" --type elem -n "location" -v "local" \
-            -s "//active-response[last()]" --type elem -n "rules_id" -v "110000" "$WMANAGER_CONF"
+            -s "//active-response[last()]" --type elem -n "rules_id" -v "110000" "$WMANAGER_CONF" > "${WMANAGER_CONF}.tmp" \
+            && mv "${WMANAGER_CONF}.tmp" "$WMANAGER_CONF"
         check_success
         info "✔ OK: Configured active response to trigger host quarantine on rule 110000."
     else
@@ -221,15 +224,6 @@ EOF
 # Section 4: Operationalization
 section_four_operationalize() {
     info "--- Starting Section 4: Operationalization ---"
-
-    info "Cleaning up ossec.conf to prevent potential parsing errors..."
-    # This sed command finds the line with the closing </ossec_config> tag,
-    # processes it, and then quits. This effectively removes any extraneous
-    # lines or content that may have been added after the closing XML tag,
-    # which is a known cause of parsing failures.
-    sed -i '/<\/ossec_config>/q' "$WMANAGER_CONF"
-    check_success
-    info "✔ OK: Configuration file cleanup complete."
 
     info "Applying all configurations by restarting the Wazuh manager..."
     systemctl restart wazuh-manager
