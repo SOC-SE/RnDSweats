@@ -103,49 +103,34 @@ section_two_base_config() {
     info "--- Section 2 (Base Configuration) is complete. ---"
 }
 
-# NEW FUNCTION: Atomically updates the ossec.conf file to prevent corruption
+# REFACTORED FUNCTION: Atomically updates the ossec.conf file.
+# This version chains all edits and assumes it's run on a clean config.
 update_ossec_conf() {
     info "Atomically updating manager configuration..."
     local original_conf
     original_conf=$(cat "$WMANAGER_CONF")
     check_success
 
-    local modified_conf="$original_conf"
-
-    # Check and add CDB list if it doesn't exist
-    if ! echo "$modified_conf" | xmlstarlet sel -t -c "//ruleset/list[text()='etc/lists/suspicious-programs']" >/dev/null; then
-        modified_conf=$(echo "$modified_conf" | xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs")
-        info "✔ OK: Added suspicious-programs list to manager ruleset."
-    else
-        warn "Suspicious programs list already configured in manager ruleset. Skipping."
-    fi
-
-    # Check and add quarantine command if it doesn't exist
-    if ! echo "$modified_conf" | xmlstarlet sel -t -c "//command[name='quarantine-host']" >/dev/null; then
-        modified_conf=$(echo "$modified_conf" | xmlstarlet ed --subnode "/ossec_config" --type elem -n "command" \
+    # Chain all xmlstarlet edits together for efficiency.
+    # This assumes the script is run once; running it again would create duplicate entries.
+    local modified_conf
+    modified_conf=$(echo "$original_conf" | \
+        xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" | \
+        xmlstarlet ed --subnode "/ossec_config" --type elem -n "command" \
             -s "//command[last()]" --type elem -n "name" -v "quarantine-host" \
             -s "//command[last()]" --type elem -n "executable" -v "quarantine.sh" \
-            -s "//command[last()]" --type elem -n "timeout_allowed" -v "no")
-        info "✔ OK: Defined 'quarantine-host' active response command."
-    else
-        warn "'quarantine-host' command already defined. Skipping."
-    fi
-
-    # Check and add active response trigger if it doesn't exist
-    if ! echo "$modified_conf" | xmlstarlet sel -t -c "//active-response[command='quarantine-host']" >/dev/null; then
-        modified_conf=$(echo "$modified_conf" | xmlstarlet ed --subnode "/ossec_config" --type elem -n "active-response" \
+            -s "//command[last()]" --type elem -n "timeout_allowed" -v "no" | \
+        xmlstarlet ed --subnode "/ossec_config" --type elem -n "active-response" \
             -s "//active-response[last()]" --type elem -n "command" -v "quarantine-host" \
             -s "//active-response[last()]" --type elem -n "location" -v "local" \
-            -s "//active-response[last()]" --type elem -n "rules_id" -v "110000")
-        info "✔ OK: Configured active response to trigger host quarantine on rule 110000."
-    else
-        warn "Host quarantine active response already configured. Skipping."
-    fi
+            -s "//active-response[last()]" --type elem -n "rules_id" -v "110000"
+    )
+    check_success
 
     # Write the final, modified content back to the file without a trailing newline
     printf "%s" "$modified_conf" > "$WMANAGER_CONF"
     check_success
-    info "✔ OK: Manager configuration updated successfully."
+    info "✔ OK: Manager configuration staging complete."
 }
 
 
@@ -200,7 +185,6 @@ EOF
 
     # Add custom rules to local_rules.xml
     info "Adding custom rules for suspicious command execution and ransomware correlation..."
-    # The rule logic is based on the examples and descriptions in the enhancement guide.
     cat >> "$LOCAL_RULES" <<EOF
 
 <group name="audit, suspicious_command,">
@@ -227,6 +211,13 @@ EOF
 EOF
     check_success
     info "✔ OK: Custom rules added to $LOCAL_RULES."
+
+    # NEW: Validate all configurations before proceeding
+    info "Validating all Wazuh configuration files..."
+    /var/ossec/bin/wazuh-analysisd -t
+    check_success
+    info "✔ OK: All configurations are valid."
+
     info "--- Section 3 (Advanced EDR Enhancements) is complete. ---"
 }
 
