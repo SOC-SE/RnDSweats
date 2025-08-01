@@ -204,7 +204,9 @@ EOF
 
 <group name="ransomware, correlation,">
   <rule id="110000" level="15" timeframe="120">
-    <if_matched_sid>100102</if_matched_sid> <if_matched_sid>100150</if_matched_sid> <description>Ransomware Attack Pattern Correlated. Multiple TTPs detected. Triggering host isolation.</description>
+    <if_matched_sid>100102</if_matched_sid>
+    <if_matched_sid>100150</if_matched_sid>
+    <description>Ransomware Attack Pattern Correlated. Multiple TTPs detected. Triggering host isolation.</description>
     <mitre>
       <id>T1486</id>
     </mitre>
@@ -219,6 +221,15 @@ EOF
 # Section 4: Operationalization
 section_four_operationalize() {
     info "--- Starting Section 4: Operationalization ---"
+
+    info "Cleaning up ossec.conf to prevent potential parsing errors..."
+    # This sed command finds the line with the closing </ossec_config> tag,
+    # processes it, and then quits. This effectively removes any extraneous
+    # lines or content that may have been added after the closing XML tag,
+    # which is a known cause of parsing failures.
+    sed -i '/<\/ossec_config>/q' "$WMANAGER_CONF"
+    check_success
+    info "✔ OK: Configuration file cleanup complete."
 
     info "Applying all configurations by restarting the Wazuh manager..."
     systemctl restart wazuh-manager
