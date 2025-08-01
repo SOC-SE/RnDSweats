@@ -103,6 +103,52 @@ section_two_base_config() {
     info "--- Section 2 (Base Configuration) is complete. ---"
 }
 
+# NEW FUNCTION: Atomically updates the ossec.conf file to prevent corruption
+update_ossec_conf() {
+    info "Atomically updating manager configuration..."
+    local original_conf
+    original_conf=$(cat "$WMANAGER_CONF")
+    check_success
+
+    local modified_conf="$original_conf"
+
+    # Check and add CDB list if it doesn't exist
+    if ! echo "$modified_conf" | xmlstarlet sel -t -c "//ruleset/list[text()='etc/lists/suspicious-programs']" >/dev/null; then
+        modified_conf=$(echo "$modified_conf" | xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs")
+        info "✔ OK: Added suspicious-programs list to manager ruleset."
+    else
+        warn "Suspicious programs list already configured in manager ruleset. Skipping."
+    fi
+
+    # Check and add quarantine command if it doesn't exist
+    if ! echo "$modified_conf" | xmlstarlet sel -t -c "//command[name='quarantine-host']" >/dev/null; then
+        modified_conf=$(echo "$modified_conf" | xmlstarlet ed --subnode "/ossec_config" --type elem -n "command" \
+            -s "//command[last()]" --type elem -n "name" -v "quarantine-host" \
+            -s "//command[last()]" --type elem -n "executable" -v "quarantine.sh" \
+            -s "//command[last()]" --type elem -n "timeout_allowed" -v "no")
+        info "✔ OK: Defined 'quarantine-host' active response command."
+    else
+        warn "'quarantine-host' command already defined. Skipping."
+    fi
+
+    # Check and add active response trigger if it doesn't exist
+    if ! echo "$modified_conf" | xmlstarlet sel -t -c "//active-response[command='quarantine-host']" >/dev/null; then
+        modified_conf=$(echo "$modified_conf" | xmlstarlet ed --subnode "/ossec_config" --type elem -n "active-response" \
+            -s "//active-response[last()]" --type elem -n "command" -v "quarantine-host" \
+            -s "//active-response[last()]" --type elem -n "location" -v "local" \
+            -s "//active-response[last()]" --type elem -n "rules_id" -v "110000")
+        info "✔ OK: Configured active response to trigger host quarantine on rule 110000."
+    else
+        warn "Host quarantine active response already configured. Skipping."
+    fi
+
+    # Write the final, modified content back to the file without a trailing newline
+    printf "%s" "$modified_conf" > "$WMANAGER_CONF"
+    check_success
+    info "✔ OK: Manager configuration updated successfully."
+}
+
+
 # Section 3: Advanced EDR Enhancements
 section_three_advanced_edr() {
     info "--- Starting Section 3: Advanced EDR Enhancements ---"
@@ -145,49 +191,12 @@ tcpdump:
 socat:
 EOF
     check_success
-    # **FIX:** Set correct ownership for the CDB list to the 'wazuh' user and group
     chown wazuh:wazuh /var/ossec/etc/lists/suspicious-programs
     check_success
     info "✔ OK: CDB list '/var/ossec/etc/lists/suspicious-programs' created."
 
     # Configure manager to use CDB list and set up Active Response
-    info "Configuring manager to use CDB list and Active Response..."
-
-    # Add CDB list to ossec.conf
-    if ! xmlstarlet sel -t -c "//ruleset/list[text()='etc/lists/suspicious-programs']" "$WMANAGER_CONF" >/dev/null; then
-        xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" "$WMANAGER_CONF" > "${WMANAGER_CONF}.tmp" \
-        && mv "${WMANAGER_CONF}.tmp" "$WMANAGER_CONF"
-        check_success
-        info "✔ OK: Added suspicious-programs list to manager ruleset."
-    else
-        warn "Suspicious programs list already configured in manager ruleset. Skipping."
-    fi
-
-    # Add quarantine command to ossec.conf
-    if ! xmlstarlet sel -t -c "//command[name='quarantine-host']" "$WMANAGER_CONF" >/dev/null; then
-        xmlstarlet ed --subnode "/ossec_config" --type elem -n "command" \
-            -s "//command[last()]" --type elem -n "name" -v "quarantine-host" \
-            -s "//command[last()]" --type elem -n "executable" -v "quarantine.sh" \
-            -s "//command[last()]" --type elem -n "timeout_allowed" -v "no" "$WMANAGER_CONF" > "${WMANAGER_CONF}.tmp" \
-            && mv "${WMANAGER_CONF}.tmp" "$WMANAGER_CONF"
-        check_success
-        info "✔ OK: Defined 'quarantine-host' active response command."
-    else
-        warn "'quarantine-host' command already defined. Skipping."
-    fi
-
-    # Add active response trigger to ossec.conf
-    if ! xmlstarlet sel -t -c "//active-response[command='quarantine-host']" "$WMANAGER_CONF" >/dev/null; then
-        xmlstarlet ed --subnode "/ossec_config" --type elem -n "active-response" \
-            -s "//active-response[last()]" --type elem -n "command" -v "quarantine-host" \
-            -s "//active-response[last()]" --type elem -n "location" -v "local" \
-            -s "//active-response[last()]" --type elem -n "rules_id" -v "110000" "$WMANAGER_CONF" > "${WMANAGER_CONF}.tmp" \
-            && mv "${WMANAGER_CONF}.tmp" "$WMANAGER_CONF"
-        check_success
-        info "✔ OK: Configured active response to trigger host quarantine on rule 110000."
-    else
-        warn "Host quarantine active response already configured. Skipping."
-    fi
+    update_ossec_conf
 
     # Add custom rules to local_rules.xml
     info "Adding custom rules for suspicious command execution and ransomware correlation..."
