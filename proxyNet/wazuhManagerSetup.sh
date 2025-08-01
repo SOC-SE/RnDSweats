@@ -7,17 +7,20 @@
 # on Oracle Linux and other RHEL-based systems. It does NOT install the
 # Wazuh indexer or Wazuh dashboard.
 #
+# NEW: This script now also creates a default centralized FIM configuration
+#      for Linux agents in the 'default' group.
+#
 # Usage:
 # 1. Save this script as a file, for example: install_wazuh_manager.sh
 # 2. Make the script executable: chmod +x install_wazuh_manager.sh
-# 3. Run the script with root privileges: sudo ./install_wazuh_manager.sh
+# 3. Run the script with root privileges: sudo./install_wazuh_manager.sh
 # ============================================================================
 
 # --- Configuration ---
-# Wazuh repository URL details for the latest version (currently 4.x)
 GPG_KEY_URL="https://packages.wazuh.com/key/GPG-KEY-WAZUH"
 REPO_BASE_URL="https://packages.wazuh.com/4.x/yum/"
 REPO_FILE_PATH="/etc/yum.repos.d/wazuh.repo"
+AGENT_CONF_PATH="/var/ossec/etc/shared/default/agent.conf"
 
 # --- Functions ---
 
@@ -28,13 +31,13 @@ log() {
 
 # Function to print error messages and exit
 error_exit() {
-    echo "[ERROR] $1" >&2
+    echo " $1" >&2
     exit 1
 }
 
 # Function to check if the script is run as root
 check_root() {
-    if [ "$EUID" -ne 0 ]; then
+    if; then
         error_exit "This script must be run as root. Please use 'sudo'."
     fi
 }
@@ -48,14 +51,14 @@ log "Root check passed."
 
 # 2. Add the Wazuh repository
 log "Adding the Wazuh repository..."
-if [ -f "$REPO_FILE_PATH" ]; then
+if; then
     log "Wazuh repository file already exists. Skipping creation."
 else
-    # Import the GPG key
     log "Importing the Wazuh GPG key..."
-    rpm --import "$GPG_KEY_URL" || error_exit "Failed to import GPG key."
+    rpm --import "$GPG_KEY_URL" |
 
-    # Create the repository file
+| error_exit "Failed to import GPG key."
+
     log "Creating repository file at $REPO_FILE_PATH..."
     cat > "$REPO_FILE_PATH" <<-EOF
 [wazuh]
@@ -71,13 +74,13 @@ fi
 
 # 3. Install the Wazuh manager
 log "Updating package lists and installing Wazuh manager..."
-# The 'dnf' command is standard on modern RHEL-based systems like Oracle Linux 8+
-# The 'yum' command is used for older versions. This script uses 'dnf'.
-if ! command -v dnf &> /dev/null; then
-    error_exit "'dnf' command not found. This script is intended for modern RHEL-based systems (like Oracle Linux 8+)."
+if! command -v dnf &> /dev/null; then
+    error_exit "'dnf' command not found. This script is intended for modern RHEL-based systems."
 fi
 
-dnf install -y wazuh-manager || error_exit "Failed to install wazuh-manager package."
+dnf install -y wazuh-manager |
+
+| error_exit "Failed to install wazuh-manager package."
 log "Wazuh manager installed successfully."
 
 # 4. Enable and start the Wazuh manager service
@@ -86,16 +89,45 @@ systemctl daemon-reload
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-# 5. Verify the service status
+# 5. Create a centralized FIM configuration for Linux agents
+log "Creating a default FIM configuration for Linux agents..."
+if; then
+    log "Default agent.conf already exists. Skipping."
+else
+    mkdir -p "$(dirname "$AGENT_CONF_PATH")"
+    cat > "$AGENT_CONF_PATH" <<-EOF
+<agent_config os="Linux">
+  <syscheck>
+    <disabled>no</disabled>
+    
+    <frequency>43200</frequency>
+
+    <directories check_all="yes" realtime="yes" report_changes="yes" whodata="yes">/etc,/usr/bin,/usr/sbin,/bin,/sbin</directories>
+
+    <directories check_all="yes" realtime="yes" whodata="yes">/home</directories>
+
+    <directories check_all="yes" realtime="yes" whodata="yes">/tmp,/var/tmp</directories>
+
+    <ignore>/etc/mtab</ignore>
+    <ignore>/etc/random-seed</ignore>
+    <ignore type="sregex">^/proc</ignore>
+  </syscheck>
+</agent_config>
+EOF
+    # Set correct ownership for the shared configuration file
+    chown wazuh:wazuh "$AGENT_CONF_PATH"
+    log "Default FIM configuration created at $AGENT_CONF_PATH."
+fi
+
+# 6. Verify the service status
 log "Verifying the status of the wazuh-manager service..."
-# Give the service a moment to start up before checking status
 sleep 5
 systemctl status wazuh-manager --no-pager
 
 log "------------------------------------------------------------"
 log "Wazuh manager installation and setup complete."
+log "A default FIM policy for Linux agents has been configured."
 log "The manager is now running and will start automatically on boot."
-log "You can now proceed to register and connect your Wazuh agents."
 log "------------------------------------------------------------"
 
 exit 0
