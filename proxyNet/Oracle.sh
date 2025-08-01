@@ -4,6 +4,8 @@
 # Wazuh Manager Deployment Script for Collegiate Cyber Defense Competition
 #
 # Target OS: Oracle Linux 9.2
+# Documents: 2025MWCCDCQTeamPack (1) (2).pdf
+#            Wazuh EDR Enhancement Strategies_.pdf
 #
 # This script automates the deployment and hardening of a Wazuh manager
 # tailored for a CCDC environment.
@@ -47,6 +49,7 @@ check_success() {
 section_one_install() {
     info "--- Starting Section 1: Automated Installation ---"
 
+    # Check for root privileges
     if [ "$EUID" -ne 0 ]; then
         error "This script must be run as root."
     fi
@@ -64,11 +67,15 @@ EOF
     check_success
 
     info "Installing Wazuh manager and dependencies. This may take a few minutes..."
-    dnf install -y wazuh-manager; check_success
+    # As per the prompt, we only install the manager. The indexer and dashboard are excluded.
+    # xmlstarlet is a dependency for safely editing config files in Section 3.
+    dnf install -y wazuh-manager xmlstarlet
+    check_success
 
     info "Enabling the wazuh-manager service to start on boot..."
-    systemctl daemon-reload; check_success
-    systemctl enable wazuh-manager; check_success
+    systemctl daemon-reload
+    systemctl enable wazuh-manager
+    check_success
 
     info "Wazuh manager installation is complete."
     info "--- Section 1 (Automated Installation) is complete. ---"
@@ -77,14 +84,22 @@ EOF
 # Section 2: Base Configuration for Agent Communication
 section_two_base_config() {
     info "--- Starting Section 2: Base Configuration ---"
-    info "Verifying agent communication settings..."
 
+    info "Verifying agent communication settings..."
+    info "The default Wazuh manager installation is already configured to listen for agents securely."
+    info "Key settings in $WMANAGER_CONF are verified as follows:"
+
+    # The Wazuh agent communicates with the server over a secure, encrypted channel on TCP port 1514 by default.
+    # This aligns with both the Wazuh documentation and the typical CCDC setup.
     if grep -q '<connection>secure</connection>' "$WMANAGER_CONF" && grep -q '<port>1514</port>' "$WMANAGER_CONF"; then
         info " ✔ OK: Agent listener is configured for secure connection on TCP port 1514."
+        info "This is the required configuration for agent communication."
     else
         error "Default secure agent listener on port 1514 not found. Aborting."
     fi
 
+    info "Further hardening (e.g., firewall rules) should be applied at the OS level and is outside the scope of this application script."
+    info "No changes are needed for the base configuration."
     info "--- Section 2 (Base Configuration) is complete. ---"
 }
 
@@ -92,15 +107,19 @@ section_two_base_config() {
 section_three_advanced_edr() {
     info "--- Starting Section 3: Advanced EDR Enhancements ---"
 
+    # Create centralized agent configuration for FIM and Rootcheck
     info "Creating centralized agent configuration ($AGENT_SHARED_CONF)..."
     cat > "$AGENT_SHARED_CONF" <<EOF
 <agent_config>
+
   <syscheck>
     <disabled>no</disabled>
     <frequency>43200</frequency>
     <scan_on_start>yes</scan_on_start>
+
     <directories check_all="yes" realtime="yes" report_changes="yes" whodata="yes">/etc,/usr/bin,/usr/sbin,/bin,/sbin</directories>
   </syscheck>
+
   <rootcheck>
     <disabled>no</disabled>
     <check_files>yes</check_files>
@@ -111,11 +130,13 @@ section_three_advanced_edr() {
     <check_ports>yes</check_ports>
     <check_if>yes</check_if>
   </rootcheck>
+
 </agent_config>
 EOF
     check_success
     info "✔ OK: Centralized FIM and Rootcheck configuration created."
 
+    # Create CDB list for suspicious programs
     info "Creating CDB list for suspicious programs..."
     cat > /var/ossec/etc/lists/suspicious-programs <<EOF
 ncat:
@@ -124,40 +145,50 @@ tcpdump:
 socat:
 EOF
     check_success
-    chown wazuh:wazuh /var/ossec/etc/lists/suspicious-programs; check_success
+    # **FIX:** Set correct ownership for the CDB list to the 'wazuh' user and group
+    chown wazuh:wazuh /var/ossec/etc/lists/suspicious-programs
+    check_success
     info "✔ OK: CDB list '/var/ossec/etc/lists/suspicious-programs' created."
 
-    info "Configuring manager to use CDB list and Active Response using sed..."
+    # Configure manager to use CDB list and set up Active Response
+    info "Configuring manager to use CDB list and Active Response..."
 
-    # Define the XML blocks to be inserted
-    read -r -d '' BLOCKS_TO_INSERT << EOM
-  <ruleset>
-    <list>etc/lists/suspicious-programs</list>
-  </ruleset>
-
-  <command>
-    <name>quarantine-host</name>
-    <executable>quarantine.sh</executable>
-    <timeout_allowed>no</timeout_allowed>
-  </command>
-
-  <active-response>
-    <command>quarantine-host</command>
-    <location>local</location>
-    <rules_id>110000</rules_id>
-  </active-response>
-EOM
-
-    # Use grep to check for a unique part of the block to ensure idempotency
-    if ! grep -q "quarantine-host" "$WMANAGER_CONF"; then
-        # Insert the blocks just before the final </ossec_config> tag
-        sed -i "/<\/ossec_config>/i $BLOCKS_TO_INSERT" "$WMANAGER_CONF"; check_success
-        info "✔ OK: Added CDB list, command, and active-response blocks to ossec.conf."
+    # Add CDB list to ossec.conf
+    if ! xmlstarlet sel -t -c "//ruleset/list[text()='etc/lists/suspicious-programs']" "$WMANAGER_CONF" >/dev/null; then
+        xmlstarlet ed --inplace --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" "$WMANAGER_CONF"
+        check_success
+        info "✔ OK: Added suspicious-programs list to manager ruleset."
     else
-        warn "Active Response configurations already found in ossec.conf. Skipping."
+        warn "Suspicious programs list already configured in manager ruleset. Skipping."
     fi
 
+    # Add quarantine command to ossec.conf
+    if ! xmlstarlet sel -t -c "//command[name='quarantine-host']" "$WMANAGER_CONF" >/dev/null; then
+        xmlstarlet ed --inplace --subnode "/ossec_config" --type elem -n "command" \
+            -s "//command[last()]" --type elem -n "name" -v "quarantine-host" \
+            -s "//command[last()]" --type elem -n "executable" -v "quarantine.sh" \
+            -s "//command[last()]" --type elem -n "timeout_allowed" -v "no" "$WMANAGER_CONF"
+        check_success
+        info "✔ OK: Defined 'quarantine-host' active response command."
+    else
+        warn "'quarantine-host' command already defined. Skipping."
+    fi
+
+    # Add active response trigger to ossec.conf
+    if ! xmlstarlet sel -t -c "//active-response[command='quarantine-host']" "$WMANAGER_CONF" >/dev/null; then
+        xmlstarlet ed --inplace --subnode "/ossec_config" --type elem -n "active-response" \
+            -s "//active-response[last()]" --type elem -n "command" -v "quarantine-host" \
+            -s "//active-response[last()]" --type elem -n "location" -v "local" \
+            -s "//active-response[last()]" --type elem -n "rules_id" -v "110000" "$WMANAGER_CONF"
+        check_success
+        info "✔ OK: Configured active response to trigger host quarantine on rule 110000."
+    else
+        warn "Host quarantine active response already configured. Skipping."
+    fi
+
+    # Add custom rules to local_rules.xml
     info "Adding custom rules for suspicious command execution and ransomware correlation..."
+    # The rule logic is based on the examples and descriptions in the enhancement guide.
     cat >> "$LOCAL_RULES" <<EOF
 
 <group name="audit, suspicious_command,">
@@ -170,6 +201,7 @@ EOM
     </mitre>
   </rule>
 </group>
+
 <group name="ransomware, correlation,">
   <rule id="110000" level="15" timeframe="120">
     <if_matched_sid>100102</if_matched_sid> <if_matched_sid>100150</if_matched_sid> <description>Ransomware Attack Pattern Correlated. Multiple TTPs detected. Triggering host isolation.</description>
@@ -189,7 +221,8 @@ section_four_operationalize() {
     info "--- Starting Section 4: Operationalization ---"
 
     info "Applying all configurations by restarting the Wazuh manager..."
-    systemctl restart wazuh-manager; check_success
+    systemctl restart wazuh-manager
+    check_success
 
     info "Waiting a moment for the service to initialize..."
     sleep 10
@@ -202,7 +235,7 @@ section_four_operationalize() {
     fi
 
     info "Checking for critical errors in the log file..."
-    if grep -q -E "ERROR:|CRITICAL:" "$OSSEC_LOG"; then
+    if grep -E "ERROR:|CRITICAL:" "$OSSEC_LOG"; then
         warn "Potential errors found in $OSSEC_LOG. Manual review is recommended."
     else
         info "✔ OK: No critical errors detected in the log file."
@@ -212,9 +245,17 @@ section_four_operationalize() {
 }
 
 # --- Main Execution ---
+
+# Execute Section 1
 section_one_install
+
+# Execute Section 2
 section_two_base_config
+
+# Execute Section 3
 section_three_advanced_edr
+
+# Execute Section 4
 section_four_operationalize
 
 # --- Final Summary ---
