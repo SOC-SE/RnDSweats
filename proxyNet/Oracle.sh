@@ -146,8 +146,7 @@ socat:
 EOF
     check_success
     # **FIX:** Set correct ownership for the CDB list
-    chown ossec:ossec /var/ossec/etc/lists/suspicious-programs
-    check_success
+    chown wazuh:wazuh /var/ossec/etc/lists/suspicious-programs    check_success
     info "✔ OK: CDB list '/var/ossec/etc/lists/suspicious-programs' created."
 
     # Configure manager to use CDB list and set up Active Response
