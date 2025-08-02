@@ -103,44 +103,50 @@ section_two_base_config() {
     info "--- Section 2 (Base Configuration) is complete. ---"
 }
 
-# REFACTORED FUNCTION: Atomically updates the ossec.conf file using sequential, safe edits.
+# REFACTORED FUNCTION: Atomically updates the ossec.conf file using a robust file reconstruction method.
 update_ossec_conf() {
     info "Atomically updating manager configuration..."
     local TMP_CONF="${WMANAGER_CONF}.tmp"
 
     # FIX: The default config can be malformed. This command truncates the file
     # after the first valid closing tag, ensuring a clean XML document for parsing.
-    sed -i '/<\/ossec_config>/q' "$WMANAGER_CONF"
+    sed -i.bak '/<\/ossec_config>/q' "$WMANAGER_CONF"
     check_success
 
-    # --- Edit 1: Add the CDB list ---
+    # --- Edit 1: Add the CDB list using xmlstarlet (this one is simple and known to work) ---
     info "Adding CDB list to configuration..."
-    xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" "$WMANAGER_CONF" > "$TMP_CONF"
-    check_success
-    mv "$TMP_CONF" "$WMANAGER_CONF"
+    xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" "$WMANAGER_CONF" > "$TMP_CONF" && mv "$TMP_CONF" "$WMANAGER_CONF"
     check_success
 
-    # --- Edit 2: Add the quarantine command ---
-    info "Adding 'quarantine-host' command to configuration..."
-    xmlstarlet ed \
-        --subnode "/ossec_config" --type elem -n "command" \
-        -s "//command[last()]" --type elem -n "name" -v "quarantine-host" \
-        -s "//command[last()]" --type elem -n "executable" -v "quarantine.sh" \
-        -s "//command[last()]" --type elem -n "timeout_allowed" -v "no" \
-        "$WMANAGER_CONF" > "$TMP_CONF"
-    check_success
-    mv "$TMP_CONF" "$WMANAGER_CONF"
+    # --- Edit 2 & 3: Rebuild the file to insert Active Response blocks. This is the most reliable method. ---
+    info "Adding Active Response blocks to configuration..."
+    
+    # 1. Copy the file, minus the last line (</ossec_config>), to a temp file.
+    head -n -1 "$WMANAGER_CONF" > "$TMP_CONF"
     check_success
 
-    # --- Edit 3: Add the active response trigger ---
-    info "Adding active response trigger to configuration..."
-    xmlstarlet ed \
-        --subnode "/ossec_config" --type elem -n "active-response" \
-        -s "//active-response[last()]" --type elem -n "command" -v "quarantine-host" \
-        -s "//active-response[last()]" --type elem -n "location" -v "local" \
-        -s "//active-response[last()]" --type elem -n "rules_id" -v "110000" \
-        "$WMANAGER_CONF" > "$TMP_CONF"
+    # 2. Append the new XML blocks to the temp file.
+    cat >> "$TMP_CONF" << EOF
+
+  <command>
+    <name>quarantine-host</name>
+    <executable>quarantine.sh</executable>
+    <timeout_allowed>no</timeout_allowed>
+  </command>
+
+  <active-response>
+    <command>quarantine-host</command>
+    <location>local</location>
+    <rules_id>110000</rules_id>
+  </active-response>
+EOF
     check_success
+
+    # 3. Append the last line back to the temp file.
+    tail -n 1 "$WMANAGER_CONF" >> "$TMP_CONF"
+    check_success
+
+    # 4. Atomically replace the original file with the modified one.
     mv "$TMP_CONF" "$WMANAGER_CONF"
     check_success
     
