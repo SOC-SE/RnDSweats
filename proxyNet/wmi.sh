@@ -7,7 +7,8 @@
 # Red Hat-based) and installs the Wazuh manager.
 #
 # It provides an option to also install the Wazuh indexer and Wazuh dashboard
-# for an all-in-one deployment.
+# for an all-in-one deployment. If a Splunk service is detected, it will
+# offer to stop it to prevent resource conflicts during installation.
 #
 # After installation, it will also download and install the SOCFortress
 # community ruleset.
@@ -42,6 +43,28 @@ check_success() {
 }
 
 # --- Installation Functions ---
+
+# Function to check for and stop Splunk if it exists
+handle_splunk_check() {
+    info "Checking for an existing Splunk installation..."
+    # Check if the Splunk service (splunkd.service) exists
+    if systemctl list-units --type=service --all | grep -q 'splunkd.service'; then
+        info "Splunk is installed. To prevent resource conflicts, it can be temporarily stopped."
+        read -p "Do you want to stop the Splunk service during this installation? (y/N): " -r STOP_SPLUNK
+        STOP_SPLUNK=${STOP_SPLUNK:-n}
+
+        if [[ "$STOP_SPLUNK" =~ ^[yY]([eE][sS])?$ ]]; then
+            info "Stopping the Splunk service (splunkd)..."
+            systemctl stop splunkd
+            check_success
+            info "✔ OK: Splunk service has been stopped."
+        else
+            info "Skipping Splunk service shutdown. Note: Resource conflicts may occur during installation."
+        fi
+    else
+        info "Splunk service (splunkd.service) not found. No action needed."
+    fi
+}
 
 # Function to install the Wazuh manager on Red Hat-based systems
 install_manager_on_rhel() {
@@ -96,6 +119,7 @@ EOF
 # Function to install Wazuh Indexer and Dashboard on Red Hat-based systems
 install_stack_on_rhel() {
     info "--- Starting Wazuh Stack Installation (Indexer and Dashboard) ---"
+    handle_splunk_check
     
     info "Installing the Wazuh indexer package..."
     if command -v dnf &> /dev/null; then
@@ -131,6 +155,7 @@ install_stack_on_rhel() {
 # Function to install Wazuh Indexer and Dashboard on Debian-based systems
 install_stack_on_debian() {
     info "--- Starting Wazuh Stack Installation (Indexer and Dashboard) ---"
+    handle_splunk_check
 
     info "Installing the Wazuh indexer package..."
     apt-get install -y wazuh-indexer
