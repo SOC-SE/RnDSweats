@@ -103,36 +103,29 @@ section_two_base_config() {
     info "--- Section 2 (Base Configuration) is complete. ---"
 }
 
-# REFACTORED FUNCTION: Atomically updates the ossec.conf file.
+# REFACTORED FUNCTION: Atomically updates the ossec.conf file using a temp file.
 update_ossec_conf() {
-    info "Fixing and atomically updating manager configuration..."
+    info "Atomically updating manager configuration..."
 
     # FIX: The default config can be malformed. This command truncates the file
     # after the first valid closing tag, ensuring a clean XML document for parsing.
     sed -i '/<\/ossec_config>/q' "$WMANAGER_CONF"
     check_success
 
-    local original_conf
-    original_conf=$(cat "$WMANAGER_CONF")
-    check_success
-
-    # Chain all xmlstarlet edits together for efficiency.
-    local modified_conf
-    modified_conf=$(echo "$original_conf" | \
-        xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" | \
-        xmlstarlet ed --subnode "/ossec_config" --type elem -n "command" \
-            -s "//command[last()]" --type elem -n "name" -v "quarantine-host" \
-            -s "//command[last()]" --type elem -n "executable" -v "quarantine.sh" \
-            -s "//command[last()]" --type elem -n "timeout_allowed" -v "no" | \
-        xmlstarlet ed --subnode "/ossec_config" --type elem -n "active-response" \
-            -s "//active-response[last()]" --type elem -n "command" -v "quarantine-host" \
-            -s "//active-response[last()]" --type elem -n "location" -v "local" \
-            -s "//active-response[last()]" --type elem -n "rules_id" -v "110000"
-    )
-    check_success
-
-    # Write the final, modified content back to the file without a trailing newline
-    printf "%s" "$modified_conf" > "$WMANAGER_CONF"
+    # Chain all edits and write to a temporary file. Then, if successful,
+    # replace the original. This is the most robust way to edit files in scripts.
+    xmlstarlet ed \
+        --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" \
+        --subnode "/ossec_config" --type elem -n "command" \
+        --insert "//command[last()]" --type attr -n "name" --value "quarantine-host" \
+        --insert "//command[last()]" --type attr -n "executable" --value "quarantine.sh" \
+        --insert "//command[last()]" --type attr -n "timeout_allowed" --value "no" \
+        --subnode "/ossec_config" --type elem -n "active-response" \
+        --insert "//active-response[last()]" --type attr -n "command" --value "quarantine-host" \
+        --insert "//active-response[last()]" --type attr -n "location" --value "local" \
+        --insert "//active-response[last()]" --type attr -n "rules_id" --value "110000" \
+        "$WMANAGER_CONF" > "${WMANAGER_CONF}.tmp" && mv "${WMANAGER_CONF}.tmp" "$WMANAGER_CONF"
+    
     check_success
     info "✔ OK: Manager configuration staging complete."
 }
