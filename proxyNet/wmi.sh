@@ -7,8 +7,8 @@
 # Red Hat-based) and installs the Wazuh manager.
 #
 # It provides an option to also install the Wazuh indexer and Wazuh dashboard
-# for an all-in-one deployment. If a Splunk service is detected, it will
-# offer to stop it to prevent resource conflicts during installation.
+# for an all-in-one deployment. If a Splunk installation is detected in
+# /opt/splunk, it will offer to stop it to prevent resource conflicts.
 #
 # After installation, it will also download and install the SOCFortress
 # community ruleset.
@@ -47,22 +47,27 @@ check_success() {
 # Function to check for and stop Splunk if it exists
 handle_splunk_check() {
     info "Checking for an existing Splunk installation..."
-    # Check if the Splunk service (splunkd.service) exists
-    if systemctl list-units --type=service --all | grep -q 'splunkd.service'; then
-        info "Splunk is installed. To prevent resource conflicts, it can be temporarily stopped."
+    # Check if the Splunk directory exists
+    if [ -d "/opt/splunk" ]; then
+        info "Splunk installation found at /opt/splunk. To prevent resource conflicts, it can be temporarily stopped."
         read -p "Do you want to stop the Splunk service during this installation? (y/N): " -r STOP_SPLUNK
         STOP_SPLUNK=${STOP_SPLUNK:-n}
 
         if [[ "$STOP_SPLUNK" =~ ^[yY]([eE][sS])?$ ]]; then
-            info "Stopping the Splunk service (splunkd)..."
-            systemctl stop splunkd
-            check_success
-            info "✔ OK: Splunk service has been stopped."
+            info "Stopping Splunk using the Splunk CLI..."
+            # Check if the splunk binary is executable
+            if [ -x "/opt/splunk/bin/splunk" ]; then
+                /opt/splunk/bin/splunk stop
+                check_success
+                info "✔ OK: Splunk has been stopped."
+            else
+                error "Splunk binary not found or not executable at /opt/splunk/bin/splunk."
+            fi
         else
-            info "Skipping Splunk service shutdown. Note: Resource conflicts may occur during installation."
+            info "Skipping Splunk shutdown. Note: Resource conflicts may occur during installation."
         fi
     else
-        info "Splunk service (splunkd.service) not found. No action needed."
+        info "Splunk directory /opt/splunk not found. No action needed."
     fi
 }
 
