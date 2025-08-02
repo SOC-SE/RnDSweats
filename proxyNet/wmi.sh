@@ -127,12 +127,13 @@ install_all_in_one_assisted() {
 
     info "Downloading the Wazuh installation assistant..."
     # Using the latest 4.x branch installer with -L to follow redirects
-    curl -sLO https://packages.wazuh.com/$WazuhInstallationVersion/wazuh-install.sh
+    curl -LO https://packages.wazuh.com/$WazuhInstallationVersion/wazuh-install.sh
     check_success
 
     info "Running the All-in-One installation. This may take several minutes..."
     # The -a flag handles the full stack installation (indexer, manager, dashboard)
-    bash wazuh-install.sh -a
+    # The -i ignores hardware checks, such as less RAM than recommended. This is almost a certaintly in competition settings.
+    bash wazuh-install.sh -a -i
     check_success
 
     # The assisted installer enables and starts all services automatically.
