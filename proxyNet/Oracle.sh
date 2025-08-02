@@ -104,15 +104,19 @@ section_two_base_config() {
 }
 
 # REFACTORED FUNCTION: Atomically updates the ossec.conf file.
-# This version chains all edits and assumes it's run on a clean config.
 update_ossec_conf() {
-    info "Atomically updating manager configuration..."
+    info "Fixing and atomically updating manager configuration..."
+
+    # FIX: The default config can be malformed. This command truncates the file
+    # after the first valid closing tag, ensuring a clean XML document for parsing.
+    sed -i '/<\/ossec_config>/q' "$WMANAGER_CONF"
+    check_success
+
     local original_conf
     original_conf=$(cat "$WMANAGER_CONF")
     check_success
 
     # Chain all xmlstarlet edits together for efficiency.
-    # This assumes the script is run once; running it again would create duplicate entries.
     local modified_conf
     modified_conf=$(echo "$original_conf" | \
         xmlstarlet ed --subnode "//ruleset" --type elem -n "list" -v "etc/lists/suspicious-programs" | \
@@ -212,7 +216,7 @@ EOF
     check_success
     info "✔ OK: Custom rules added to $LOCAL_RULES."
 
-    # NEW: Validate all configurations before proceeding
+    # Validate all configurations before proceeding
     info "Validating all Wazuh configuration files..."
     /var/ossec/bin/wazuh-analysisd -t
     check_success
