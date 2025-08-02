@@ -1,75 +1,54 @@
 #!/bin/bash
 
 # ============================================================================
-# Wazuh Agent Installation & FIM Configuration Script for Linux
+# Universal Wazuh Agent Installation Script
 #
-# This script automates the installation of the Wazuh agent on Debian-based
-# and RedHat-based Linux distributions. It performs the following actions:
-#   - Detects the operating system family (Debian/RHEL).
-#   - Sets the Wazuh manager IP address.
-#   - Adds the appropriate Wazuh package repository.
-#   - Installs the 'wazuh-agent' and 'auditd' packages.
-#   - Configures a robust File Integrity Monitoring (FIM) policy.
-#   - Enables and starts the Wazuh agent service.
+# This script automatically detects the Linux distribution (Debian-based or
+# Red Hat-based), installs the Wazuh agent, and registers it with a
+# predefined Wazuh manager.
 #
-# Usage:
-# 1. Save this script as a file, for example: install_wazuh_agent.sh
-# 2. Make the script executable: chmod +x install_wazuh_agent.sh
-# 3. Run the script with root privileges: sudo./install_wazuh_agent.sh
+# Manager IP is hardcoded. No registration password is used.
+#
+# Supported OS Families:
+#   - Debian (e.g., Debian, Ubuntu)
+#   - Red Hat (e.g., RHEL, CentOS, Oracle Linux, Fedora, Rocky Linux)
 # ============================================================================
 
 # --- Configuration ---
-# SET YOUR WAZUH MANAGER IP ADDRESS HERE
 WAZUH_MANAGER_IP="172.20.241.20"
+LOG_FILE="/var/log/wazuh_agent_installer.log"
 
-# --- Script Variables ---
-AGENT_CONF_FILE="/var/ossec/etc/ossec.conf"
+# --- Utility Functions ---
 
-# --- Functions ---
-
-log() {
-    echo "[INFO] $1"
+# Function to print messages to stdout and the log file
+log_msg() {
+    echo -e "$1" | tee -a "$LOG_FILE"
 }
 
-error_exit() {
-    echo " $1" >&2
+info() {
+    log_msg "[INFO] $1"
+}
+
+error() {
+    log_msg "[ERROR] $1" >&2
     exit 1
 }
 
-check_root() {
-    if; then
-        error_exit "This script must be run as root. Please use 'sudo'."
+# Function to check if the last command was successful
+check_success() {
+    if [ $? -ne 0 ]; then
+        error "The last command failed. See $LOG_FILE for details. Exiting."
     fi
 }
 
-# --- Main Execution ---
+# --- Installation Functions ---
 
-log "Starting Wazuh Agent installation and FIM configuration..."
-check_root
-
-# 1. Detect Linux distribution family
-if [ -f /etc/debian_version ]; then
-    OS_FAMILY="Debian"
-    log "Debian-based distribution detected."
-    # Install prerequisites
-    apt-get update
-    apt-get install -y curl apt-transport-https
-    # Add Wazuh repository
-    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --dearmor -o /usr/share/keyrings/wazuh.gpg
-    echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list
-    apt-get update
-    # Install agent and auditd
-    log "Installing wazuh-agent and auditd..."
-    apt-get install -y wazuh-agent auditd |
-
-| error_exit "Failed to install packages."
-
-elif [ -f /etc/redhat-release ]; then
-    OS_FAMILY="RedHat"
-    log "RedHat-based distribution detected."
-    # Add Wazuh repository
-    rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
-    cat > /etc/yum.repos.d/wazuh.repo <<-EOF
+# Function to install the Wazuh agent on Red Hat-based systems
+install_on_rhel() {
+    info "Detected Red Hat-based distribution."
+    
+    info "Adding the Wazuh YUM repository..."
+    cat > /etc/yum.repos.d/wazuh.repo <<EOF
 [wazuh]
 gpgcheck=1
 gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH
@@ -78,72 +57,105 @@ name=Wazuh repository
 baseurl=https://packages.wazuh.com/4.x/yum/
 protect=1
 EOF
-    # Install agent and auditd
-    log "Installing wazuh-agent and auditd..."
-    dnf install -y wazuh-agent auditd |
+    check_success
 
-| yum install -y wazuh-agent auditd |
-| error_exit "Failed to install packages."
+    info "Installing the Wazuh agent package..."
+    if command -v dnf &> /dev/null; then
+        WAZUH_MANAGER="$WAZUH_MANAGER_IP" dnf install -y wazuh-agent
+    else
+        WAZUH_MANAGER="$WAZUH_MANAGER_IP" yum install -y wazuh-agent
+    fi
+    check_success
+}
 
-else
-    error_exit "Unsupported operating system. This script supports Debian and RedHat-based systems."
-fi
+# Function to install the Wazuh agent on Debian-based systems
+install_on_debian() {
+    info "Detected Debian-based distribution."
 
-# 2. Configure the Wazuh agent to connect to the manager
-log "Configuring agent to connect to manager at ${WAZUH_MANAGER_IP}..."
-sed -i "s/<address>MANAGER_IP<\/address>/<address>${WAZUH_MANAGER_IP}<\/address>/" "${AGENT_CONF_FILE}"
+    info "Installing prerequisites..."
+    apt-get update
+    apt-get install -y curl apt-transport-https lsb-release gnupg2
+    check_success
 
-# 3. Configure File Integrity Monitoring (FIM)
-log "Configuring File Integrity Monitoring (FIM) in ${AGENT_CONF_FILE}..."
+    info "Adding the Wazuh GPG key..."
+    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
+    check_success
 
-# Create the FIM configuration block
-FIM_CONFIG='
-  <syscheck>
-    <disabled>no</disabled>
-    
-    <frequency>43200</frequency>
+    info "Adding the Wazuh APT repository..."
+    cat > /etc/apt/sources.list.d/wazuh.list <<EOF
+deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main
+EOF
+    check_success
 
-    <directories check_all="yes" realtime="yes" report_changes="yes" whodata="yes">/etc,/usr/bin,/usr/sbin,/bin,/sbin</directories>
+    info "Installing the Wazuh agent package..."
+    apt-get update
+    WAZUH_MANAGER="$WAZUH_MANAGER_IP" apt-get install -y wazuh-agent
+    check_success
+}
 
-    <directories check_all="yes" realtime="yes" whodata="yes">/home</directories>
+# Function to enable and start the Wazuh agent service
+finalize_installation() {
+    info "Enabling and starting the wazuh-agent service..."
+    systemctl daemon-reload
+    check_success
+    systemctl enable wazuh-agent
+    check_success
+    systemctl start wazuh-agent
+    check_success
 
-    <directories check_all="yes" realtime="yes" whodata="yes">/tmp,/var/tmp</directories>
+    info "Waiting for the service to initialize..."
+    sleep 15
 
-    <ignore>/etc/mtab</ignore>
-    <ignore>/etc/random-seed</ignore>
-    <ignore type="sregex">^/proc</ignore>
-  </syscheck>
-'
+    if systemctl is-active --quiet wazuh-agent; then
+        info "✔ OK: The wazuh-agent service is active and running."
+    else
+        error "The wazuh-agent service failed to start. Check the logs with 'journalctl -u wazuh-agent'."
+    fi
+}
 
-# Check if a <syscheck> block already exists and replace it. If not, insert it.
-if grep -q "<syscheck>" "$AGENT_CONF_FILE"; then
-    log "Existing FIM configuration found. Replacing it."
-    # Use awk to replace the entire syscheck block
-    awk -v new_config="$FIM_CONFIG" '
-        BEGIN {p=1} 
-        /<syscheck>/ {if(p) {print new_config; p=0}} 
-        /<\/syscheck>/ {p=1; next} 
-        p' "$AGENT_CONF_FILE" > "${AGENT_CONF_FILE}.tmp" && mv "${AGENT_CONF_FILE}.tmp" "$AGENT_CONF_FILE"
-else
-    log "No FIM configuration found. Inserting new block."
-    # Insert the FIM block before the closing </ossec_config> tag
-    sed -i "/<\/ossec_config>/i \  ${FIM_CONFIG}" "$AGENT_CONF_FILE"
-fi
+# --- Main Execution ---
+main() {
+    # Start logging
+    rm -f "$LOG_FILE"
+    info "Starting Wazuh Agent Universal Installer..."
 
-log "FIM configuration applied successfully."
+    # Check for root privileges
+    if [ "$EUID" -ne 0 ]; then
+        error "This script must be run as root."
+    fi
 
-# 4. Enable and start services
-log "Enabling and starting auditd and wazuh-agent services..."
-systemctl daemon-reload
-systemctl enable auditd
-systemctl start auditd
-systemctl enable wazuh-agent
-systemctl start wazuh-agent
+    # Detect the distribution
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS_FAMILY=$ID_LIKE
+        if [ -z "$OS_FAMILY" ]; then
+            OS_FAMILY=$ID
+        fi
+    else
+        error "Cannot determine the Linux distribution."
+    fi
 
-log "------------------------------------------------------------"
-log "Wazuh agent installation and FIM configuration complete."
-log "The agent is now running and connected to ${WAZUH_MANAGER_IP}."
-log "Verify the agent status on your Wazuh Dashboard."
-log "------------------------------------------------------------"
+    # Run the appropriate installer
+    case "$OS_FAMILY" in
+        *debian*)
+            install_on_debian
+            ;;
+        *rhel*|*fedora*|*centos*)
+            install_on_rhel
+            ;;
+        *)
+            error "Unsupported Linux distribution: $ID. This script supports Debian and Red Hat families."
+            ;;
+    esac
 
-exit 0
+    # Finalize the installation
+    finalize_installation
+
+    info "============================================================"
+    info "✅ Wazuh Agent Installation and Registration Complete!"
+    info "The agent is configured to report to manager: $WAZUH_MANAGER_IP"
+    info "============================================================"
+}
+
+# Run the main function and log all output
+main "$@" > >(tee -a "$LOG_FILE") 2> >(tee -a "$LOG_FILE" >&2)
