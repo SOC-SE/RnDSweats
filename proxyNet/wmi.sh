@@ -50,7 +50,7 @@ handle_splunk_check() {
     if [ -d "/opt/splunk" ]; then
         info "Splunk installation found at /opt/splunk. To prevent resource conflicts, it can be temporarily stopped."
         read -p "Do you want to stop the Splunk service during this installation? (y/N): " -r STOP_SPLUNK
-        STOP_SPLUNK=${STOP_SPLUNK:-n}
+        STOP_SPLUNK=${STOP_SPLUNK:-y}
 
         if [[ "$STOP_SPLUNK" =~ ^[yY]([eE][sS])?$ ]]; then
             info "Stopping Splunk using the Splunk CLI..."
@@ -122,8 +122,8 @@ EOF
 
 # Function to install the full Wazuh stack using the assisted installer
 install_all_in_one_assisted() {
-    info "--- Starting All-in-One Installation using Assisted Installer ---"
     handle_splunk_check
+    info "--- Starting All-in-One Installation using Assisted Installer ---"
 
     info "Downloading the Wazuh installation assistant..."
     # Using the latest 4.x branch installer with -L to follow redirects
