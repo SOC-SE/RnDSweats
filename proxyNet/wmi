@@ -5,7 +5,8 @@
 #
 # This script automatically detects the Linux distribution (Debian-based or
 # Red Hat-based) and installs the Wazuh manager. It does not install the
-# Wazuh indexer or Wazuh dashboard components.
+# Wazuh indexer or Wazuh dashboard components. After installation, it will
+# also download and install the SOCFortress community ruleset.
 #
 # Supported OS Families:
 #   - Debian (e.g., Debian, Ubuntu)
@@ -108,6 +109,17 @@ finalize_installation() {
     fi
 }
 
+# Function to install the SOCFortress ruleset
+install_socfortress_rules() {
+    info "--- Starting SOCFortress Rules Installation ---"
+    info "Downloading and running the SOCFortress rules installation script..."
+    curl -so wazuh_socfortress_rules.sh https://raw.githubusercontent.com/socfortress/wazuh-rules/main/wazuh_socfortress_rules.sh && bash wazuh_socfortress_rules.sh
+    check_success
+    info "✔ OK: SOCFortress ruleset installation script finished."
+    info "The wazuh-manager service will have been restarted by the script."
+}
+
+
 # --- Main Execution ---
 main() {
     # Start logging
@@ -143,12 +155,15 @@ main() {
             ;;
     esac
 
-    # Finalize the installation for all distros
+    # Finalize the base installation
     finalize_installation
 
+    # Install the additional ruleset
+    install_socfortress_rules
+
     info "============================================================"
-    info "✅ Wazuh Manager Installation Complete!"
-    info "The Wazuh manager is installed and running."
+    info "✅ Wazuh Manager and SOCFortress Rules Installation Complete!"
+    info "The Wazuh manager is installed and running with the enhanced ruleset."
     info "============================================================"
 }
 
