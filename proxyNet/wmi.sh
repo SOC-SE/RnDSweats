@@ -3,19 +3,17 @@
 # ============================================================================
 # Universal Wazuh Installation Script
 #
-# This script automatically detects the Linux distribution (Debian-based or
-# Red Hat-based) and installs the Wazuh manager.
+# This script automatically detects the Linux distribution and provides two
+# installation options:
 #
-# It provides an option to also install the Wazuh indexer and Wazuh dashboard
-# for an all-in-one deployment. If a Splunk installation is detected in
-# /opt/splunk, it will offer to stop it to prevent resource conflicts.
+# 1.  All-in-One: Uses the Wazuh assisted installer to set up the manager,
+#     indexer, and dashboard. This is the recommended and most reliable method
+#     for a full stack deployment.
+# 2.  Manager-Only: Uses the system's package manager to install only the
+#     Wazuh manager component.
 #
-# After installation, it will also download and install the SOCFortress
-# community ruleset.
-#
-# Supported OS Families:
-#   - Debian (e.g., Debian, Ubuntu)
-#   - Red Hat (e.g., RHEL, CentOS, Oracle Linux, Fedora, Rocky Linux)
+# It also includes a check to stop a running Splunk instance to prevent
+# resource conflicts during the all-in-one installation.
 # ============================================================================
 
 # --- Globals and Utility Functions ---
@@ -51,6 +49,7 @@ handle_splunk_check() {
     if [ -d "/opt/splunk" ]; then
         info "Splunk installation found at /opt/splunk. To prevent resource conflicts, it can be temporarily stopped."
         read -p "Do you want to stop the Splunk service during this installation? (y/N): " -r STOP_SPLUNK
+        STOP_SPLUNK=${STOP_SPLUNK:-n}
 
         if [[ "$STOP_SPLUNK" =~ ^[yY]([eE][sS])?$ ]]; then
             info "Stopping Splunk using the Splunk CLI..."
@@ -120,71 +119,27 @@ EOF
     check_success
 }
 
-# Function to install Wazuh Indexer and Dashboard on Red Hat-based systems
-install_stack_on_rhel() {
-    info "--- Starting Wazuh Stack Installation (Indexer and Dashboard) ---"
-    handle_splunk_check
-    
-    info "Installing the Wazuh indexer package..."
-    if command -v dnf &> /dev/null; then
-        dnf install -y wazuh-indexer
-    else
-        yum install -y wazuh-indexer
-    fi
-    check_success
-
-    info "Enabling and starting the wazuh-indexer service..."
-    systemctl daemon-reload
-    systemctl enable wazuh-indexer
-    systemctl start wazuh-indexer
-    check_success
-    info "Waiting for the wazuh-indexer to initialize (30 seconds)..."
-    sleep 30
-
-    info "Installing the Wazuh dashboard package..."
-    if command -v dnf &> /dev/null; then
-        dnf install -y wazuh-dashboard
-    else
-        yum install -y wazuh-dashboard
-    fi
-    check_success
-
-    info "Enabling and starting the wazuh-dashboard service..."
-    systemctl daemon-reload
-    systemctl enable wazuh-dashboard
-    systemctl start wazuh-dashboard
-    check_success
-}
-
-# Function to install Wazuh Indexer and Dashboard on Debian-based systems
-install_stack_on_debian() {
-    info "--- Starting Wazuh Stack Installation (Indexer and Dashboard) ---"
+# Function to install the full Wazuh stack using the assisted installer
+install_all_in_one_assisted() {
+    info "--- Starting All-in-One Installation using Assisted Installer ---"
     handle_splunk_check
 
-    info "Installing the Wazuh indexer package..."
-    apt-get install -y wazuh-indexer
+    info "Downloading the Wazuh installation assistant..."
+    # Using the latest 4.x branch installer
+    curl -sO https://packages.wazuh.com/4.x/wazuh-install.sh
     check_success
 
-    info "Enabling and starting the wazuh-indexer service..."
-    systemctl daemon-reload
-    systemctl enable wazuh-indexer
-    systemctl start wazuh-indexer
-    check_success
-    info "Waiting for the wazuh-indexer to initialize (30 seconds)..."
-    sleep 30
-
-    info "Installing the Wazuh dashboard package..."
-    apt-get install -y wazuh-dashboard
+    info "Running the All-in-One installation. This may take several minutes..."
+    # The -a flag handles the full stack installation (indexer, manager, dashboard)
+    bash wazuh-install.sh -a
     check_success
 
-    info "Enabling and starting the wazuh-dashboard service..."
-    systemctl daemon-reload
-    systemctl enable wazuh-dashboard
-    systemctl start wazuh-dashboard
-    check_success
+    # The assisted installer enables and starts all services automatically.
+    info "✔ OK: Assisted installer has completed."
 }
 
-# Function to enable and start the Wazuh manager service
+
+# Function to enable and start the Wazuh manager service (for manager-only installs)
 finalize_manager_installation() {
     info "Enabling and starting the wazuh-manager service..."
     systemctl daemon-reload
@@ -226,66 +181,63 @@ main() {
         error "This script must be run as root."
     fi
     
-    # Ask user about dashboard installation
-    read -p "Do you want to install the Wazuh Indexer and Dashboard for an all-in-one setup? (y/N): " -r INSTALL_DASHBOARD
-    INSTALL_DASHBOARD=${INSTALL_DASHBOARD:-n} # Default to No
+    # Ask user about the installation type
+    read -p "Do you want to perform an All-in-One installation (Manager, Indexer, Dashboard)? (y/N): " -r INSTALL_AIO
+    INSTALL_AIO=${INSTALL_AIO:-n} # Default to No
 
-    # Detect the distribution
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS_FAMILY=$ID_LIKE
-        if [ -z "$OS_FAMILY" ]; then
-            OS_FAMILY=$ID
-        fi
+    if [[ "$INSTALL_AIO" =~ ^[yY]([eE][sS])?$ ]]; then
+        # --- All-in-One Path ---
+        install_all_in_one_assisted
     else
-        error "Cannot determine the Linux distribution."
-    fi
+        # --- Manager-Only Path ---
+        info "Starting Wazuh Manager-only installation."
+        # Detect the distribution
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            OS_FAMILY=$ID_LIKE
+            if [ -z "$OS_FAMILY" ]; then
+                OS_FAMILY=$ID
+            fi
+        else
+            error "Cannot determine the Linux distribution."
+        fi
 
-    # Run the appropriate installer
-    case "$OS_FAMILY" in
-        *debian*)
-            install_manager_on_debian
-            ;;
-        *rhel*|*fedora*|*centos*)
-            install_manager_on_rhel
-            ;;
-        *)
-            error "Unsupported Linux distribution: $ID. This script supports Debian and Red Hat families."
-            ;;
-    esac
-
-    # Finalize the base manager installation
-    finalize_manager_installation
-
-    # Install Indexer and Dashboard if requested
-    if [[ "$INSTALL_DASHBOARD" =~ ^[yY]([eE][sS])?$ ]]; then
+        # Run the appropriate installer
         case "$OS_FAMILY" in
             *debian*)
-                install_stack_on_debian
+                install_manager_on_debian
                 ;;
             *rhel*|*fedora*|*centos*)
-                install_stack_on_rhel
+                install_manager_on_rhel
+                ;;
+            *)
+                error "Unsupported Linux distribution: $ID. This script supports Debian and Red Hat families."
                 ;;
         esac
+
+        # Finalize the manager-only installation
+        finalize_manager_installation
     fi
 
-    # Install the additional ruleset
+    # Install the additional ruleset after either installation path
     install_socfortress_rules
 
     # --- Final Summary ---
-    FINAL_MESSAGE="✅ Wazuh Manager and SOCFortress Rules Installation Complete!"
-    if [[ "$INSTALL_DASHBOARD" =~ ^[yY]([eE][sS])?$ ]]; then
+    if [[ "$INSTALL_AIO" =~ ^[yY]([eE][sS])?$ ]]; then
         FINAL_MESSAGE="✅ Wazuh All-in-One and SOCFortress Rules Installation Complete!"
-    fi
-
-    info "============================================================"
-    info "$FINAL_MESSAGE"
-    info "The Wazuh services are installed and running with the enhanced ruleset."
-    if [[ "$INSTALL_DASHBOARD" =~ ^[yY]([eE][sS])?$ ]]; then
+        info "============================================================"
+        info "$FINAL_MESSAGE"
+        info "The Wazuh services are installed and running with the enhanced ruleset."
+        info "Passwords for the installation have been saved to 'wazuh-passwords.txt'."
         info "You can access the Wazuh Dashboard at https://<your-server-ip>"
-        info "Default credentials are user: admin, password: <run 'wazuh-passwords-tool.sh -u admin -p <password>' to set>"
+        info "============================================================"
+    else
+        FINAL_MESSAGE="✅ Wazuh Manager and SOCFortress Rules Installation Complete!"
+        info "============================================================"
+        info "$FINAL_MESSAGE"
+        info "The Wazuh manager service is installed and running with the enhanced ruleset."
+        info "============================================================"
     fi
-    info "============================================================"
 }
 
 # Run the main function and log all output
