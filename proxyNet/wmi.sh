@@ -51,7 +51,6 @@ handle_splunk_check() {
     if [ -d "/opt/splunk" ]; then
         info "Splunk installation found at /opt/splunk. To prevent resource conflicts, it can be temporarily stopped."
         read -p "Do you want to stop the Splunk service during this installation? (y/N): " -r STOP_SPLUNK
-        STOP_SPLUNK=${STOP_SPLUNK:-n}
 
         if [[ "$STOP_SPLUNK" =~ ^[yY]([eE][sS])?$ ]]; then
             info "Stopping Splunk using the Splunk CLI..."
