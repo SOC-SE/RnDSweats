@@ -18,6 +18,7 @@
 
 # --- Globals and Utility Functions ---
 LOG_FILE="/var/log/wazuh_universal_installer.log"
+WazuhInstallationVersion="4.12"
 
 # Function to print messages to stdout and the log file
 log_msg() {
@@ -126,7 +127,7 @@ install_all_in_one_assisted() {
 
     info "Downloading the Wazuh installation assistant..."
     # Using the latest 4.x branch installer with -L to follow redirects
-    curl -sLO https://packages.wazuh.com/4.x/wazuh-install.sh
+    curl -sLO https://packages.wazuh.com/$WazuhInstallationVersion/wazuh-install.sh
     check_success
 
     info "Running the All-in-One installation. This may take several minutes..."
