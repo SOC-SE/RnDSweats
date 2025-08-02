@@ -176,7 +176,7 @@ install_socfortress_rules() {
 main() {
     # Start logging
     rm -f "$LOG_FILE"
-    info "Starting Wazuh Universal Installer..."
+    info "Starting Wazuh Universal Installer...\n"
 
     # Check for root privileges
     if [ "$EUID" -ne 0 ]; then
