@@ -5,10 +5,10 @@
 # Wazuh indexer, and Wazuh dashboard on a single Oracle Linux 9.2 host.
 
 # --- Configuration ---
-WAZUH_REPO_URL="https://packages.wazuh.com/4.x/yum/"
+WAZUH_REPO_URL="https://packages.wazuh.com/4.12/yum/"
 GPG_KEY_URL="https://packages.wazuh.com/key/GPG-KEY-WAZUH"
-CERT_TOOL_URL="https://packages.wazuh.com/4.7/wazuh-certs-tool.sh"
-CERT_CONFIG_URL="https://packages.wazuh.com/4.7/config.yml"
+CERT_TOOL_URL="https://packages.wazuh.com/4.12/wazuh-certs-tool.sh"
+CERT_CONFIG_URL="https://packages.wazuh.com/4.12/config.yml"
 NODE_NAME="node-1"
 
 # --- Helper Functions ---
@@ -152,11 +152,11 @@ print_message "Installing Filebeat..."
 dnf install -y filebeat
 
 print_message "Configuring Filebeat..."
-curl -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/4.x/tpl/wazuh/filebeat/filebeat.yml
+curl -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/4.12/tpl/wazuh/filebeat/filebeat.yml
 sed -i "s/YOUR_WAZUH_INDEXER_IP/$IP_ADDRESS/" /etc/filebeat/filebeat.yml
 curl -so /etc/filebeat/wazuh-template.json https://raw.githubusercontent.com/wazuh/wazuh/4.7/extensions/elasticsearch/7.x/wazuh-template.json
 chmod go+r /etc/filebeat/wazuh-template.json
-curl -s https://packages.wazuh.com/4.x/filebeat/wazuh-filebeat-0.3.tar.gz | tar -xvz -C /usr/share/filebeat/module
+curl -s https://packages.wazuh.com/4.12/filebeat/wazuh-filebeat-0.3.tar.gz | tar -xvz -C /usr/share/filebeat/module
 
 # Deploy Filebeat certificates
 mkdir -p /etc/filebeat/certs
