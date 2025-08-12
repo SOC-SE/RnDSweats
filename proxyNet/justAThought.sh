@@ -1,12 +1,8 @@
 #!/bin/bash
 
-# CCDC Development - Wazuh Manager & Dashboard Install for Oracle Linux 9 [FINAL]
+# CCDC Development - Wazuh Manager & Dashboard Install for Oracle Linux 9 [FINAL v2]
 # This script automates the full installation and configuration process:
-# 1. Adds Wazuh repo.
-# 2. Installs manager and dashboard.
-# 3. Configures manager to forward alerts to Splunk.
-# 4. Disables dashboard SSL to prevent startup errors.
-# 5. Enables and starts services.
+# REVISION 2: Rebuilds dashboard config files instead of editing them to prevent path errors.
 # ---
 # IMPORTANT: Run this script with root privileges (e.g., using sudo).
 
@@ -37,7 +33,6 @@ if ! rpm -q gpg-pubkey-84827044-615b8a53 > /dev/null; then
 fi
 
 #Add the Wazuh mirror
-#This is from Wazuh's installation guide for DNF: https://documentation.wazuh.com/current/installation-guide/wazuh-server/step-by-step.html
 echo -e '[wazuh]\ngpgcheck=1\ngpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH\nenabled=1\nname=EL-$releasever - Wazuh\nbaseurl=https://packages.wazuh.com/4.x/yum/\npriority=1' | tee /etc/yum.repos.d/wazuh.repo
 
 echo ">>> Repository added."
@@ -68,10 +63,24 @@ if ! grep -q "<server>${SPLUNK_SERVER_IP}</server>" $MANAGER_CONFIG; then
     echo "--> Wazuh Manager configured for Splunk forwarding."
 fi
 
-# Configure Dashboard for local API access
-sed -i 's/url: https:\/\/localhost:55000/url: http:\/\/localhost:55000/' /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+# **REVISED SECTION:** Create dashboard configs directly to ensure they exist and are correct.
 
-# **NEW:** Disable Dashboard SSL to prevent certificate errors
+# 1. Create the Wazuh plugin configuration file.
+# This tells the dashboard how to communicate with the Wazuh Manager API.
+WAZUH_UI_CONFIG_PATH="/usr/share/wazuh-dashboard/data/wazuh/config"
+mkdir -p "$WAZUH_UI_CONFIG_PATH"
+chown -R wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data
+cat > ${WAZUH_UI_CONFIG_PATH}/wazuh.yml <<EOF
+hosts:
+  - id: default
+    url: https://localhost
+    port: 55000
+    user: wazuh-wui
+    password: wazuh-wui
+EOF
+echo "--> Wazuh Dashboard plugin config created."
+
+# 2. Disable SSL in the main dashboard config file.
 sed -i 's/server.ssl.enabled: true/server.ssl.enabled: false/' /etc/wazuh-dashboard/opensearch_dashboards.yml
 echo "--> Wazuh Dashboard SSL disabled for HTTP access."
 
