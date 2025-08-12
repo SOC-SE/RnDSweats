@@ -36,15 +36,9 @@ if ! rpm -q gpg-pubkey-84827044-615b8a53 > /dev/null; then
     rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
 fi
 
-cat > /etc/yum.repos.d/wazuh.repo <<EOF
-[wazuh]
-gpgcheck=1
-gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH
-enabled=1
-name=Wazuh repository
-baseurl=https://packages.wazuh.com/4.x/yum/
-protect=1
-EOF
+#Add the Wazuh mirror
+#This is from Wazuh's installation guide for DNF: https://documentation.wazuh.com/current/installation-guide/wazuh-server/step-by-step.html
+echo -e '[wazuh]\ngpgcheck=1\ngpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH\nenabled=1\nname=EL-$releasever - Wazuh\nbaseurl=https://packages.wazuh.com/4.x/yum/\npriority=1' | tee /etc/yum.repos.d/wazuh.repo
 
 echo ">>> Repository added."
 
