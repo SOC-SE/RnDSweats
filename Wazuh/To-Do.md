@@ -1,13 +1,14 @@
 ## Wazuh TO-DO ##
 
-#Wazuh Implementation#
+**Wazuh Implementation**
+
 Develop:
 - Agent configurations
 - Manager configuration
 - Installation Process
 
 
-#Linux#
+**Linux**
 
 Test integration for:
 - Yara
