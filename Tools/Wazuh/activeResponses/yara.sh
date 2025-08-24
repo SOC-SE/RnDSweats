@@ -7,7 +7,7 @@ FILE_PATH=$(echo "$3" | jq -r .parameters.alert.syscheck.path)
 YARA_BIN="/usr/bin/yara"
 
 # Yara rules path
-YARA_RULES="/var/ossec/etc/yara/rules/your_rules.yar" # Change to your rules file or a directory
+YARA_RULES="/var/ossec/etc/yara/rules/production.yar" # Change to your rules file or a directory
 
 # Log file for Yara scan results
 LOG_FILE="/var/ossec/logs/active-responses.log"
