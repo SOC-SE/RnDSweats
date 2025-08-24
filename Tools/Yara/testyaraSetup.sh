@@ -15,14 +15,10 @@ YARA_VERSION="${1:-4.5.4}"
 YARA_URL="https://github.com/VirusTotal/yara/archive/refs/tags/v${YARA_VERSION}.tar.gz"
 YARA_SH_URL="https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-yara/main/scripts/yara.sh"
 
-DOWNLOADS_DIR="${HOME}/yara-install"
-TAR_DIR="$DOWNLOADS_DIR/yara-${YARA_VERSION}.tar.gz"
-EXTRACT_DIR="$DOWNLOADS_DIR/yara-${YARA_VERSION}"
-
-NOTIFY_SEND_VERSION=0.8.3
-LOGGED_IN_USER=""
-
-OS="$(uname -s)"
+OSSEC_CONF_PATH="/var/ossec/etc/ossec.conf"
+WAZUH_CONTROL_BIN_PATH="/var/ossec/bin/wazuh-control"
+YARA_SH_PATH="/var/ossec/active-response/bin/yara.sh"
+YARA_RULES_DEST_DIR="/var/ossec/ruleset/yara/rules"
 
 # --- OS and Distribution Detection ---
 DISTRO_FAMILY=""
@@ -33,59 +29,42 @@ DEV_PACKAGES=""
 NOTIFY_SEND_PKG=""
 ZENITY_PKG=""
 
-if [ "$OS" = "Linux" ]; then
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS_FAMILY=${ID_LIKE:-$ID}
-    else
-        error_message "Cannot determine Linux distribution from /etc/os-release."
-        exit 1
-    fi
-
-    if echo "$OS_FAMILY" | grep -q -e "debian" -e "ubuntu"; then
-        DISTRO_FAMILY="debian"
-        PKG_MANAGER="apt"
-        INSTALL_CMD="apt install -y"
-        UNINSTALL_CMD="apt remove -y"
-        DEV_PACKAGES="automake libtool make gcc pkg-config flex bison curl libjansson-dev libmagic-dev libssl-dev"
-    elif echo "$OS_FAMILY" | grep -q -e "rhel" -e "fedora" -e "centos"; then
-        DISTRO_FAMILY="rhel"
-        if command_exists dnf; then
-            PKG_MANAGER="dnf"
-        elif command_exists yum; then
-            PKG_MANAGER="yum"
-        else
-            error_message "Neither DNF nor YUM is available on this system."
-            exit 1
-        fi
-        INSTALL_CMD="$PKG_MANAGER install -y"
-        UNINSTALL_CMD="$PKG_MANAGER remove -y"
-        DEV_PACKAGES="automake libtool make gcc pkgconf-pkg-config flex bison curl jansson-devel file-devel openssl-devel"
-        NOTIFY_SEND_PKG="libnotify"
-        ZENITY_PKG="zenity"
-    else
-        error_message "Unsupported Linux distribution family: $OS_FAMILY"
-        exit 1
-    fi
-fi
-# --- End Detection ---
-
-if [ "$(uname -s)" = "Darwin" ]; then
-    LOGGED_IN_USER=$(scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ {print $3}')
-fi
-
-if [ "$OS" = "Linux" ]; then
-    OSSEC_CONF_PATH="/var/ossec/etc/ossec.conf"
-    WAZUH_CONTROL_BIN_PATH="/var/ossec/bin/wazuh-control"
-    YARA_SH_PATH="/var/ossec/active-response/bin/yara.sh"
-elif [ "$OS" = "Darwin" ]; then
-    OSSEC_CONF_PATH="/Library/Ossec/etc/ossec.conf"
-    WAZUH_CONTROL_BIN_PATH="/Library/Ossec/bin/wazuh-control"
-    YARA_SH_PATH="/Library/Ossec/active-response/bin/yara.sh"
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_FAMILY=${ID_LIKE:-$ID}
 else
-    error_message "Unsupported OS. Exiting..."
+    error_message "Cannot determine Linux distribution from /etc/os-release."
     exit 1
 fi
+
+if echo "$OS_FAMILY" | grep -q -e "debian" -e "ubuntu"; then
+    DISTRO_FAMILY="debian"
+    PKG_MANAGER="apt"
+    INSTALL_CMD="apt install -y"
+    UNINSTALL_CMD="apt remove -y"
+    DEV_PACKAGES="automake libtool make gcc pkg-config flex bison curl libjansson-dev libmagic-dev libssl-dev"
+    NOTIFY_SEND_PKG="libnotify-bin"
+    ZENITY_PKG="zenity"
+elif echo "$OS_FAMILY" | grep -q -e "rhel" -e "fedora" -e "centos"; then
+    DISTRO_FAMILY="rhel"
+    if command_exists dnf; then
+        PKG_MANAGER="dnf"
+    elif command_exists yum; then
+        PKG_MANAGER="yum"
+    else
+        error_message "Neither DNF nor YUM is available on this system."
+        exit 1
+    fi
+    INSTALL_CMD="$PKG_MANAGER install -y"
+    UNINSTALL_CMD="$PKG_MANAGER remove -y"
+    DEV_PACKAGES="automake libtool make gcc pkgconf-pkg-config flex bison curl jansson-devel file-devel openssl-devel"
+    NOTIFY_SEND_PKG="libnotify"
+    ZENITY_PKG="zenity"
+else
+    error_message "Unsupported Linux distribution family: $OS_FAMILY"
+    exit 1
+fi
+# --- End Detection ---
 
 # Define text formatting
 RED='\033[0;31m'
@@ -134,7 +113,8 @@ command_exists() {
 # Check if sudo is available or if the script is run as root
 maybe_sudo() {
     if [ "$(id -u)" -ne 0 ]; then
-        if command_v sudo >/dev/null 2>&1; then
+        # FIXED: Changed 'command_v' to 'command -v'
+        if command -v sudo >/dev/null 2>&1; then
             sudo "$@"
         else
             error_message "This script requires root privileges. Please run with sudo or as root."
@@ -145,19 +125,6 @@ maybe_sudo() {
     fi
 }
 
-sed_alternative() {
-    if command_exists gsed; then
-        maybe_sudo gsed "$@"
-    else
-        maybe_sudo sed "$@"
-    fi
-}
-
-#Get the logged-in user on macOS
-brew_command() {
-    sudo -u "$LOGGED_IN_USER" -i brew "$@"
-}
-
 # Create a temporary directory and ensure it's cleaned up on exit
 TMP_DIR=$(mktemp -d)
 cleanup() {
@@ -166,8 +133,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Create Downloads directory for source builds
-mkdir -p "$DOWNLOADS_DIR"
+# FIXED: Set tarball and extraction directories inside the safe temporary directory
+TAR_DIR="$TMP_DIR/yara-${YARA_VERSION}.tar.gz"
+EXTRACT_DIR="$TMP_DIR/yara-${YARA_VERSION}"
 
 # Ensure that the root:wazuh user and group exist, creating them if necessary
 ensure_user_group() {
@@ -175,18 +143,10 @@ ensure_user_group() {
 
     if ! id -u "$USER" >/dev/null 2>&1; then
         info_message "Creating user $USER..."
-        if [ "$OS" = "Linux" ] && command -v groupadd >/dev/null 2>&1; then
+        if command -v useradd >/dev/null 2>&1; then
             maybe_sudo useradd -m "$USER"
-        elif [ "$(which apk)" = "/sbin/apk" ]; then
+        elif [ "$(which apk)" = "/sbin/apk" ]; then # For Alpine
             maybe_sudo adduser -D "$USER"
-        elif [ "$OS" = "Darwin" ]; then
-            # macOS
-            if ! dscl . -list /Users | grep -q "^$USER$"; then
-                info_message "Creating user $USER on macOS..."
-                maybe_sudo sysadminctl -addUser "$USER" -fullName "$USER" || {
-                    error_message "Failed to create user $USER"
-                }
-            fi
         else
             error_message "Unsupported OS for creating user."
             exit 1
@@ -195,18 +155,10 @@ ensure_user_group() {
 
     if ! getent group "$GROUP" >/dev/null 2>&1; then
         info_message "Creating group $GROUP..."
-        if [ "$OS" = "Linux" ] && command -v groupadd >/dev/null 2>&1; then
+        if command -v groupadd >/dev/null 2>&1; then
             maybe_sudo groupadd "$GROUP"
-        elif [ "$(which apk)" = "/sbin/apk" ]; then
+        elif [ "$(which apk)" = "/sbin/apk" ]; then # For Alpine
             maybe_sudo addgroup "$GROUP"
-        elif [ "$OS" = "Darwin" ]; then
-            # macOS
-            if ! dscl . -list /Groups | grep -q "^$GROUP$"; then
-                info_message "Creating group $GROUP on macOS..."
-                maybe_sudo dscl . -create /Groups/"$GROUP" || {
-                    error_message "Failed to create group $GROUP"
-                }
-            fi
         else
             error_message "Unsupported OS for creating group."
             exit 1
@@ -229,18 +181,6 @@ restart_wazuh_agent() {
     fi
 }
 
-remove_file_limit() {
-    if maybe_sudo grep -q "<file_limit>" "$OSSEC_CONF_PATH"; then
-        # Remove the file_limit block
-        sed_alternative -i "/<file_limit>/,/<\/file_limit>/d" "$OSSEC_CONF_PATH" || {
-            error_message "Error occurred during the removal of the file_limit block."
-        }
-        info_message "The file limit block was removed successfully."
-    else
-        info_message "The file limit block does not exist. No changes were made."
-    fi
-}
-
 download_yara_script() {
     maybe_sudo mkdir -p "$(dirname "$YARA_SH_PATH")"
 
@@ -255,172 +195,66 @@ download_yara_script() {
     info_message "yara.sh script downloaded and installed successfully."
 }
 
-reverse_update_ossec_conf() {
-    if [ "$OS" = "Darwin" ]; then
-        # macOS
-        if maybe_sudo grep -q '<directories realtime="yes">/Users, /Applications</directories>' "$OSSEC_CONF_PATH"; then
-            info_message "Removing new yara configuration for macOS..."
-            sed_alternative -i '/<directories realtime="yes">\/Users, \/Applications<\/directories>/d' "$OSSEC_CONF_PATH" || {
-                error_message "Error occurred during removal of directories to monitor."
-            }
-            info_message "New yara configuration removed successfully on macOS."
-        fi
+# LOGICAL FIX: This new function ADDS the required config instead of removing it.
+update_ossec_conf() {
+    info_message "Removing any previous YARA syscheck configurations..."
+    # Remove old config to ensure a clean slate
+    maybe_sudo sed -i '/<directories realtime="yes">\/home, \/root, \/bin, \/sbin<\/directories>/d' "$OSSEC_CONF_PATH"
+
+    YARA_CONFIG='  <directories realtime="yes">/home, /root, /bin, /sbin</directories>'
+    info_message "Adding YARA syscheck configuration to ossec.conf..."
+
+    # Check if the config already exists before adding
+    if ! grep -qF "$YARA_CONFIG" "$OSSEC_CONF_PATH"; then
+        # Insert the configuration just before the closing </syscheck> tag for safety
+        maybe_sudo sed -i '/<\/syscheck>/i \'"$YARA_CONFIG"'' "$OSSEC_CONF_PATH" || {
+            error_message "Failed to add YARA directories to ossec.conf."
+            exit 1
+        }
+        success_message "Successfully added YARA configuration to syscheck."
     else
-        # Linux
-        if maybe_sudo grep -q '<directories realtime="yes">/home, /root, /bin, /sbin</directories>' "$OSSEC_CONF_PATH"; then
-            info_message "Removing new yara configuration for Linux..."
-            sed_alternative -i '/<directories realtime="yes">\/home, \/root, \/bin, \/sbin<\/directories>/d' "$OSSEC_CONF_PATH" || {
-                error_message "Error occurred during removal of directories to monitor."
-            }
-            info_message "New yara configuration removed successfully on Linux."
-        fi
-    fi
-
-    remove_file_limit
-}
-
-remove_apt_yara() {
-    if command_exists dpkg; then
-        if dpkg -s yara >/dev/null 2>&1; then
-            info_message "Detected apt-installed YARA; uninstalling via apt"
-            maybe_sudo apt remove -y yara || {
-                error_message "Failed to remove apt-installed YARA"
-            }
-            maybe_sudo apt autoremove -y
-            success_message "Apt-installed YARA removed"
-        fi
-    fi
-}
-
-remove_rpm_yara() {
-    if command_exists rpm; then
-        if rpm -q yara >/dev/null 2>&1; then
-            info_message "Detected RPM-installed YARA; uninstalling via $PKG_MANAGER"
-            maybe_sudo $UNINSTALL_CMD yara || {
-                error_message "Failed to remove RPM-installed YARA"
-            }
-            success_message "RPM-installed YARA removed"
-        fi
+        info_message "YARA syscheck configuration already exists."
     fi
 }
 
 remove_packaged_yara() {
+    info_message "Checking for and removing existing package-manager versions of YARA..."
     case "$DISTRO_FAMILY" in
-        debian)
-            remove_apt_yara
-            ;;
-        rhel)
-            remove_rpm_yara
-            ;;
+    debian)
+        if command_exists dpkg && dpkg -s yara >/dev/null 2>&1; then
+            info_message "Removing apt-installed YARA..."
+            maybe_sudo apt-get remove -y yara
+            maybe_sudo apt-get autoremove -y
+        fi
+        ;;
+    rhel)
+        if command_exists rpm && rpm -q yara >/dev/null 2>&1; then
+            info_message "Removing yum/dnf-installed YARA..."
+            maybe_sudo "$UNINSTALL_CMD" yara
+        fi
+        ;;
     esac
 }
 
-remove_brew_yara() {
-    # only on macOS/Homebrew
-    if command_exists brew; then
-        if brew_command list yara >/dev/null 2>&1; then
-            info_message "Removing Homebrew-installed YARA package"
-            info_message "Detected Homebrew YARA; uninstalling via brew"
-            brew_command uninstall --force yara || {
-                error_message "Failed to remove Homebrew-installed YARA"
-            }
-            success_message "Homebrew-installed YARA removed"
-        fi
-    fi
-}
-
-install_notify_send() {
-    deb_dir="$TMP_DIR/notify-send-debs"
-    mkdir -p "$deb_dir"
-    deb_url1="https://launchpad.net/ubuntu/+archive/primary/+files/libnotify4_0.8.3-1_amd64.deb"
-    deb_url2="https://launchpad.net/ubuntu/+archive/primary/+files/libnotify-bin_0.8.3-1_amd64.deb"
-    deb_file1="$deb_dir/$(basename "$deb_url1")"
-    deb_file2="$deb_dir/$(basename "$deb_url2")"
-    info_message "Downloading $deb_url1 ..."
-    curl -fsSL -o "$deb_file1" "$deb_url1" || {
-        error_message "Failed to download $deb_url1"
-        exit 1
-    }
-    info_message "Installing $(basename "$deb_url1") ..."
-    maybe_sudo apt install -y "$deb_file1" || {
-        error_message "Failed to install $deb_file1"
-        exit 1
-    }
-    info_message "Downloading $deb_url2 ..."
-    curl -fsSL -o "$deb_file2" "$deb_url2" || {
-        error_message "Failed to download $deb_url2"
-        exit 1
-    }
-    info_message "Installing $(basename "$deb_file2") ..."
-    maybe_sudo apt install -y "$deb_file2" || {
-        error_message "Failed to install $deb_file2"
-        exit 1
-    }
-    info_message "notify-send and dependencies installed/upgraded to $NOTIFY_SEND_VERSION."
-}
-
-# For Ubuntu: Ensure notify-send is at least expected version, else upgrade to it
-ensure_notify_send_version() {
-    if command_exists notify-send; then
-        version=$(notify-send --version 2>&1 | awk '{print $NF}')
-        if dpkg --compare-versions "$version" ge "$NOTIFY_SEND_VERSION"; then
-            info_message "notify-send version $version is already installed."
-        else
-            warn_message "notify-send version $version found. Upgrading to $NOTIFY_SEND_VERSION..."
-            install_notify_send
-        fi
-    else
-        warn_message "notify-send not found. Installing version $NOTIFY_SEND_VERSION..."
-        install_notify_send
-    fi
-}
-
-ensure_zenity_is_installed() {
-    if command_exists zenity; then
-        info_message "Zenity is already installed."
-    else
-        warn_message "Zenity is not installed. Installing it now..."
-        maybe_sudo apt install -y zenity || {
-            error_message "Failed to install Zenity."
-            exit 1
-        }
-    fi
-}
-
+# FIX: Replaced fragile .deb download with a robust package manager call.
 ensure_desktop_tools() {
     info_message "Ensuring desktop notification tools are installed..."
-    case "$DISTRO_FAMILY" in
-        debian)
-            ensure_notify_send_version
-            ensure_zenity_is_installed
-            ;;
-        rhel)
-            if ! command_exists notify-send; then
-                warn_message "notify-send not found. Installing..."
-                maybe_sudo $INSTALL_CMD "$NOTIFY_SEND_PKG" || { error_message "Failed to install $NOTIFY_SEND_PKG."; exit 1; }
-            else
-                info_message "notify-send is already installed."
-            fi
-
-            if ! command_exists zenity; then
-                warn_message "Zenity is not installed. Installing..."
-                maybe_sudo $INSTALL_CMD "$ZENITY_PKG" || { error_message "Failed to install Zenity."; exit 1; }
-            else
-                info_message "Zenity is already installed."
-            fi
-            ;;
-    esac
+    if ! command_exists notify-send || ! command_exists zenity; then
+        info_message "Installing notification tools: $NOTIFY_SEND_PKG and $ZENITY_PKG"
+        if [ "$DISTRO_FAMILY" = "debian" ]; then
+            maybe_sudo apt-get update -qq
+        fi
+        maybe_sudo "$INSTALL_CMD" "$NOTIFY_SEND_PKG" "$ZENITY_PKG" || {
+            error_message "Failed to install desktop notification tools."
+            exit 1
+        }
+    else
+        info_message "Desktop notification tools are already installed."
+    fi
 }
 
-install_yara_linux() {
+install_yara_from_source() {
     info_message "Installing YARA v${YARA_VERSION} from source on Linux ($DISTRO_FAMILY)"
-
-    # Check required tools
-    for cmd in curl tar make gcc; do
-        if ! command_exists "$cmd"; then
-            warn_message "$cmd not found; it will be installed as a dependency."
-        fi
-    done
 
     print_step "1" "Installing build dependencies"
     if [ "$DISTRO_FAMILY" = "debian" ]; then
@@ -428,22 +262,21 @@ install_yara_linux() {
     fi
     maybe_sudo $INSTALL_CMD $DEV_PACKAGES
 
-    print_step "2" "Downloading YARA $YARA_VERSION to $DOWNLOADS_DIR"
+    print_step "2" "Downloading YARA $YARA_VERSION to $TMP_DIR"
     if ! curl -fsSL -o "$TAR_DIR" "$YARA_URL"; then
         error_message "Failed to download YARA source tarball"
         return 1
     fi
 
-    print_step "3" "Extracting source to $DOWNLOADS_DIR"
-    maybe_sudo rm -rf "$EXTRACT_DIR"
+    print_step "3" "Extracting source to $TMP_DIR"
     mkdir -p "$EXTRACT_DIR"
-    if ! tar -xzf "$TAR_DIR" -C "$DOWNLOADS_DIR"; then
+    if ! tar -xzf "$TAR_DIR" -C "$TMP_DIR" --strip-components=1; then
         error_message "Failed to extract YARA tarball"
         return 1
     fi
 
     print_step "4" "Building & installing"
-    pushd "$EXTRACT_DIR/yara-$YARA_VERSION" >/dev/null 2>&1 || return 1
+    cd "$EXTRACT_DIR"
 
     info_message "Running bootstrap.sh"
     maybe_sudo ./bootstrap.sh
@@ -454,93 +287,36 @@ install_yara_linux() {
     info_message "Compiling"
     maybe_sudo make
 
-    info_message "Installing (this may prompt for sudo password)"
+    info_message "Installing"
     maybe_sudo make install
 
     info_message "Running test suite"
     maybe_sudo make check
 
-    info_message "Updating shared library cache: sudo ldconfig ..."
+    info_message "Updating shared library cache..."
     maybe_sudo ldconfig
 
-    popd >/dev/null 2>&1
+    cd - >/dev/null
 
     success_message "YARA v${YARA_VERSION} installed from source successfully"
 }
 
-install_yara_macos() {
-    info_message "Installing YARA v${YARA_VERSION} from source on macOS"
-    
-    YARA_RB_URL="https://raw.githubusercontent.com/Homebrew/homebrew-core/5239837c0dc157e5ffdfb2de325e942118db9485/Formula/y/yara.rb"
-    
-    USER_HOME=$(eval echo "~$LOGGED_IN_USER")
-    YARA_RP_PATH="$USER_HOME/yara.rb"
-    
-    info_message "Downloading yara.rb formula..."
-    sudo -u "$LOGGED_IN_USER" curl -SL --progress-bar "$YARA_RB_URL" -o "$YARA_RP_PATH" || {
-        error_message "Failed to download yara.rb file"
-        exit 1
-    }
-    
-    brew_command install --formula "$YARA_RP_PATH"
-    brew_command pin yara
-    
-    sudo -u "$LOGGED_IN_USER" rm -f "$YARA_RP_PATH"
-}
+install_yara_and_tools() {
+    remove_packaged_yara
+    ensure_desktop_tools
 
-install_yara() {
-    case "$OS" in
-    Linux)
-        install_yara_linux
-        ;;
-    Darwin)
-        install_yara_macos
-        ;;
-    *)
-        error_message "Unsupported operating system. Exiting..."
-        exit 1
-        ;;
-    esac
-}
-
-install_yara_and_tools(){
-    if [ "$OS" = "Linux" ]; then
-        remove_packaged_yara
-        ensure_desktop_tools
-    fi
-    if command_exists yara; then
-        if [ "$(yara --version)" = "$YARA_VERSION" ]; then
-            info_message "YARA is already installed. Skipping installation."
-        else
-            if [ "$OS" = "Darwin" ]; then
-                remove_brew_yara
-            fi
-            info_message "Installing YARA..."
-            install_yara
-        fi
+    if command_exists yara && [ "$(yara --version)" = "$YARA_VERSION" ]; then
+        info_message "YARA version $YARA_VERSION is already installed. Skipping installation."
     else
         info_message "Installing YARA..."
-        install_yara
-    fi
-    if [ -d "$DOWNLOADS_DIR" ]; then
-        info_message "Cleaning up downloads directory..."
-        maybe_sudo rm -rf "$DOWNLOADS_DIR"
+        install_yara_from_source
     fi
 }
 
 download_yara_rules() {
-    YARA_RULES_FILE="$TMP_DIR/yara_rules.yar"
-    YARA_RULES_URL="https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-yara/refs/heads/main/rules/yara_rules.yar"
+    local YARA_RULES_FILE="$TMP_DIR/yara_rules.yar"
+    local YARA_RULES_URL="https://raw.githubusercontent.com/ADORSYS-GIS/wazuh-yara/refs/heads/main/rules/yara_rules.yar"
     maybe_sudo curl -SL --progress-bar "$YARA_RULES_URL" -o "$YARA_RULES_FILE"
-
-    if [ "$OS" = "Linux" ]; then
-        YARA_RULES_DEST_DIR="/var/ossec/ruleset/yara/rules"
-    elif [ "$OS" = "Darwin" ]; then
-        YARA_RULES_DEST_DIR="/Library/Ossec/ruleset/yara/rules"
-    else
-        error_message "Unsupported OS. Exiting..."
-        exit 1
-    fi
 
     if [ -s "$YARA_RULES_FILE" ]; then
         maybe_sudo mkdir -p "$YARA_RULES_DEST_DIR"
@@ -555,20 +331,11 @@ download_yara_rules() {
 
 validate_installation() {
 
-    VALIDATION_STATUS="TRUE"
+    local VALIDATION_STATUS="TRUE"
 
-    if [ "$OS" = "Linux" ] && [ "$DISTRO_FAMILY" = "debian" ]; then
-        if command_exists notify-send; then
-            if [ "$(notify-send --version 2>&1 | awk '{print $NF}')" = "$NOTIFY_SEND_VERSION" ]; then
-                success_message "notify-send version $NOTIFY_SEND_VERSION is installed."
-            else
-                warn_message "notify-send version mismatch. Expected $NOTIFY_SEND_VERSION, but found $(notify-send --version 2>&1 | awk '{print $NF}')."
-                VALIDATION_STATUS="FALSE"
-            fi
-        else
-            warn_message "notify-send is not installed. Please install it to use notifications."
-            VALIDATION_STATUS="FALSE"
-        fi
+    if ! command_exists notify-send; then
+        warn_message "notify-send is not installed."
+        VALIDATION_STATUS="FALSE"
     fi
 
     if command_exists yara; then
@@ -584,10 +351,10 @@ validate_installation() {
     fi
 
     if [ ! -f "$YARA_RULES_DEST_DIR/yara_rules.yar" ]; then
-        warn_message "Yara rules files not present at $YARA_RULES_DEST_DIR/yara_rules.yar."
+        warn_message "Yara rules file not present at $YARA_RULES_DEST_DIR/yara_rules.yar."
         VALIDATION_STATUS="FALSE"
     else
-        success_message "Yara rules files exists at $YARA_RULES_DEST_DIR/yara_rules.yar."
+        success_message "Yara rules file exists at $YARA_RULES_DEST_DIR/yara_rules.yar."
     fi
 
     if [ ! -f "$YARA_SH_PATH" ]; then
@@ -622,7 +389,7 @@ download_yara_script
 # Step 4: Update Wazuh agent configuration file
 print_step 4 "Updating Wazuh agent configuration file..."
 if [ -f "$OSSEC_CONF_PATH" ]; then
-    reverse_update_ossec_conf
+    update_ossec_conf
 else
     warn_message "OSSEC configuration file not found at $OSSEC_CONF_PATH."
 fi
@@ -633,7 +400,7 @@ restart_wazuh_agent
 
 # Step 6: Cleanup (handled by trap)
 print_step 6 "Cleaning up temporary files..."
-info_message "Temporary files cleaned up."
+info_message "Temporary files will be cleaned up automatically upon exit."
 
 # Step 7: Validate installation and configuration
 print_step 7 "Validating installation and configuration..."
