@@ -104,13 +104,21 @@ finalize_installation() {
     check_success
 
     info "Waiting for the service to initialize..."
-    sleep 15
+    sleep 10
 
     if systemctl is-active --quiet wazuh-agent; then
         info "✔ OK: The wazuh-agent service is active and running."
     else
         error "The wazuh-agent service failed to start. Check the logs with 'journalctl -u wazuh-agent'."
     fi
+}
+
+
+configure_yara() {
+    echo "Configuring the Yara rules"
+    cp activeResponses/yara.sh /var/ossec/active-response/bin/yara.sh
+    sudo chmod +x /var/ossec/active-response/bin/yara.sh
+    sudo chown ossec:ossec /var/ossec/active-response/bin/yara.sh
 }
 
 # --- Main Execution ---
@@ -148,6 +156,8 @@ main() {
             ;;
     esac
 
+    configure_yara
+    
     # Finalize the installation
     finalize_installation
 
