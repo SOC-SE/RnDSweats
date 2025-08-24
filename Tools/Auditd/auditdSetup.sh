@@ -62,7 +62,7 @@ echo "✅ auditd service enabled on boot."
 
 # Step 3: Copy the custom rules file into place.
 echo "📋 Copying custom rules from '$RULES_FILE' to '$DEST_RULES_FILE'..."
-cp "$RULES_FILE" "$DEST_RULES_FILE"
+cp -f "$RULES_FILE" "$DEST_RULES_FILE"
 # Set proper permissions just in case.
 chmod 640 "$DEST_RULES_FILE"
 
