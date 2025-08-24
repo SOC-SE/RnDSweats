@@ -9,7 +9,7 @@ apt install curl -y
 
 curl -sO https://packages.wazuh.com/4.12/wazuh-install.sh
 
-bash wazuh-install -a
+bash wazuh-install.sh -a
 
 mv Tools/Wazuh/local_decoder.xml /var/ossec/etc/decoders/local_decoder.xml
 mv Tools/Wazuh/local_rules.xml /var/ossec/etc/rules/local_rules.xml
