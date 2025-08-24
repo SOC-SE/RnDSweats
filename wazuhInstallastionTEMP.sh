@@ -11,4 +11,8 @@ curl -sO https://packages.wazuh.com/4.12/wazuh-install.sh
 
 bash wazuh-install -a
 
+mv Tools/Wazuh/local_decoder.xml /var/ossec/etc/decoders/local_decoder.xml
+mv Tools/Wazuh/local_rules.xml /var/ossec/etc/rules/local_rules.xml
+mv Tools/Wazuh/ossec.conf /var/ossec/etc/ossec.conf
+
 bash wazuh-passwords-tool.sh -u admin -p Changeme1*
