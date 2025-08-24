@@ -13,7 +13,7 @@
 # The name of your custom rules file, expected in the same directory as this script.
 RULES_FILE="audit.rules"
 # The destination for the rules file. Naming it 99- makes it load last.
-DEST_RULES_FILE="/etc/audit/rules.d/99-custom.rules"
+DEST_RULES_FILE="/etc/audit/rules.d/audit.rules"
 
 # --- Pre-flight Checks ---
 
