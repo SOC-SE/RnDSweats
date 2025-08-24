@@ -7,7 +7,7 @@
 #              removes files that cause errors in standard Yara, and compiles
 #              the remaining rules into a single production file.
 # Author:      Samuel Brucker
-# Version:     1.0
+# Version:     1.1 (Corrected)
 # ==============================================================================
 
 # --- Configuration ---
@@ -15,8 +15,8 @@
 RULES_REPO="https://github.com/Neo23x0/signature-base.git"
 # The local directory to clone the rules into.
 RULES_DIR="/opt/yara_rules/signature-base"
-# The final, compiled rule file for production use.
-COMPILED_RULES_FILE="/opt/yara_rules/production.yar"
+# The final, combined rule file for production use.
+COMBINED_RULES_FILE="/opt/yara_rules/production.yar"
 
 # --- Pre-flight Checks ---
 
@@ -30,28 +30,25 @@ fi
 
 echo "🚀 Starting automated Yara setup..."
 
-# Step 1: Install Dependencies (Yara)
+# Step 1: Install Dependencies (Yara & Git)
 echo "--------------------------------------------------"
-echo "STEP 1: Installing Yara..."
+echo "STEP 1: Installing Yara and Git..."
 echo "--------------------------------------------------"
 if command -v apt-get &> /dev/null; then
     echo "🔎 Debian/Ubuntu based system detected. Using apt-get..."
     apt-get update -y > /dev/null 2>&1
-    apt-get install yara -y
-
+    apt-get install yara git -y
 elif command -v dnf &> /dev/null; then
     echo "🔎 RHEL/Fedora based system detected. Using dnf..."
-    dnf install yara -y
-
+    dnf install yara git -y
 elif command -v yum &> /dev/null; then
     echo "🔎 RHEL/CentOS based system detected. Using yum..."
-    yum install yara -y
-
+    yum install yara git -y
 else
-    echo "❌ Unsupported package manager. Please install Yara manually."
+    echo "❌ Unsupported package manager. Please install Yara and Git manually."
     exit 1
 fi
-echo "✅ Yara installed successfully."
+echo "✅ Yara and Git installed successfully."
 
 
 # Step 2: Clone the Yara Rules Repository
@@ -74,7 +71,6 @@ echo "STEP 3: Sanitizing ruleset by removing incompatible files..."
 echo "--------------------------------------------------"
 
 # Array of files that cause errors due to undefined external variables.
-# These paths are relative to the 'yara' subdirectory in the cloned repo.
 FILES_TO_REMOVE=(
     "generic_anomalies.yar"
     "general_cloaking.yar"
@@ -100,33 +96,28 @@ done
 echo "✅ Ruleset sanitized."
 
 
-# Step 4: Compile All Valid Rules into a Single File
+# Step 4: Combine All Valid Rules into a Single File (Corrected Method)
 echo "--------------------------------------------------"
-echo "STEP 4: Compiling all valid .yar rules into a single production file..."
+echo "STEP 4: Combining all valid .yar rules into a single production file..."
 echo "--------------------------------------------------"
 
-# Create an index file that lists all .yar files to be included
-INDEX_FILE="/tmp/yara_rule_index.txt"
-# We specifically look in the yara subdirectory of the cloned repo
-find "$RULES_DIR/yara" -type f -name "*.yar" > "$INDEX_FILE"
+# Create a new empty file for the combined rules, overwriting any old one.
+> "$COMBINED_RULES_FILE"
 
-# The yara command can take an index file of rules to compile
-yara -w -f "$INDEX_FILE" "$COMPILED_RULES_FILE"
+# Find all .yar files and append their content to the single production file.
+find "$RULES_DIR/yara" -type f -name "*.yar" -exec cat {} + >> "$COMBINED_RULES_FILE"
 
-# Check if the compilation was successful
-if [ $? -eq 0 ]; then
-    echo "✅ Successfully compiled rules into: $COMPILED_RULES_FILE"
+# Check if the combined file was created and is not empty
+if [ -s "$COMBINED_RULES_FILE" ]; then
+    echo "✅ Successfully combined rules into: $COMBINED_RULES_FILE"
 else
-    echo "❌ Error: Yara compilation failed. Please check for rule syntax errors."
-    rm "$INDEX_FILE"
+    echo "❌ Error: Failed to create the combined rules file, or no .yar files were found."
     exit 1
 fi
 
-rm "$INDEX_FILE"
-
 echo "--------------------------------------------------"
-echo "🎉 Yara setup and rule compilation complete!"
+echo "🎉 Yara setup and rule combination complete!"
 echo ""
-echo "You can now use the compiled rules file for scanning:"
-echo "yara $COMPILED_RULES_FILE /path/to/scan/"
+echo "You can now use the combined rules file for scanning:"
+echo "yara $COMBINED_RULES_FILE /path/to/scan/"
 echo "--------------------------------------------------"
