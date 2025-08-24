@@ -90,8 +90,8 @@ sleep 1 # Give the service a moment to stabilize
 
 if systemctl is-active --quiet auditd; then
     echo "✅ Verification successful! The auditd service is active."
-    echo "🔎 Current rules loaded in kernel:"
-    auditctl -l
+    echo "🔎 Use the following command to confirm the rules loaded into the kernel:"
+    echo "sudo auditctl -l"
 else
     echo "❌ Verification failed. The auditd service could not be started."
     exit 1
