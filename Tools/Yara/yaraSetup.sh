@@ -14,9 +14,9 @@
 # The Git repository containing the Yara rules.
 RULES_REPO="https://github.com/Neo23x0/signature-base.git"
 # The local directory to clone the rules into.
-RULES_DIR="/var/ossec/etc/yara/rules"
+RULES_DIR="/opt/yara_rules/"
 # The final, combined rule file for production use.
-COMBINED_RULES_FILE="/opt/yara_rules/production.yar"
+COMBINED_RULES_FILE="/var/ossec/etc/yara/rules/production.yar"
 
 # --- Pre-flight Checks ---
 
