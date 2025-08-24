@@ -11,7 +11,7 @@
 # ==============================================================================
 
 # --- Configuration ---
-RULES_FILE="audit.rules"
+RULES_FILE="~/rndsweats/Tools/Auditd/audit.rules"
 DEST_RULES_FILE="/etc/audit/rules.d/99-custom.rules"
 # Rule to be removed for Wazuh compatibility
 INCOMPATIBLE_RULE="-a never,task"
