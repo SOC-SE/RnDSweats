@@ -33,13 +33,13 @@ echo "----------------------------------------"
 echo "STEP 1: Installing auditd package..."
 if command -v apt-get &> /dev/null; then
     apt-get update -y > /dev/null 2>&1
-    apt-get install auditd -y
+    apt-get install auditd audispd-plugins -y
     
 elif command -v dnf &> /dev/null; then
-    dnf install auditd -y
+    dnf install auditd audispd-plugins -y
     
 elif command -v yum &> /dev/null; then
-    yum install auditd -y
+    yum install auditd audispd-plugins -y
     
 else
     echo "❌ Unsupported package manager. Please install auditd manually."
