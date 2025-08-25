@@ -16,6 +16,7 @@
 
 # --- Configuration ---
 WAZUH_MANAGER_IP="172.20.241.20"
+WAZUH_AGENT_GROUP="linux-default"
 LOG_FILE="/var/log/wazuh_agent_installer.log"
 
 # --- Utility Functions ---
