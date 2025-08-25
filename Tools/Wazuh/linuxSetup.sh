@@ -118,7 +118,7 @@ configure_yara() {
     echo "Configuring the Yara rules"
     cp Wazuh/activeResponses/yara.sh /var/ossec/active-response/bin/yara.sh
     sudo chmod +x /var/ossec/active-response/bin/yara.sh
-    sudo chown ossec:ossec /var/ossec/active-response/bin/yara.sh
+    sudo chown root:wazuh /var/ossec/active-response/bin/yara.sh
 }
 
 # --- Main Execution ---
