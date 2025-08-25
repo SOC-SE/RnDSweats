@@ -104,6 +104,10 @@ echo "--------------------------------------------------"
 echo "STEP 4: Combining all valid .yar rules into a single production file..."
 echo "--------------------------------------------------"
 
+#Create the needed directories, if they don't exist.
+mkdir -p /var/ossec/etc/yara
+mkdir -p /var/ossec/etc/yara/rules
+
 # Create a new empty file for the combined rules, overwriting any old one.
 > "$COMBINED_RULES_FILE"
 
