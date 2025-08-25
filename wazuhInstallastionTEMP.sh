@@ -16,4 +16,8 @@ mv Tools/Wazuh/local_decoder.xml /var/ossec/etc/decoders/local_decoder.xml
 mv Tools/Wazuh/local_rules.xml /var/ossec/etc/rules/local_rules.xml
 mv Tools/Wazuh/ossec.conf /var/ossec/etc/ossec.conf
 
+cd Tools/Wazuh/Configs/
+bash setConfigs.sh
+
+cd ../../../
 bash wazuh-passwords-tool.sh -u admin -p Changeme1*
