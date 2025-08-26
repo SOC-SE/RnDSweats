@@ -15,7 +15,7 @@ echo "Setting up auditd"
 bash Auditd/auditdSetup.sh
 
 echo "Setting up yara"
-bash Yara/yaraSetup.sh
+bash Yara/yaraTest.sh
 
 echo "Setting up the Wazuh agent"
 bash Wazuh/linuxSetup.sh
