@@ -1,6 +1,6 @@
 <group name="yara,">
   <rule id="108000" level="0">
-    <decoded_as>yara_decoder</decoded_as>
+    <decoded_as>yara</decoded_as>
     <description>Yara grouping rule</description>
   </rule>
 
