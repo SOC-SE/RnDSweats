@@ -1,4 +1,4 @@
-<decoder name="yara_decoder">
+<decoder name="yara">
     <prematch>^YARA scan result:</prematch>
 </decoder>
 
