@@ -103,7 +103,7 @@ echo "✅ Yara and jq installed successfully."
         wget \
         tar
     log "Dependencies installed successfully."
-}
+
 
 # Function to download and build Yara
 build_yara() {
