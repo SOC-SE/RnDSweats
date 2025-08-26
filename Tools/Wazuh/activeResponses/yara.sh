@@ -24,7 +24,7 @@
 YARA_EXEC="/usr/bin/yara"
 
 # Path to your master Yara rules file (e.g., a single .yar file including all others)
-YARA_RULES="/opt/yara/rules/malware_index.yar"
+YARA_RULES="/var/ossec/etc/yara/rules/production.yar"
 
 # Log file where scan results will be written for Wazuh to read
 LOG_FILE="/var/log/yara_scans.log"
