@@ -6,7 +6,7 @@
 
   <rule id="108001" level="12">
     <if_sid>108000</if_sid>
-    <match>wazuh-yara: INFO - Scan result: </match>
+    <field name="yara_rule">\.+</field>
     <description>YARA scan detected malware. File: $(yara_scanned_file). Rule: $(yara_rule).</description>
   </rule>
 </group>
