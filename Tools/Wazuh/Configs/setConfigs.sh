@@ -107,13 +107,5 @@ chmod 750 "${GROUP_CONF_DIR}"
 chmod 640 "${GROUP_AGENT_CONF}"
 log_success "Permissions set correctly."
 
-# 7. Restart Wazuh Manager
-log_info "Restarting the Wazuh manager to apply changes..."
-systemctl restart wazuh-manager
-if [ $? -ne 0 ]; then
-    log_error "Failed to restart the wazuh-manager service. Please check its status with 'systemctl status wazuh-manager'."
-fi
-log_success "Wazuh manager restarted successfully."
-
 echo
-log_success "Wazuh group '${GROUP_ONE_NAME}' is configured and ready."
+log_success "Wazuh group '${GROUP_ONE_NAME}' is configured. Wazuh-manager must be restarted for changes to take place."
