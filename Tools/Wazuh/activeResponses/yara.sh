@@ -13,7 +13,7 @@
 # Extra arguments
 read INPUT_JSON
 YARA_PATH=$(echo $INPUT_JSON | jq -r .parameters.extra_args[1])
-YARA_RULES="/var/ossec/etc/yara/rules/production.yar"
+YARA_RULES=$(echo $INPUT_JSON | jq -r .parameters.extra_args[3])
 FILENAME=$(echo $INPUT_JSON | jq -r .parameters.alert.syscheck.path)
 
 # Set LOG_FILE path
