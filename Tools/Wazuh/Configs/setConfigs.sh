@@ -26,7 +26,7 @@
 
 # --- Configuration Variables ---
 # The name of the Wazuh agent group you want to create or manage.
-GROUP_NAME="linux-default"
+GROUP_ONE_NAME="linux-default"
 # The name of the local configuration file to be applied to the group.
 # This file MUST be in the same directory as this script.
 LOCAL_CONF_FILE="linux-default.conf"
@@ -35,7 +35,7 @@ LOCAL_CONF_FILE="linux-default.conf"
 WAZUH_PATH="/var/ossec"
 AGENT_GROUPS_TOOL="${WAZUH_PATH}/bin/agent_groups"
 SHARED_CONF_DIR="${WAZUH_PATH}/etc/shared"
-GROUP_CONF_DIR="${SHARED_CONF_DIR}/${GROUP_NAME}"
+GROUP_CONF_DIR="${SHARED_CONF_DIR}/${GROUP_ONE_NAME}"
 GROUP_AGENT_CONF="${GROUP_CONF_DIR}/agent.conf"
 
 # --- Script Functions ---
@@ -73,21 +73,21 @@ fi
 log_success "Local configuration file found."
 
 # 3. Check if Wazuh Group Exists
-log_info "Checking if group '${GROUP_NAME}' already exists..."
-if ${AGENT_GROUPS_TOOL} -l | grep -q "^${GROUP_NAME}$"; then
+log_info "Checking if group '${GROUP_ONE_NAME}' already exists..."
+if ${AGENT_GROUPS_TOOL} -l | grep -q "^${GROUP_ONE_NAME}$"; then
     log_info "Group '${GROUP_NAME}' already exists. Proceeding to update configuration."
 else
     # 4. Create the Group
-    log_info "Group '${GROUP_NAME}' not found. Creating it now..."
-    ${AGENT_GROUPS_TOOL} -a -g "${GROUP_NAME}"
+    log_info "Group '${GROUP_ONE_NAME}' not found. Creating it now..."
+    ${AGENT_GROUPS_TOOL} -a -g "${GROUP_ONE_NAME}"
     if [ $? -ne 0 ]; then
-        log_error "Failed to create the Wazuh group '${GROUP_NAME}'. Please check Wazuh logs."
+        log_error "Failed to create the Wazuh group '${GROUP_ONE_NAME}'. Please check Wazuh logs."
     fi
-    log_success "Successfully created group '${GROUP_NAME}'."
+    log_success "Successfully created group '${GROUP_ONE_NAME}'."
 fi
 
 # 5. Copy Configuration File
-log_info "Applying configuration from '${LOCAL_CONF_FILE}' to group '${GROUP_NAME}'..."
+log_info "Applying configuration from '${LOCAL_CONF_FILE}' to group '${GROUP_ONE_NAME}'..."
 # Ensure the target directory exists
 mkdir -p "${GROUP_CONF_DIR}"
 # Copy the file
@@ -116,4 +116,4 @@ fi
 log_success "Wazuh manager restarted successfully."
 
 echo
-log_success "Wazuh group '${GROUP_NAME}' is configured and ready."
+log_success "Wazuh group '${GROUP_ONE_NAME}' is configured and ready."
