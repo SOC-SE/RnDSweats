@@ -37,15 +37,15 @@ echo "--------------------------------------------------"
 if command -v apt-get &> /dev/null; then
     echo "🔎 Debian/Ubuntu based system detected. Using apt-get..."
     apt-get update -y > /dev/null 2>&1
-    apt-get install yara -y
+    apt-get install yara jq -y
     
 elif command -v dnf &> /dev/null; then
     echo "🔎 RHEL/Fedora based system detected. Using dnf..."
-    dnf install yara -y
+    dnf install yara jq -y
     
 elif command -v yum &> /dev/null; then
     echo "🔎 RHEL/CentOS based system detected. Using yum..."
-    yum install yara -y
+    yum install yara jq -y
     
 else
     echo "❌ Unsupported package manager. Please install Yara and Git manually."
