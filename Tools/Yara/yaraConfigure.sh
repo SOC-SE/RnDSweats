@@ -40,6 +40,6 @@ do
   done
 done
 # Compile Yara Rules
-/usr/share/yara/yara-4.2.3/yarac $yara_rules_list /usr/local/signature-base/yara_base_ruleset_compiled.yar
+yarac $yara_rules_list /usr/local/signature-base/yara_base_ruleset_compiled.yar
 IFS=$SAVEIFS
 exit 1;
