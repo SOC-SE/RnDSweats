@@ -1,6 +1,6 @@
 #!/bin/bash
 # Wazuh - Yara active response
-# Copyright (C) 2015-2022, Wazuh Inc.
+# Copyright (C) SOCFortress, LLP.
 #
 # This program is free software; you can redistribute it
 # and/or modify it under the terms of the GNU General Public
@@ -15,6 +15,7 @@ read INPUT_JSON
 YARA_PATH=$(echo $INPUT_JSON | jq -r .parameters.extra_args[1])
 YARA_RULES=$(echo $INPUT_JSON | jq -r .parameters.extra_args[3])
 FILENAME=$(echo $INPUT_JSON | jq -r .parameters.alert.syscheck.path)
+QUARANTINE_PATH="/tmp/quarantined"
 
 # Set LOG_FILE path
 LOG_FILE="logs/active-responses.log"
@@ -38,7 +39,7 @@ fi
 #------------------------- Main workflow --------------------------#
 
 # Execute Yara scan on the specified filename
-yara_output="$("${YARA_PATH}"/yara -w -r "$YARA_RULES" "$FILENAME")"
+yara_output="$("${YARA_PATH}"/yara -C -w -r -f -m "$YARA_RULES" "$FILENAME")"
 
 if [[ $yara_output != "" ]]
 then
@@ -46,6 +47,10 @@ then
     while read -r line; do
         echo "wazuh-yara: INFO - Scan result: $line" >> ${LOG_FILE}
     done <<< "$yara_output"
+    /usr/bin/mv -f $FILENAME ${QUARANTINE_PATH}
+    FILEBASE=$(/usr/bin/basename $FILENAME)
+    /usr/bin/chattr -R +i ${QUARANTINE_PATH}/${FILEBASE}
+    /usr/bin/echo "wazuh-yara: $FILENAME moved to ${QUARANTINE_PATH}" >> ${LOG_FILE}
 fi
 
 exit 0;

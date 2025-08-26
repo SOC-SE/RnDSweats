@@ -1,5 +1,5 @@
 <decoder name="yara">
-    <prematch>^YARA scan result:</prematch>
+  <prematch>wazuh-yara:</prematch>
 </decoder>
 
 <decoder name="yara_decoder1">

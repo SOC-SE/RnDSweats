@@ -121,6 +121,8 @@ configure_yara() {
     cp Wazuh/activeResponses/yara.sh /var/ossec/active-response/bin/yara.sh
     sudo chown root:wazuh /var/ossec/active-response/bin/yara.sh
     sudo chmod 750 /var/ossec/active-response/bin/yara.sh
+
+    mkdir /tmp/quarantined
 }
 
 # --- Main Execution ---

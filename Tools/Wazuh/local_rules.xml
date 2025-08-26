@@ -1,12 +1,15 @@
 <group name="yara,">
-  <rule id="108000" level="0">
-    <decoded_as>yara</decoded_as>
-    <description>Yara grouping rule</description>
-  </rule>
+    <rule id="200100" level="1">
+        <decoded_as>yara</decoded_as>
+        <description>YARA rules grouped.</description>
+    </rule>
 
-  <rule id="108001" level="12">
-    <if_sid>108000</if_sid>
-    <field name="yara_rule">\.+</field>
-    <description>YARA scan detected malware. File: $(yara_scanned_file). Rule: $(yara_rule).</description>
-  </rule>
+    <rule id="200101" level="12">
+        <if_sid>200100</if_sid>
+        <field name="yara_rule">\.+</field>
+        <mitre>
+           <id>T1204</id>
+        </mitre>
+        <description>YARA $(yara_rule) detected.</description>
+    </rule>
 </group>

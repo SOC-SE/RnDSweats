@@ -9,15 +9,6 @@
 # Author:      Samuel Brucker
 # Version:     1.1 (Corrected)
 # ==============================================================================
-
-# --- Configuration ---
-# The Git repository containing the Yara rules.
-RULES_REPO="https://github.com/Neo23x0/signature-base.git"
-# The local directory to clone the rules into.
-RULES_DIR="/opt/yara_rules/"
-# The final, combined rule file for production use.
-COMBINED_RULES_FILE="/var/ossec/etc/yara/rules/production.yar"
-
 # --- Pre-flight Checks ---
 
 # Check 1: Ensure the script is run as root.
@@ -30,9 +21,9 @@ fi
 
 echo "🚀 Starting automated Yara setup..."
 
-# Step 1: Install Dependencies (Yara & Git)
+# Step 1: Install Dependencies (Yara & jq)
 echo "--------------------------------------------------"
-echo "STEP 1: Installing Yara and Git..."
+echo "STEP 1: Installing Yara and jq..."
 echo "--------------------------------------------------"
 if command -v apt-get &> /dev/null; then
     echo "🔎 Debian/Ubuntu based system detected. Using apt-get..."
@@ -48,87 +39,57 @@ elif command -v yum &> /dev/null; then
     yum install yara jq -y
     
 else
-    echo "❌ Unsupported package manager. Please install Yara and Git manually."
+    echo "❌ Unsupported package manager. Please install Yara and jq manually."
     exit 1
 fi
-echo "✅ Yara and Git installed successfully."
+echo "✅ Yara and jq installed successfully."
 
 
 # Step 2: Clone the Yara Rules Repository
 echo "--------------------------------------------------"
 echo "STEP 2: Cloning the Yara rules repository..."
 echo "--------------------------------------------------"
-if [ -d "$RULES_DIR" ]; then
-    echo "🔎 Rules directory already exists. Pulling latest changes..."
-    (cd "$RULES_DIR" && git pull)
-else
-    echo "🔎 Cloning repository to $RULES_DIR..."
-    git clone "$RULES_REPO" "$RULES_DIR"
+
+SAVEIFS=$IFS
+IFS=$(echo -en "\n\b")
+# Static active response parameters
+LOCAL=`dirname $0`
+#------------------------- Folder where Yara rules (files) will be placed -------------------------#
+git_repo_folder="/usr/local/signature-base"
+yara_file_extenstions=( ".yar" )
+yara_rules_list="/usr/local/signature-base/yara_rules_list.yar"
+
+#------------------------- Main workflow --------------------------#
+
+# Update Github Repo
+cd $git_repo_folder
+git pull https://github.com/Neo23x0/signature-base.git
+
+# Remove .yar files not compatible with standard Yara package
+rm $git_repo_folder/yara/generic_anomalies.yar $git_repo_folder/yara/general_cloaking.yar $git_repo_folder/yara/thor_inverse_matches.yar $git_repo_folder/yara/yara_mixed_ext_vars.yar $git_repo_folder/yara/apt_cobaltstrike.yar $git_repo_folder/yara/apt_tetris.yar $git_repo_folder/yara/gen_susp_js_obfuscatorio.yar $git_repo_folder/yara/configured_vulns_ext_vars.yar $git_repo_folder/yara/gen_webshells_ext_vars.yar $git_repo_folder/yara/expl_connectwise_screenconnect_vuln_feb24.yar
+
+# Create File with rules to be compiled
+if [ ! -f $yara_rules_list ]
+then
+    /usr/bin/touch $yara_rules_list
+else rm $yara_rules_list
 fi
-echo "✅ Rules repository synced successfully."
-
-
-# Step 3: Sanitize the Ruleset
-echo "--------------------------------------------------"
-echo "STEP 3: Sanitizing ruleset by removing incompatible files..."
-echo "--------------------------------------------------"
-
-# Array of files that cause errors due to undefined external variables.
-FILES_TO_REMOVE=(
-    "generic_anomalies.yar"
-    "general_cloaking.yar"
-    "gen_webshells_ext_vars.yar"
-    "thor_inverse_matches.yar"
-    "yara_mixed_ext_vars.yar"
-    "configured_vulns_ext_vars.yar"
-    "gen_fake_amsi_dll.yar"
-    "expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar"
-    "yara-rules_vuln_drivers_strict_renamed.yar"
-    "expl_connectwise_screenconnect_vuln_feb24.yar"
-)
-
-for file in "${FILES_TO_REMOVE[@]}"; do
-    # The rules are in a 'yara' subdirectory within the main repo directory
-    TARGET_FILE="$RULES_DIR/yara/$file"
-    if [ -f "$TARGET_FILE" ]; then
-        echo "   - Removing: $file"
-        rm "$TARGET_FILE"
-    else
-        echo "   - Warning: Could not find $file to remove. It may have been renamed or deleted upstream."
-    fi
+for e in "${yara_file_extenstions[@]}"
+do
+  for f1 in $( find $git_repo_folder/yara -type f | grep -F $e ); do
+    echo "include \"""$f1"\""" >> $yara_rules_list
+  done
 done
-echo "✅ Ruleset sanitized."
+# Compile Yara Rules
+/usr/share/yara/yara-4.2.3/yarac $yara_rules_list /usr/local/signature-base/yara_base_ruleset_compiled.yar
+IFS=$SAVEIFS
 
 
-# Step 4: Combine All Valid Rules into a Single File (Corrected Method)
-echo "--------------------------------------------------"
-echo "STEP 4: Combining all valid .yar rules into a single production file..."
-echo "--------------------------------------------------"
 
-#Create the needed directories, if they don't exist.
-mkdir -p /var/ossec/etc/yara
-mkdir -p /var/ossec/etc/yara/rules
-
-# Create a new empty file for the combined rules, overwriting any old one.
-> "$COMBINED_RULES_FILE"
-
-# Find all .yar files and append their content to the single production file.
-find "$RULES_DIR/yara" -type f -name "*.yar" -exec cat {} + >> "$COMBINED_RULES_FILE"
-
-# Check if the combined file was created and is not empty
-if [ -s "$COMBINED_RULES_FILE" ]; then
-    echo "✅ Successfully combined rules into: $COMBINED_RULES_FILE"
-else
-    echo "❌ Error: Failed to create the combined rules file, or no .yar files were found."
-    exit 1
-fi
-
-# Clean up the rules
-rm -f /opt/yara_rules/*
 
 echo "--------------------------------------------------"
 echo "🎉 Yara setup and rule combination complete!"
 echo ""
 echo "You can now use the combined rules file for scanning:"
-echo "yara $COMBINED_RULES_FILE /path/to/scan/"
+echo "yara /usr/local/signature-base/yara_base_ruleset_compiled.yar /path/to/scan/"
 echo "--------------------------------------------------"

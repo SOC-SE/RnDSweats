@@ -12,6 +12,7 @@ Develop:
 
 Test integration for:
 - Yara
+    - WIP
 - ClamAV
 - Suricata
 - ModSecurity
