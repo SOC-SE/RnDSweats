@@ -11,11 +11,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "Setting up auditd"
+echo "Setting up Auditd"
 bash Auditd/auditdSetup.sh
 
-echo "Setting up yara"
-bash Yara/yaraSetup.sh
+echo "Installing Yara"
+bash Yara/yaraInstall.sh
+
+echo "Configuring Yara rules"
+bash Yara/yaraConfigure.sh
 
 echo "Setting up the Wazuh agent"
 bash Wazuh/linuxSetup.sh
