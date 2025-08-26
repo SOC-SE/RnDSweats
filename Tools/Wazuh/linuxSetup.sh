@@ -16,7 +16,7 @@
 
 # --- Configuration ---
 WAZUH_MANAGER_IP="172.20.241.20"
-WAZUH_AGENT_GROUP="linux-default"
+WAZUH_AGENT_GROUP_NAME="linux-default"
 
 LOG_FILE="/var/log/wazuh_agent_installer.log"
 
@@ -63,9 +63,9 @@ EOF
 
     info "Installing the Wazuh agent package..."
     if command -v dnf &> /dev/null; then
-        WAZUH_MANAGER="$WAZUH_MANAGER_IP" dnf install -y wazuh-agent
+        WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" dnf install -y wazuh-agent
     else
-        WAZUH_MANAGER="$WAZUH_MANAGER_IP" yum install -y wazuh-agent
+        WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" yum install -y wazuh-agent
     fi
     check_success
 }
@@ -91,7 +91,7 @@ EOF
 
     info "Installing the Wazuh agent package..."
     apt-get update
-    WAZUH_MANAGER="$WAZUH_MANAGER_IP" apt-get install -y wazuh-agent
+    WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" apt-get install -y wazuh-agent
     check_success
 }
 
