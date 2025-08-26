@@ -2,9 +2,8 @@
     <prematch>^YARA scan result:</prematch>
 </decoder>
 
-<decoder name="yara_decoder_fields">
-    <parent>yara_decoder</parent>
-    <regex>^YARA scan result: \s*(\S+)(?: \s*\[(.*?)\])?\s+(\S+)</regex>
-    <order>yara.rule, yara.meta, yara.filepath</order>
-    <description>Yara rule match detected.</description>
+<decoder name="yara_decoder1">
+  <parent>yara</parent>
+  <regex>wazuh-yara: (\S+) - Scan result: (\S+) [description\p\p(\.*)"\.*] (\S+)</regex>
+  <order>log_type, yara_rule, yara_description, yara_scanned_file</order>
 </decoder>
