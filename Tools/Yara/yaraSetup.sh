@@ -84,6 +84,7 @@ FILES_TO_REMOVE=(
     "gen_fake_amsi_dll.yar"
     "expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar"
     "yara-rules_vuln_drivers_strict_renamed.yar"
+    "expl_connectwise_screenconnect_vuln_feb24.yar"
 )
 
 for file in "${FILES_TO_REMOVE[@]}"; do
@@ -121,6 +122,9 @@ else
     echo "❌ Error: Failed to create the combined rules file, or no .yar files were found."
     exit 1
 fi
+
+# Clean up the rules
+rm -f /opt/yara_rules/*
 
 echo "--------------------------------------------------"
 echo "🎉 Yara setup and rule combination complete!"
