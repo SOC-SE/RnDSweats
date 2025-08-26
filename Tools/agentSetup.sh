@@ -23,7 +23,7 @@ bash Wazuh/linuxSetup.sh
 
 
 echo "############################################################################"
-echo "#                                                                          #
+echo "#                                                                          #"
 echo "# Everything is set up and all good to go, Stage 1 is complete. Good luck! #"
 echo "#                                                                          #"
 echo "############################################################################"
