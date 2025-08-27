@@ -5,9 +5,9 @@
 # and compiles them into a centralized location (/opt/yara-rules).
 # This allows Wazuh and other tools to use the same compiled ruleset.
 # Run as root or with sudo.
-
-#set -e
-#set -o pipefail
+ 
+set -e
+set -o pipefail
 
 # --- Variables ---
 REPO_URL="https://github.com/neo23x0/signature-base.git"
@@ -16,7 +16,7 @@ CLONE_DIR="/tmp/signature-base"
 RULES_STORAGE_DIR="/opt/yara-rules"
 COMPILED_RULES_FILE="compiled_community_rules.yarac"
 LOG_FILE="/var/log/yara_rules_compiler.log"
-MASTER_RULES_FILE="${CLONE_DIR}/master.yar"
+MASTER_RULES_FILE_TMP="${CLONE_DIR}/master.yar"
 EXCLUDED_RULES_LOG="${CLONE_DIR}/excluded_rules.log"
 
 # --- Functions ---
@@ -62,19 +62,16 @@ download_rules() {
 
 # Function to assemble and filter the rules
 process_rules() {
-    log "Assembling all .yar/.yara files into a master file..."
-    find "$CLONE_DIR" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | xargs -0 cat > "$MASTER_RULES_FILE"
-
     log "Identifying rules to exclude..."
     # Add any other rule files you want to completely exclude to this list
     declare -a files_to_exclude=(
         "${CLONE_DIR}/yara/expl_connectwise_screenconnect_vuln_feb24.yar"
         "${CLONE_DIR}/yara/thor_inverse_matches.yar"
     )
-    
+
     # Use a temporary file to store the names of rules to be excluded
-    local temp_rules_to_exclude="/tmp/rules_to_exclude.$$"
-    touch "$temp_rules_to_exclude"
+    local temp_rules_to_exclude
+    temp_rules_to_exclude=$(mktemp)
 
     for file in "${files_to_exclude[@]}"; do
         if [ -f "$file" ]; then
@@ -83,25 +80,22 @@ process_rules() {
         fi
     done
 
-    log "Filtering master rules file..."
-    local temp_master_filtered="/tmp/master_filtered.$$"
-    cp "$MASTER_RULES_FILE" "$temp_master_filtered"
+    log "Assembling all .yar/.yara files into a master file..."
+    find "$CLONE_DIR" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | xargs -0 cat > "$MASTER_RULES_FILE_TMP"
 
-    # Log excluded rules and remove them from the master file
+    log "Filtering master rules file in a single pass..."
+    local temp_master_filtered
+    temp_master_filtered=$(mktemp)
+
     echo "--- Excluded Rules ---" > "$EXCLUDED_RULES_LOG"
-    while IFS= read -r rule_name; do
-        if [[ -n "$rule_name" ]]; then
-            # Use awk to perform a block-delete of the rule
-            awk -v rule="$rule_name" '
-            BEGIN { p = 1 }
-            $1 == "rule" && $2 == rule { p = 0; print "/* Rule '"'"" rule ""'"' excluded */"; next }
-            /}/ { if (!p) { p = 1; next } }
-            p' "$temp_master_filtered" > "$temp_master_filtered.tmp" && mv "$temp_master_filtered.tmp" "$temp_master_filtered"
-            echo "$rule_name" >> "$EXCLUDED_RULES_LOG"
-        fi
-    done < "$temp_rules_to_exclude"
+    awk -v log_file="$EXCLUDED_RULES_LOG" '
+        NR==FNR { rules_to_exclude[$1] = 1; next }
+        in_excluded_block { if (/^}/) { in_excluded_block = 0 }; next }
+        $1 == "rule" && ($2 in rules_to_exclude) { in_excluded_block = 1; print "/* Rule \047" $2 "\047 excluded */"; print $2 >> log_file; next }
+        { print }
+    ' "$temp_rules_to_exclude" "$MASTER_RULES_FILE_TMP" > "$temp_master_filtered"
 
-    mv "$temp_master_filtered" "$MASTER_RULES_FILE"
+    mv "$temp_master_filtered" "$MASTER_RULES_FILE_TMP"
     log "A log of all excluded rules has been saved to ${EXCLUDED_RULES_LOG}."
     rm "$temp_rules_to_exclude"
 }
@@ -109,8 +103,8 @@ process_rules() {
 # Function to compile the rules
 compile_rules() {
     log "Compiling the final ruleset..."
-    # The -w flag disables common (and noisy) warnings from this repo
-    yarac -w -o "${CLONE_DIR}/${COMPILED_RULES_FILE}" "$MASTER_RULES_FILE"
+    # The -w flag disables common (and noisy) warnings from this community repo
+    yarac -w -o "${CLONE_DIR}/${COMPILED_RULES_FILE}" "$MASTER_RULES_FILE_TMP"
     log "Rules compiled successfully."
 }
 
@@ -120,9 +114,9 @@ deploy_rules() {
     mkdir -p "$RULES_STORAGE_DIR"
     mv "${CLONE_DIR}/${COMPILED_RULES_FILE}" "${RULES_STORAGE_DIR}/${COMPILED_RULES_FILE}"
     
-    # Set appropriate permissions for Wazuh (user: ossec) to read the files
-    # This assumes Wazuh runs as the 'ossec' user/group. Adjust if necessary.
-    chown -R root:ossec "$RULES_STORAGE_DIR"
+    # Set appropriate permissions for Wazuh (user: wazuh) to read the files
+    # Modern Wazuh runs as the 'wazuh' user/group.
+    chown -R root:wazuh "$RULES_STORAGE_DIR"
     chmod 750 "$RULES_STORAGE_DIR"
     chmod 640 "${RULES_STORAGE_DIR}/${COMPILED_RULES_FILE}"
     
