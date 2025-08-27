@@ -83,6 +83,13 @@ process_rules() {
     log "Assembling all .yar/.yara files into a master file..."
     find "$CLONE_DIR" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | xargs -0 cat > "$MASTER_RULES_FILE_TMP"
 
+    if [[ ! -s "$MASTER_RULES_FILE_TMP" ]]; then
+        log "ERROR: The master rules file ('$MASTER_RULES_FILE_TMP') is empty after attempting to assemble the rules."
+        log "This usually means that the git clone failed or that the repository structure has changed and no .yar/.yara files were found."
+        log "Please check the clone directory ('$CLONE_DIR') to investigate."
+        exit 1
+    fi
+
     log "Filtering master rules file in a single pass..."
     local temp_master_filtered
     temp_master_filtered=$(mktemp)
