@@ -56,7 +56,7 @@ check_deps() {
 download_rules() {
     log "Downloading Yara rules from ${REPO_URL}..."
     rm -rf "$CLONE_DIR"
-    git clone --depth 1 "$REPO_URL" "$CLONE_DIR"
+    git clone "$REPO_URL" "$CLONE_DIR"
     log "Rules downloaded successfully to ${CLONE_DIR}."
 }
 
