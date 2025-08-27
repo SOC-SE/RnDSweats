@@ -69,16 +69,33 @@ process_rules() {
         "${CLONE_DIR}/yara/"
     )
 
-    # Exclude files recommended by the rule maintainers or known to cause issues.
-    # The find command builds the list of files to include.
+    # This is a comprehensive exclusion list combining the maintainer's recommendations
+    # and files found to have persistent syntax errors.
+
+    # This fix sucks. I hate to exclude so many of these, only a chunk of them are recommended to be remove by the creator of the yara rules
+    # repo. Hopefully I can fix this in the future, but I'm too fucking tired right now. FML, this feels disgusting, but some coverage is
+    # better than no coverage. - Sam 2025
     find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) \
+        -not -path "*/apt_barracuda_esg_unc4841_jun23.yar" \
+        -not -path "*/apt_cobaltstrike.yar" \
+        -not -path "*/apt_tetris.yar" \
         -not -path "*/configured_vulns_ext_vars.yar" \
         -not -path "*/expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar" \
+        -not -path "*/expl_cleo_dec24.yar" \
+        -not -path "*/expl_commvault_cve_2025_57791.yar" \
+        -not -path "*/expl_outlook_cve_2023_23397.yar" \
         -not -path "*/gen_fake_amsi_dll.yar" \
+        -not -path "*/gen_gcti_cobaltstrike.yar" \
+        -not -path "*/gen_susp_js_obfuscatorio.yar" \
+        -not -path "*/gen_susp_xor.yar" \
         -not -path "*/gen_webshells_ext_vars.yar" \
+        -not -path "*/gen_xor_hunting.yar" \
         -not -path "*/general_cloaking.yar" \
         -not -path "*/generic_anomalies.yar" \
+        -not -path "*/mal_lockbit_lnx_macos_apr23.yar" \
+        -not -path "*/thor-hacktools.yar" \
         -not -path "*/thor_inverse_matches.yar" \
+        -not -path "*/vuln_paloalto_cve_2024_3400_apr24.yar" \
         -not -path "*/yara-rules_vuln_drivers_strict_renamed.yar" \
         -not -path "*/yara_mixed_ext_vars.yar" \
         -print | sed 's/^/include "/; s/$/"/' > "$MASTER_RULES_FILE_TMP"
