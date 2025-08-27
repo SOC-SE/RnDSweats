@@ -6,8 +6,8 @@
 # This allows Wazuh and other tools to use the same compiled ruleset.
 # Run as root or with sudo.
 
-set -e
-set -o pipefail
+#set -e
+#set -o pipefail
 
 # --- Variables ---
 REPO_URL="https://github.com/neo23x0/signature-base.git"
