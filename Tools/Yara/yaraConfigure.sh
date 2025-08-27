@@ -81,7 +81,8 @@ process_rules() {
     done
 
     log "Assembling all .yar/.yara files into a master file..."
-    find "$CLONE_DIR" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | xargs -0 cat > "$MASTER_RULES_FILE_TMP"
+    # Exclude the master file itself from the find command to prevent a "cat" error.
+    find "$CLONE_DIR" -type f \( -name "*.yar" -o -name "*.yara" \) -not -name "master.yar" -print0 | xargs -0 cat > "$MASTER_RULES_FILE_TMP"
 
     if [[ ! -s "$MASTER_RULES_FILE_TMP" ]]; then
         log "ERROR: The master rules file ('$MASTER_RULES_FILE_TMP') is empty after attempting to assemble the rules."
