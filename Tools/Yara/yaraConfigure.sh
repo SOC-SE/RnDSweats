@@ -64,25 +64,23 @@ download_rules() {
 process_rules() {
     log "Creating a master index file with include statements..."
 
-    # Define directories to scan for rules. This excludes many problematic ones.
+    # Define directories to scan for rules.
     declare -a directories_to_include=(
         "${CLONE_DIR}/yara/"
     )
 
-    # Find all .yar/.yara files in the specified directories and create 'include' directives.
-    # We use '-not -path' to exclude specific files that are known to cause compilation errors
-    # or rely on external variables not present during standard compilation.
+    # Exclude files recommended by the rule maintainers or known to cause issues.
+    # The find command builds the list of files to include.
     find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) \
-        -not -path "*/thor_inverse_matches.yar" \
-        -not -path "*/expl_connectwise_screenconnect_vuln_feb24.yar" \
-        -not -path "*/generic_anomalies.yar" \
-        -not -path "*/general_cloaking.yar" \
-        -not -path "*/gen_webshells_ext_vars.yar" \
-        -not -path "*/yara_mixed_ext_vars.yar" \
         -not -path "*/configured_vulns_ext_vars.yar" \
-        -not -path "*/gen_fake_amsi_dll.yar" \
         -not -path "*/expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar" \
+        -not -path "*/gen_fake_amsi_dll.yar" \
+        -not -path "*/gen_webshells_ext_vars.yar" \
+        -not -path "*/general_cloaking.yar" \
+        -not -path "*/generic_anomalies.yar" \
+        -not -path "*/thor_inverse_matches.yar" \
         -not -path "*/yara-rules_vuln_drivers_strict_renamed.yar" \
+        -not -path "*/yara_mixed_ext_vars.yar" \
         -print | sed 's/^/include "/; s/$/"/' > "$MASTER_RULES_FILE_TMP"
 
 
@@ -99,9 +97,17 @@ process_rules() {
 # Function to compile the rules
 compile_rules() {
     log "Compiling the final ruleset..."
-    # The -w flag disables common (and noisy) warnings from this community repo
-    # Accommodating older versions of yarac that do not use the -o flag for output.
-    yarac -w "$MASTER_RULES_FILE_TMP" "${CLONE_DIR}/${COMPILED_RULES_FILE}"
+    # The -w flag disables common warnings.
+    # The -d flag defines external variables that many rules in this repo expect.
+    # This allows us to compile rules that would otherwise fail, without having to exclude them.
+    yarac -w \
+    -d filename="dummy" \
+    -d filepath="dummy" \
+    -d extension="dummy" \
+    -d filetype="dummy" \
+    -d filesize=0 \
+    "$MASTER_RULES_FILE_TMP" "${CLONE_DIR}/${COMPILED_RULES_FILE}"
+    
     log "Rules compiled successfully."
 }
 
