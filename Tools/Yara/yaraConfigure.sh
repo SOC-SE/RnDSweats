@@ -10,7 +10,7 @@ set -e
 set -o pipefail
 
 # --- Variables ---
-REPO_URL="httpss://github.com/neo23x0/signature-base.git"
+REPO_URL="https://github.com/neo23x0/signature-base.git"
 CLONE_DIR="/tmp/signature-base"
 # Centralized location for storing compiled Yara rules
 RULES_STORAGE_DIR="/opt/yara-rules"
