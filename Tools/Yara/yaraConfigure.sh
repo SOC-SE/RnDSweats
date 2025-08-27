@@ -62,50 +62,38 @@ download_rules() {
 
 # Function to assemble and filter the rules
 process_rules() {
-    log "Identifying rules to exclude..."
-    # Add any other rule files you want to completely exclude to this list
-    declare -a files_to_exclude=(
-        "${CLONE_DIR}/yara/expl_connectwise_screenconnect_vuln_feb24.yar"
-        "${CLONE_DIR}/yara/thor_inverse_matches.yar"
+    log "Creating a master index file with include statements..."
+
+    # Define directories to scan for rules. This excludes many problematic ones.
+    declare -a directories_to_include=(
+        "${CLONE_DIR}/yara/"
     )
 
-    # Use a temporary file to store the names of rules to be excluded
-    local temp_rules_to_exclude
-    temp_rules_to_exclude=$(mktemp)
+    # Find all .yar/.yara files in the specified directories and create 'include' directives.
+    # We use '-not -path' to exclude specific files that are known to cause compilation errors
+    # or rely on external variables not present during standard compilation.
+    find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) \
+        -not -path "*/thor_inverse_matches.yar" \
+        -not -path "*/expl_connectwise_screenconnect_vuln_feb24.yar" \
+        -not -path "*/generic_anomalies.yar" \
+        -not -path "*/general_cloaking.yar" \
+        -not -path "*/gen_webshells_ext_vars.yar" \
+        -not -path "*/yara_mixed_ext_vars.yar" \
+        -not -path "*/configured_vulns_ext_vars.yar" \
+        -not -path "*/gen_fake_amsi_dll.yar" \
+        -not -path "*/expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar" \
+        -not -path "*/yara-rules_vuln_drivers_strict_renamed.yar" \
+        -print | sed 's/^/include "/; s/$/"/' > "$MASTER_RULES_FILE_TMP"
 
-    for file in "${files_to_exclude[@]}"; do
-        if [ -f "$file" ]; then
-            # Extract the rule names from the files marked for exclusion
-            grep -oP '^\s*rule\s+\K\w+' "$file" >> "$temp_rules_to_exclude"
-        fi
-    done
-
-    log "Assembling all .yar/.yara files into a master file..."
-    # Exclude the master file itself from the find command to prevent a "cat" error.
-    find "$CLONE_DIR" -type f \( -name "*.yar" -o -name "*.yara" \) -not -name "master.yar" -print0 | xargs -0 cat > "$MASTER_RULES_FILE_TMP"
 
     if [[ ! -s "$MASTER_RULES_FILE_TMP" ]]; then
-        log "ERROR: The master rules file ('$MASTER_RULES_FILE_TMP') is empty after attempting to assemble the rules."
-        log "This usually means that the git clone failed or that the repository structure has changed and no .yar/.yara files were found."
+        log "ERROR: The master rules file ('$MASTER_RULES_FILE_TMP') is empty."
+        log "This usually means that the git clone failed or that the repository structure has changed."
         log "Please check the clone directory ('$CLONE_DIR') to investigate."
         exit 1
     fi
 
-    log "Filtering master rules file in a single pass..."
-    local temp_master_filtered
-    temp_master_filtered=$(mktemp)
-
-    echo "--- Excluded Rules ---" > "$EXCLUDED_RULES_LOG"
-    awk -v log_file="$EXCLUDED_RULES_LOG" '
-        NR==FNR { rules_to_exclude[$1] = 1; next }
-        in_excluded_block { if (/^}/) { in_excluded_block = 0 }; next }
-        $1 == "rule" && ($2 in rules_to_exclude) { in_excluded_block = 1; print "/* Rule \047" $2 "\047 excluded */"; print $2 >> log_file; next }
-        { print }
-    ' "$temp_rules_to_exclude" "$MASTER_RULES_FILE_TMP" > "$temp_master_filtered"
-
-    mv "$temp_master_filtered" "$MASTER_RULES_FILE_TMP"
-    log "A log of all excluded rules has been saved to ${EXCLUDED_RULES_LOG}."
-    rm "$temp_rules_to_exclude"
+    log "Master index file created successfully at ${MASTER_RULES_FILE_TMP}."
 }
 
 # Function to compile the rules
