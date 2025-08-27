@@ -111,7 +111,8 @@ process_rules() {
 compile_rules() {
     log "Compiling the final ruleset..."
     # The -w flag disables common (and noisy) warnings from this community repo
-    yarac -w -o "${CLONE_DIR}/${COMPILED_RULES_FILE}" "$MASTER_RULES_FILE_TMP"
+    # Accommodating older versions of yarac that do not use the -o flag for output.
+    yarac -w "$MASTER_RULES_FILE_TMP" "${CLONE_DIR}/${COMPILED_RULES_FILE}"
     log "Rules compiled successfully."
 }
 
