@@ -136,7 +136,6 @@ deploy_rules() {
     
     # Set appropriate permissions for Wazuh (user: wazuh) to read the files
     # Modern Wazuh runs as the 'wazuh' user/group.
-    chown -R root:wazuh "$RULES_STORAGE_DIR"
     chmod 750 "$RULES_STORAGE_DIR"
     chmod 640 "${RULES_STORAGE_DIR}/${COMPILED_RULES_FILE}"
     
