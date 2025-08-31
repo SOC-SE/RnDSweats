@@ -12,12 +12,10 @@ Develop:
 
 Test integration for:
 - Yara
+    - WIP
 - ClamAV
 - Suricata
 - ModSecurity
 - Bind9
 - Shuffle
-
-
-
 
