@@ -1,0 +1,41 @@
+# Run as Administrator
+
+Write-Host "=== Enabling required Windows features (Hyper-V & Containers) ==="
+
+$restartNeeded = $false
+
+# Enable Hyper-V
+$hvResult = Install-WindowsFeature -Name Hyper-V -IncludeManagementTools -Restart:$false
+if ($hvResult.RestartNeeded) { $restartNeeded = $true }
+
+# Enable Containers
+$ctResult = Install-WindowsFeature -Name Containers
+if ($ctResult.RestartNeeded) { $restartNeeded = $true }
+
+if ($restartNeeded) {
+    Write-Warning "A restart is required before Docker can be installed."
+    $choice = Read-Host "Do you want to restart now? (Y/N)"
+    if ($choice -match '^[Yy]$') {
+        Restart-Computer -Force
+        exit
+    } else {
+        Write-Host "Please restart manually before proceeding."
+    }
+}
+
+Write-Host "=== Installing Docker Engine – Enterprise ==="
+
+# Install the DockerMsftProvider module if missing
+if (-Not (Get-Module -ListAvailable -Name DockerMsftProvider)) {
+    Install-Module -Name DockerMsftProvider -Repository PSGallery -Force
+}
+
+# Install Docker
+Install-Package -Name docker -ProviderName DockerMsftProvider -Force
+
+Write-Host "=== Starting Docker Service ==="
+Start-Service docker
+Set-Service docker -StartupType Automatic
+
+Write-Host "=== Docker Engine installation complete on Windows Server 2019 ==="
+Write-Host "Test with: docker version"
