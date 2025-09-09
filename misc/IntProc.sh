@@ -5,8 +5,8 @@
 # 1. Installation mode (--install): Sets up the script as a systemd service. If config exists, enters update mode.
 # 2. Monitoring mode (no arguments): Monitors and reverts network changes, including iptables and routes.
 #
-#    Designed by Samuel Brucker 2025
-#    AI was heavily used in creating this script.
+#    Designed by Samuel Brucker 2025-2026. AI was used for some of this script.
+#
 #
 
 # Color codes for output (used in install mode)
@@ -21,7 +21,7 @@ log_file="/var/log/IntProc.log"
 iptables_file="/etc/IntProc/iptables.rules"
 routes_file="/etc/IntProc/routes.txt"
 
-# Function to check if running as root
+# Make sure this is being ran as root
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo -e "${RED}Error: This script must be run as root (use sudo).${NC}"
@@ -29,28 +29,28 @@ check_root() {
     fi
 }
 
-# Function to detect available network interfaces (excluding lo)
+# Get the interfaces (thanks Gemini for the assist here)
 get_available_interfaces() {
     ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$' | tr '\n' ' '
 }
 
-# Function to get current IP/CIDR for an interface
+# Get the IP and CIDR (not to be confused with the netmask)
 get_current_ip() {
     local iface="$1"
     ip -4 addr show dev "$iface" | grep -oP '(?<=inet\s)\K\d{1,3}(\.\d{1,3}){3}/\d{1,2}(?=\s)'
 }
 
-# Function to get current default gateway
+# Get the gateway
 get_current_gateway() {
     ip route show default | awk '/default/ {print $3}' | head -1
 }
 
-# Function to check if systemd-resolved is active
+# See if systemd-resolved is active
 is_resolved_active() {
     systemctl is-active --quiet systemd-resolved
 }
 
-# Function to get current DNS servers (space-separated)
+# Get the DNS servers
 get_current_dns() {
     local iface="$1"
     if command -v resolvectl >/dev/null 2>&1 && is_resolved_active; then
@@ -60,7 +60,7 @@ get_current_dns() {
     fi
 }
 
-# Function to convert CIDR to netmask
+# Convert the CIDR to netmask
 cidr_to_netmask() {
     local cidr="$1"
     local mask=0xffffffff
@@ -69,6 +69,7 @@ cidr_to_netmask() {
 }
 
 # Function to revert network settings using the prioritized tool
+# Thanks Gemini for cleaning this up and making it actually work!
 revert_settings() {
     local iface="$1"
     local target_ip_cidr="$2"  # e.g., 192.168.1.100/24
@@ -136,7 +137,7 @@ revert_settings() {
     return 0
 }
 
-# Function to backup iptables rules
+# Backup the IP Tables
 backup_iptables() {
     if command -v iptables-save >/dev/null 2>&1; then
         iptables-save > "$iptables_file" || { echo -e "${RED}Error backing up iptables.${NC}"; return 1; }
@@ -146,7 +147,8 @@ backup_iptables() {
     fi
 }
 
-# Function to backup route table
+# Backup the route table
+# Yes, this could be a little extreme, but I'm paranoid
 backup_routes() {
     if command -v ip >/dev/null 2>&1; then
         ip route show > "$routes_file" || { echo -e "${RED}Error backing up routes.${NC}"; return 1; }
@@ -235,6 +237,7 @@ if [ "$1" = "--install" ]; then
     fi
 
     # Save config
+    #You already know Gemini was involved here lol
     cat <<EOF > "$config_file"
 INTERFACE="$interface"
 IP="$ip"
