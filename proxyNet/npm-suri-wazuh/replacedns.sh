@@ -8,8 +8,8 @@
 #
 # It performs the following steps:
 #   1. Checks for root privileges.
-#   2. Disables and stops the systemd-resolved service.
-#   3. Installs the dnsmasq package.
+#   2. Installs the dnsmasq package.
+#   3. Disables and stops the systemd-resolved service.
 #   4. Reconfigures /etc/resolv.conf to point to the local dnsmasq server.
 #   5. Creates a basic, functional configuration for dnsmasq.
 #   6. Enables and starts the dnsmasq service.
@@ -37,7 +37,16 @@ fi
 
 set -e # Exit immediately if a command exits with a non-zero status.
 
-# --- Step 1: Disable systemd-resolved ---
+# --- Step 1: Install dnsmasq ---
+
+echo "--- Installing dnsmasq... ---"
+# Update package lists and install dnsmasq while system DNS is still working
+apt-get update
+apt-get install -y dnsmasq
+echo "dnsmasq has been installed."
+echo
+
+# --- Step 2: Disable systemd-resolved ---
 
 echo "--- Disabling and stopping systemd-resolved... ---"
 systemctl disable systemd-resolved.service
@@ -45,7 +54,7 @@ systemctl stop systemd-resolved.service
 echo "systemd-resolved has been disabled and stopped."
 echo
 
-# --- Step 2: Configure /etc/resolv.conf ---
+# --- Step 3: Configure /etc/resolv.conf ---
 
 RESOLV_CONF="/etc/resolv.conf"
 echo "--- Configuring $RESOLV_CONF ---"
@@ -69,15 +78,6 @@ cat > "$RESOLV_CONF" << EOF
 nameserver 127.0.0.1
 EOF
 echo "$RESOLV_CONF configured successfully."
-echo
-
-# --- Step 3: Install dnsmasq ---
-
-echo "--- Installing dnsmasq... ---"
-# Update package lists and install dnsmasq
-apt-get update
-apt-get install -y dnsmasq
-echo "dnsmasq has been installed."
 echo
 
 # --- Step 4: Configure dnsmasq ---
@@ -126,4 +126,3 @@ else
 fi
 
 exit 0
-
