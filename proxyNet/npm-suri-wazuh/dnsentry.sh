@@ -43,12 +43,7 @@ fi
 # --- Generate the Entry and Command ---
 HOSTS_ENTRY="$IP_ADDRESS\t$HOSTNAME"
 
+echo -e "$HOSTS_ENTRY" | sudo tee -a /etc/hosts
+sudo systemctl restart dnsmasq
+echo ""
 echo -e "${GREEN}SUCCESS: Your DNS entry has been generated.${NC}"
-echo ""
-echo -e "To apply this, run the following command with root privileges:"
-echo -e "------------------------------------------------------------------"
-echo -e "${CYAN}echo -e \"$HOSTS_ENTRY\" | sudo tee -a /etc/hosts${NC}"
-echo -e "------------------------------------------------------------------"
-echo ""
-echo -e "After adding the entry, restart dnsmasq to ensure the change is applied immediately:"
-echo -e "${CYAN}sudo systemctl restart dnsmasq${NC}"
