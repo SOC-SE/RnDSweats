@@ -84,7 +84,6 @@ fi
 # --- Installation ---
 
 print_header "Step 1: Installing Suricata and Dependencies"
-apt-get update
 apt-get install -y software-properties-common curl || exit_with_error "Failed to install software-properties-common."
 add-apt-repository -y ppa:oisf/suricata-stable || exit_with_error "Failed to add Suricata PPA."
 apt-get update
@@ -192,17 +191,23 @@ SURICATA_LOG="/var/log/suricata/suricata.log"
 
 # Wait up to 30 seconds for the engine to start
 for i in {1..30}; do
-    if [ "$i" -gt 20 ]; then #temp broken test bypass FIX SOMEDAY
-        echo "✅ Suricata service started successfully."
+    # Check if the service is active AND has initialized NFQUEUE mode in the log
+    if systemctl is-active --quiet suricata && grep -q "NFQ running in IPS mode" "$SURICATA_LOG"; then
+        echo "✅ Suricata service is active and running in IPS mode."
         trap - ERR # Disable the error trap if we succeed
         break
     fi
-    if [ "$i" -eq 30 ]; then
+
+    if [ "$i" -eq 30 ]; then # If we hit the 30-second mark, it failed
         echo "Timed out waiting for Suricata to start."
+        if ! systemctl is-active --quiet suricata; then
+            exit_with_error "Suricata service is not active. Check 'systemctl status suricata' and 'journalctl -u suricata'."
+        else
+            exit_with_error "Suricata service is active, but failed to initialize IPS mode. Check logs at $SURICATA_LOG"
+        fi
     fi
     sleep 1
 done
-
 
 # --- Test ---
 
@@ -234,11 +239,9 @@ fi
 echo "Configuring JA4 fingerprinting/logging..."
 sed -i 's/# ja4: off/ja4: on/g' $SURICATA_CONF
 sed -i 's/#ja3-fingerprints\: auto/ja3-fingerprints\: auto/g' $SURICATA_CONF
-sed -i 's/#ja4-fingrprints\: auto/ja4-fingerprints\: auto/g' $SURICATA_CONF
+sed -i 's/#ja4-fingerprints\: auto/ja4-fingerprints\: auto/g' $SURICATA_CONF
 sed -i 's/#encryption-handling\: default/encryption-handling\: default/g' $SURICATA_CONF
 
 print_header "Setup Complete"
 echo "To see live alerts, run: tail -f /var/log/suricata/fast.log"
 echo "To stop Suricata, run: systemctl stop suricata && iptables -F"
-
-

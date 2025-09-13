@@ -15,7 +15,7 @@ set -e
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0.m' # No Color
+NC='\033[0m' # No Color
 
 # --- Function to Print Messages ---
 log_message() {
@@ -32,10 +32,29 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# --- Step 1: Install dnsmasq ---
-log_message "Updating package lists and installing dnsmasq..."
-apt-get update
-apt-get install -y dnsmasq
+# --- Step 1: Detect Distro and Install dnsmasq ---
+log_message "Detecting distribution and installing dnsmasq..."
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_ID=$ID
+    OS_ID_LIKE=${ID_LIKE:-""}
+else
+    log_warning "Cannot determine OS from /etc/os-release. Aborting."
+    exit 1
+fi
+
+if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" || "$OS_ID" == "linuxmint" || " $OS_ID_LIKE " == *"debian"* ]]; then
+    PKG_MANAGER="apt-get"
+    log_message "Detected Debian-based system. Using APT. Updating package lists..."
+    $PKG_MANAGER update > /dev/null
+elif [[ "$OS_ID" == "fedora" || "$OS_ID" == "almalinux" || "$OS_ID" == "rocky" || "$OS_ID" == "centos" || "$OS_ID" == "ol" || "$OS_ID" == "rhel" || " $OS_ID_LIKE " == *"rhel"* ]]; then
+    command -v dnf &> /dev/null && PKG_MANAGER="dnf" || PKG_MANAGER="yum"
+    log_message "Detected Red Hat-based system. Using $PKG_MANAGER."
+else
+    log_warning "Unsupported distribution: '$OS_ID'. Aborting."
+    exit 1
+fi
+$PKG_MANAGER install -y dnsmasq
 
 # --- Step 2: Create Custom Configuration File ---
 log_message "Configuring dnsmasq with custom settings..."

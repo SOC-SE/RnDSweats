@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ====================================================================================
-# Nginx Proxy Manager Setup Script for Ubuntu 18.04
+# Nginx Proxy Manager Setup Script for Ubuntu
 #
 # This script automates the installation and setup of Nginx Proxy Manager
 # running inside a Docker container. It handles the installation of Docker,
@@ -32,21 +32,57 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# --- Step 1: System Update and Prerequisite Installation ---
-log_message "Updating system packages and installing prerequisites..."
-apt-get update
-apt-get upgrade -y
-apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+# --- Step 1: System Detection and Prerequisite Installation ---
+log_message "Detecting distribution and installing prerequisites..."
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_ID=$ID
+    OS_ID_LIKE=${ID_LIKE:-""} # Set to empty string if not defined
+else
+    log_warning "Cannot determine OS from /etc/os-release. Aborting."
+    exit 1
+fi
+ 
+# Determine OS Family and set package manager / docker repo distro
+if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" || "$OS_ID" == "linuxmint" || " $OS_ID_LIKE " == *"debian"* ]]; then
+    PKG_MANAGER="apt-get"
+    log_message "Detected Debian-based system ($OS_ID). Using APT."
+    # For Docker repo, ubuntu is ubuntu, everything else (Debian, Mint) uses debian repo
+    [ "$OS_ID" = "ubuntu" ] && DOCKER_DISTRO="ubuntu" || DOCKER_DISTRO="debian"
+    # Install prerequisites
+    $PKG_MANAGER update > /dev/null
+    $PKG_MANAGER install -y apt-transport-https ca-certificates curl software-properties-common gpg
+elif [[ "$OS_ID" == "fedora" || "$OS_ID" == "almalinux" || "$OS_ID" == "rocky" || "$OS_ID" == "centos" || "$OS_ID" == "ol" || "$OS_ID" == "rhel" || " $OS_ID_LIKE " == *"rhel"* || " $OS_ID_LIKE " == *"centos"* ]]; then
+    if command -v dnf &> /dev/null; then
+        PKG_MANAGER="dnf"
+    else
+        PKG_MANAGER="yum"
+    fi
+    log_message "Detected Red Hat-based system ($OS_ID). Using $PKG_MANAGER."
+    # For Docker repo, fedora is fedora, everything else (CentOS, Oracle, RHEL, etc.) uses centos repo
+    [ "$OS_ID" = "fedora" ] && DOCKER_DISTRO="fedora" || DOCKER_DISTRO="centos"
+    # Install prerequisites
+    $PKG_MANAGER install -y yum-utils curl
+else
+    log_warning "Unsupported distribution: '$OS_ID'. This script supports Debian and Red Hat families."
+    exit 1
+fi
 
 # --- Step 2: Install Docker ---
 log_message "Installing Docker..."
-if ! command -v docker &> /dev/null
-then
+if ! command -v docker &> /dev/null; then
     log_message "Docker not found. Proceeding with installation."
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-    add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-    apt-get update
-    apt-get install -y docker-ce
+    if [ "$PKG_MANAGER" == "apt-get" ]; then
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL "https://download.docker.com/linux/${DOCKER_DISTRO}/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${DOCKER_DISTRO} $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        $PKG_MANAGER update
+        $PKG_MANAGER install -y docker-ce docker-ce-cli containerd.io
+    elif [ "$PKG_MANAGER" == "dnf" ] || [ "$PKG_MANAGER" == "yum" ]; then
+        yum-config-manager --add-repo "https://download.docker.com/linux/${DOCKER_DISTRO}/docker-ce.repo"
+        $PKG_MANAGER install -y docker-ce docker-ce-cli containerd.io
+    fi
     log_message "Docker installed successfully."
 else
     log_message "Docker is already installed."
