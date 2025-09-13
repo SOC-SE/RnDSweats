@@ -296,7 +296,7 @@ else
   echo "${GREEN}Operating system not recognized as CentOS. Skipping CentOS fix.${NC}"
 fi
 
-# Fedora specific fix. The forwarder doesn't like to work when you install it. For some reason, rebooting just solves this so nicely
+# Fedora 21 specific fix. The forwarder doesn't like to work when you install it. For some reason, rebooting just solves this so nicely
 # I've looked for logs, tried starting it manually, etc. I couldn't figure it out and am running out of time. Therefore, this beautiful addition.
 # This will reboot the machine after a 10 second timer.
 if [[ "$ID" == "fedora" ]]; then
