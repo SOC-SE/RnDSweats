@@ -117,6 +117,21 @@ sed -i "s|^\(\s*HOME_NET:\s*\)\"\[.*\]\"|\1\"[$HOME_NET]\"|g" "$SURICATA_CONF"
 echo "Setting interface in suricata.yaml to 'default' for IPS mode..."
 sed -i -e "s/^    - interface: .*/    - interface: default/" "$SURICATA_CONF"
 
+# Enable EVE JSON logging for Wazuh integration
+echo "Enabling EVE JSON log output for Wazuh..."
+
+# Enable the eve-log output itself
+sed -i 's/^\(\s*- eve-log:\s*\)enabled: no/\1enabled: yes/' "$SURICATA_CONF"
+
+# Enable specific log types within eve-log for comprehensive monitoring
+sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- alert\)/\2\3/' "$SURICATA_CONF"
+sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- http\)/\2\3/' "$SURICATA_CONF"
+sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- dns\)/\2\3/' "$SURICATA_CONF"
+sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- tls\)/\2\3/' "$SURICATA_CONF"
+sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- files\)/\2\3/' "$SURICATA_CONF"
+sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- ssh\)/\2\3/' "$SURICATA_CONF"
+sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- flow\)/\2\3/' "$SURICATA_CONF"
+
 # Configure the systemd service to use NFQUEUE mode. This is the correct way.
 echo "Configuring system service for NFQUEUE (IPS) mode..."
 if [ -f "$SURICATA_DEFAULTS" ]; then
