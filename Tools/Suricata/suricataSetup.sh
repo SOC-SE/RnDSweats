@@ -1,13 +1,12 @@
 #!/bin/bash
 
 # ==============================================================================
-# Suricata IPS Mode Installer and Configurator (v2.4 - Systemd Integrated)
+# Suricata IPS Mode Installer and Configurator (v2.6 - Optimized)
 #
-# Description: This script automates the installation of Suricata,
-#              configures it for Intrusion Prevention System (IPS) mode using
-#              the system's native service manager (systemd), validates the
-#              configuration, and safely applies firewall rules.
-#              Includes automatic rollback of firewall rules on failure.
+# Description: This script automates the installation of Suricata on
+#              Debian-based and Red Hat-based systems. It configures Suricata
+#              for IPS mode, validates the configuration, and safely applies
+#              persistent firewall rules.
 #
 # WARNING: This script will modify system packages and firewall settings.
 #          It is intended for use on a dedicated security monitoring
@@ -15,6 +14,9 @@
 #
 # Usage: ./suricata_ips_setup.sh
 # ==============================================================================
+
+# --- Script Configuration ---
+set -e
 
 # --- Functions ---
 
@@ -40,9 +42,35 @@ if [ "$EUID" -ne 0 ]; then
     exit_with_error "This script must be run as root. Please use sudo."
 fi
 
-# 2. Check for a supported OS (Debian/Ubuntu)
-if ! command -v apt-get &>/dev/null; then
-    exit_with_error "This script is designed for Debian-based systems (like Ubuntu) that use APT."
+# 2. Detect OS and set package manager
+print_header "Step 1: Detecting System and Installing Prerequisites"
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_ID=$ID
+    OS_ID_LIKE=${ID_LIKE:-""}
+else
+    exit_with_error "Cannot determine OS from /etc/os-release. Aborting."
+fi
+
+if [[ "$OS_ID" == "ubuntu" || "$OS_ID" == "debian" || "$OS_ID" == "linuxmint" || " $OS_ID_LIKE " == *"debian"* ]]; then
+    OS_FAMILY="debian"
+    PKG_MANAGER="apt-get"
+    echo "Detected Debian-based system ($OS_ID). Using APT."
+    $PKG_MANAGER update > /dev/null
+    $PKG_MANAGER install -y software-properties-common curl
+
+elif [[ "$OS_ID" == "fedora" || "$OS_ID" == "almalinux" || "$OS_ID" == "rocky" || "$OS_ID" == "centos" || "$OS_ID" == "ol" || "$OS_ID" == "rhel" || " $OS_ID_LIKE " == *"rhel"* || " $OS_ID_LIKE " == *"centos"* ]]; then
+    OS_FAMILY="redhat"
+    if command -v dnf &> /dev/null;
+    then
+        PKG_MANAGER="dnf"
+    else
+        PKG_MANAGER="yum"
+    fi
+    echo "Detected Red Hat-based system ($OS_ID). Using $PKG_MANAGER."
+    $PKG_MANAGER install -y curl
+else
+    exit_with_error "Unsupported distribution: '$OS_ID'. This script supports Debian and Red Hat families."
 fi
 
 
@@ -83,62 +111,67 @@ fi
 
 # --- Installation ---
 
-print_header "Step 1: Installing Suricata and Dependencies"
-apt-get install -y software-properties-common curl || exit_with_error "Failed to install software-properties-common."
-add-apt-repository -y ppa:oisf/suricata-stable || exit_with_error "Failed to add Suricata PPA."
-apt-get update
-apt-get install -y suricata || exit_with_error "Failed to install Suricata."
+print_header "Step 2: Installing Suricata and Firewall Tools"
+case "$OS_FAMILY" in
+    "debian")
+        add-apt-repository -y ppa:oisf/suricata-stable || exit_with_error "Failed to add Suricata PPA."
+        $PKG_MANAGER update
+        $PKG_MANAGER install -y suricata iptables-persistent || exit_with_error "Failed to install Suricata and iptables-persistent."
+        ;;
+    "redhat")
+        # Install correct COPR plugin based on package manager
+        if [ "$PKG_MANAGER" == "dnf" ]; then
+            $PKG_MANAGER install -y epel-release dnf-plugins-core
+        else # yum
+            $PKG_MANAGER install -y epel-release yum-plugin-copr
+        fi
+        $PKG_MANAGER copr enable -y @oisf/suricata-stable || exit_with_error "Failed to enable Suricata COPR repository."
+        $PKG_MANAGER install -y suricata iptables-services || exit_with_error "Failed to install Suricata and iptables-services."
+        ;; 
+esac
 echo "Installation complete."
 
 
 # --- Rule Management ---
 
-print_header "Step 2: Updating Suricata Rules"
+print_header "Step 3: Updating Suricata Rules"
 suricata-update || exit_with_error "Failed to update Suricata rules."
 echo "Rules updated successfully."
 
 
 # --- Configuration ---
 
-print_header "Step 3: Configuring suricata.yaml and System Service"
+print_header "Step 4: Configuring suricata.yaml and System Service"
 SURICATA_CONF="/etc/suricata/suricata.yaml"
-SURICATA_DEFAULTS="/etc/default/suricata"
+
+# Set OS-specific paths
+if [ "$OS_FAMILY" == "debian" ]; then
+    SURICATA_DEFAULTS="/etc/default/suricata"
+else # redhat
+    SURICATA_DEFAULTS="/etc/sysconfig/suricata"
+fi
 
 # Backup the original configuration file
 cp "$SURICATA_CONF" "${SURICATA_CONF}.bak.$(date +%s)"
 echo "Backed up original YAML configuration to ${SURICATA_CONF}.bak.<timestamp>"
 
-# Set HOME_NET
-echo "Setting HOME_NET to [$HOME_NET]..."
-sed -i "s|^\(\s*HOME_NET:\s*\)\"\[.*\]\"|\1\"[$HOME_NET]\"|g" "$SURICATA_CONF"
+# Atomically configure suricata.yaml using a single sed command
+echo "Configuring suricata.yaml..."
+sed -i -E \
+    -e "s|^(\s*HOME_NET:\s*)\\"\\[.*\\\\]\\"|\1\"\\[$HOME_NET\"\"|g" \
+    -e "s/^    - interface: .*/    - interface: default/" \
+    -e 's/^(\s*- eve-log:\s*)enabled: no/\1enabled: yes/' \
+    -e '/- eve-log:/,/types:/s/^(\s*)#(\s*-\s*(alert|http|dns|tls|files|ssh|flow))/\1\2/' \
+    -e 's/^(\s*)#\s*(ja3-fingerprints:).*/\1\2 yes/' \
+    -e 's/^(\s*)#\s*(ja4-fingerprints:).*/\1\2 yes/' \
+    -e 's/^(\s*ja4:).*/\1 on/' \
+    "$SURICATA_CONF"
 
-# In IPS mode, Suricata handles traffic capture via NFQUEUE, not a specific interface.
-# The 'interface' setting in the yaml should be 'default'
-echo "Setting interface in suricata.yaml to 'default' for IPS mode..."
-sed -i -e "s/^    - interface: .*/    - interface: default/" "$SURICATA_CONF"
-
-# Enable EVE JSON logging for Wazuh integration
-echo "Enabling EVE JSON log output for Wazuh..."
-
-# Enable the eve-log output itself
-sed -i 's/^\(\s*- eve-log:\s*\)enabled: no/\1enabled: yes/' "$SURICATA_CONF"
-
-# Enable specific log types within eve-log for comprehensive monitoring
-sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- alert\)/\2\3/' "$SURICATA_CONF"
-sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- http\)/\2\3/' "$SURICATA_CONF"
-sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- dns\)/\2\3/' "$SURICATA_CONF"
-sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- tls\)/\2\3/' "$SURICATA_CONF"
-sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- files\)/\2\3/' "$SURICATA_CONF"
-sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- ssh\)/\2\3/' "$SURICATA_CONF"
-sed -i '/- eve-log:/,/types:/s/^\(\s*#\)\(\s*- flow\)/\2\3/' "$SURICATA_CONF"
-
-# Configure the systemd service to use NFQUEUE mode. This is the correct way.
+# Configure system service for NFQUEUE mode
 echo "Configuring system service for NFQUEUE (IPS) mode..."
 if [ -f "$SURICATA_DEFAULTS" ]; then
-    # Modify the LISTENMODE for the service
     sed -i 's/^LISTENMODE=.*/LISTENMODE=nfqueue/' "$SURICATA_DEFAULTS"
 else
-    # If the defaults file doesn't exist, create it
     echo 'LISTENMODE=nfqueue' > "$SURICATA_DEFAULTS"
 fi
 
@@ -147,12 +180,21 @@ echo "Ensuring correct log directory permissions..."
 mkdir -p /var/log/suricata
 chown -R suricata:suricata /var/log/suricata
 
+# Grant Wazuh agent access to Suricata logs
+if id "wazuh" &>/dev/null; then
+    echo "Adding wazuh user to suricata group for log access..."
+    usermod -a -G suricata wazuh
+else
+    echo "Wazuh user not found. Skipping group modification."
+    echo "If you install a Wazuh agent later, manually add the 'wazuh' user to the 'suricata' group."
+fi
+
 echo "Configuration updated."
 
 
 # --- Validation ---
 
-print_header "Step 4: Validating Suricata Configuration"
+print_header "Step 5: Validating Suricata Configuration"
 echo "Running a pre-flight test on the configuration and rules..."
 if ! /usr/bin/suricata -T -c "$SURICATA_CONF" -v; then
     exit_with_error "Suricata configuration test failed. Please review the errors above."
@@ -162,7 +204,7 @@ echo "Configuration and rules validated successfully."
 
 # --- Firewall Setup & Service Start ---
 
-print_header "Step 5: Applying Firewall Rules and Starting Suricata"
+print_header "Step 6: Applying Firewall Rules and Starting Suricata"
 
 # Function to clean up iptables rules on failure
 cleanup_on_failure() {
@@ -172,30 +214,62 @@ cleanup_on_failure() {
     echo "iptables rules flushed. Network should be restored."
 }
 
-# Trap errors to call the cleanup function. This is our safety net.
+# Trap errors to call the cleanup function
 trap cleanup_on_failure ERR
+
+# --- Firewall Configuration ---
+case "$OS_FAMILY" in
+    "debian")
+        echo "Configuring iptables-persistent..."
+        echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
+        echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
+        # This is just to ensure the service is enabled, install was done earlier
+        systemctl enable netfilter-persistent
+        ;;
+    "redhat")
+        if systemctl is-active --quiet firewalld;
+        then
+            echo "Disabling firewalld to use iptables..."
+            systemctl stop firewalld
+            systemctl disable firewalld
+        fi
+        echo "Enabling iptables-services..."
+        systemctl enable iptables
+        ;; 
+esac
 
 # Flush any existing rules to be safe
 iptables -F
 
-# Add bypass rules FIRST for stability
+# Add bypass rules for stability
 iptables -I INPUT 1 -i lo -j ACCEPT
 iptables -I OUTPUT 1 -o lo -j ACCEPT
 iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -I OUTPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# Send NEW connections to NFQUEUE for Suricata to inspect
+# Send NEW connections to NFQUEUE for Suricata
 iptables -A INPUT -j NFQUEUE --queue-num 0
 iptables -A OUTPUT -j NFQUEUE --queue-num 0
 iptables -A FORWARD -j NFQUEUE --queue-num 0
 
-echo "iptables rules added. Note: These are not persistent across reboots."
+# --- Save Firewall Rules ---
+echo "Saving iptables rules..."
+case "$OS_FAMILY" in
+    "debian")
+        iptables-save > /etc/iptables/rules.v4
+        ;;
+    "redhat")
+        iptables-save > /etc/sysconfig/iptables
+        ;; 
+esac
+echo "iptables rules added and made persistent."
 
+# --- Service Start ---
 # Stop any running instance and clean up the old PID file
-systemctl stop suricata
+systemctl stop suricata &>/dev/null || true
 rm -f /var/run/suricata.pid # Remove stale PID file
 
-# Reload systemd to pick up changes in /etc/default
+# Reload systemd to pick up changes
 systemctl daemon-reload
 echo "Starting Suricata service..."
 systemctl start suricata
@@ -206,16 +280,16 @@ SURICATA_LOG="/var/log/suricata/suricata.log"
 
 # Wait up to 30 seconds for the engine to start
 for i in {1..30}; do
-    # Check if the service is active AND has initialized NFQUEUE mode in the log
     if systemctl is-active --quiet suricata && grep -q "NFQ running in IPS mode" "$SURICATA_LOG"; then
         echo "✅ Suricata service is active and running in IPS mode."
         trap - ERR # Disable the error trap if we succeed
         break
     fi
 
-    if [ "$i" -eq 30 ]; then # If we hit the 30-second mark, it failed
+    if [ "$i" -eq 30 ]; then
         echo "Timed out waiting for Suricata to start."
-        if ! systemctl is-active --quiet suricata; then
+        if ! systemctl is-active --quiet suricata;
+        then
             exit_with_error "Suricata service is not active. Check 'systemctl status suricata' and 'journalctl -u suricata'."
         else
             exit_with_error "Suricata service is active, but failed to initialize IPS mode. Check logs at $SURICATA_LOG"
@@ -226,12 +300,12 @@ done
 
 # --- Test ---
 
-print_header "Step 6: Running Live Test"
+print_header "Step 7: Running Live Test"
 
 # Perform the test
 echo "Running test with curl http://testmynids.org/uid/index.html..."
 echo "A successful IPS block will cause this command to hang or fail."
-curl --max-time 10 http://testmynids.org/uid/index.html
+curl --max-time 10 http://testmynids.org/uid/index.html || true # Don't exit on failure
 
 # Check the logs for the specific alert
 LOG_FILE="/var/log/suricata/fast.log"
@@ -250,13 +324,6 @@ else
     echo "Log file checked: $LOG_FILE"
 fi
 
-# Config JA4 fingerprinting/logging in config YAML
-echo "Configuring JA4 fingerprinting/logging..."
-sed -i 's/# ja4: off/ja4: on/g' $SURICATA_CONF
-sed -i 's/#ja3-fingerprints\: auto/ja3-fingerprints\: auto/g' $SURICATA_CONF
-sed -i 's/#ja4-fingerprints\: auto/ja4-fingerprints\: auto/g' $SURICATA_CONF
-sed -i 's/#encryption-handling\: default/encryption-handling\: default/g' $SURICATA_CONF
-
 print_header "Setup Complete"
-echo "To see live alerts, run: tail -f /var/log/suricata/fast.log"
+echo "To see live alerts, run: tail -f /var/log/suricata/eve.json"
 echo "To stop Suricata, run: systemctl stop suricata && iptables -F"

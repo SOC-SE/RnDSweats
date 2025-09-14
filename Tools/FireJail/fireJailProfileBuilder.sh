@@ -30,7 +30,7 @@ log_warning() {
 }
 
 log_step() {
-    echo -e "\n${CYAN}--- $1 ---${NC}"
+    echo -e "\n${CYAN}--- $1 ---"${NC}
 }
 
 # --- Root User Check ---
@@ -118,7 +118,8 @@ if [[ "$install_confirm" != [yY] ]]; then
 fi
 
 DEST_PROFILE_PATH="/etc/firejail/${PROFILE_NAME}"
-log_message "Installing profile to '$DEST_PROFILE_PATH'..."
+log_message "Installing profile to '$DEST_PROFILE_PATH' நான...
+"
 mv "$TEMP_PROFILE_PATH" "$DEST_PROFILE_PATH"
 chown root:root "$DEST_PROFILE_PATH"
 chmod 644 "$DEST_PROFILE_PATH"
@@ -127,16 +128,20 @@ log_message "✅ Profile installed successfully."
 
 # --- Step 5: Final Instructions ---
 log_step "Step 5: Next Steps"
-echo "You can now test your new profile with:"
-echo -e "  ${YELLOW}sudo firejail --profile=$DEST_PROFILE_PATH $APP_PATH${NC}"
+echo "You can now test your new profile. Since the profile is named '$PROFILE_NAME',"
+echo "Firejail will use it automatically when you run the application."
+echo "Run this command (without sudo, unless the app requires it):"
+echo -e "  ${YELLOW}firejail $APP_PATH${NC}"
+
 echo ""
-echo "Once you are satisfied, you can integrate it with systemd to make it permanent."
-echo "For example, for nginx:"
-echo "  1. Run: ${YELLOW}sudo systemctl edit nginx.service${NC}"
-echo "  2. Add the following lines:"
+echo "If you need to edit a systemd service to use Firejail permanently (e.g., for a server daemon),"
+echo "you will need to modify its service file."
+echo "For an application named '$APP_NAME', you would typically do the following:"
+echo "  1. Run: ${YELLOW}sudo systemctl edit ${APP_NAME}.service${NC}"
+echo "  2. In the editor, add these lines, replacing the ExecStart line with the correct path and arguments for your application:"
 echo -e "     ${CYAN}[Service]${NC}"
 echo -e "     ${CYAN}ExecStart=${NC}"
-echo -e "     ${CYAN}ExecStart=/usr/bin/firejail --profile=$DEST_PROFILE_PATH /usr/sbin/nginx -g 'daemon on; master_process on;'${NC}"
-echo "  3. Run: ${YELLOW}sudo systemctl daemon-reload && sudo systemctl restart nginx.service${NC}"
+echo -e "     ${CYAN}ExecStart=/usr/bin/firejail /path/to/your/app --your-app-arguments${NC}"
+echo "  3. Run: ${YELLOW}sudo systemctl daemon-reload && sudo systemctl restart ${APP_NAME}.service${NC}"
 
 exit 0

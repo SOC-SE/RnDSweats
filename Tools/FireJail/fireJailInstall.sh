@@ -14,6 +14,7 @@ set -e
 # --- Color Codes for Output ---
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # --- Function to Print Messages ---
@@ -76,6 +77,33 @@ if command -v firejail &> /dev/null; then
     echo ""
     log_message "✅ FireJail installation complete and verified."
     
+    # --- Step 4: Post-Installation Instructions ---
+    echo -e "${BLUE}"
+    echo "======================================================================"
+    echo " Next Steps: How to Use FireJail"
+    echo "======================================================================"
+    echo ""
+    echo "FireJail secures applications by running them in a sandbox."
+    echo "To run an application with FireJail, simply prepend 'firejail' to the command."
+    echo ""
+    echo "1. Using an Existing Profile:"
+    echo "   FireJail comes with hundreds of profiles. To sandbox Firefox, run:"
+    echo "   ---------------------------"
+    echo "   firejail firefox"
+    echo "   ---------------------------"
+    echo "   You can see available profiles in /etc/firejail/"
+    echo ""
+    echo "2. Creating a Custom Profile:"
+    echo "   If a profile for your application doesn't exist, you can create one."
+    echo "   Use the 'fireJailProfileBuilder.sh' script located in the same"
+    echo "   directory as this installer."
+    echo "   Run it like this:"
+    echo "   -----------------------------------------------------"
+    echo "   sudo ./fireJailProfileBuilder.sh /path/to/your/app"
+    echo "   -----------------------------------------------------"
+    echo ""
+    echo "======================================================================"
+    echo -e "${NC}"
 else
     log_warning "❌ FireJail installation could not be verified. Please check for errors."
     exit 1

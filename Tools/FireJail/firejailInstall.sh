@@ -1,1 +1,0 @@
-Prompt: Now that we have a script to create custom profiles where needed and that firejail comes with many, please make a small addition to this script at the end. If the installation is successful, the user should receive information instructing them on how to enable a firejail profile or to run the custom profile builder if there isn't one

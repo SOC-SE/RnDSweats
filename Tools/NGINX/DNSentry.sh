@@ -1,13 +1,17 @@
 #!/bin/bash
 
 # ====================================================================================
-# Custom DNS Entry Generator for dnsmasq
+# Custom DNS Entry Tool for /etc/hosts
 #
-# This script generates the command needed to add a custom DNS entry
-# to the /etc/hosts file, which dnsmasq reads by default.
+# Description: This script safely adds a custom DNS entry to the /etc/hosts file
+#              and restarts the dnsmasq service if it's active.
 #
-# It does NOT execute the command, preventing accidental or malicious changes.
-# The user must manually copy and run the outputted command.
+#              It performs the following safety checks:
+#              - Creates a timestamped backup of /etc/hosts before changes.
+#              - Checks for duplicate IP addresses or hostnames.
+#              - Verifies that the dnsmasq service exists before restarting it.
+#
+# Usage: sudo ./DNSentry.sh <IP_ADDRESS> <HOSTNAME>
 # ====================================================================================
 
 # --- Color Codes for Output ---
@@ -16,7 +20,14 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# --- Input Validation ---
+# --- Pre-flight Checks ---
+# 1. Root User Check
+if [ "$EUID" -ne 0 ]; then
+  echo -e "${YELLOW}Error:${NC} This script must be run as root. Please use sudo."
+  exit 1
+fi
+
+# 2. Argument Validation
 if [ "$#" -ne 2 ]; then
     echo -e "${YELLOW}Usage:${NC} $0 <IP_ADDRESS> <HOSTNAME>"
     echo -e "${CYAN}Example:${NC} $0 192.168.1.100 my-local-server.lan"
@@ -24,26 +35,54 @@ if [ "$#" -ne 2 ]; then
 fi
 
 IP_ADDRESS=$1
-HOSTNAME=$2
+HOTNAME=$2
+HOSTS_FILE="/etc/hosts"
 
-# --- Regex for basic IP address validation ---
+# --- Input Validation ---
+# Regex for basic IP address validation
 IP_REGEX="^([0-9]{1,3}\.){3}[0-9]{1,3}$"
 if ! [[ $IP_ADDRESS =~ $IP_REGEX ]]; then
     echo -e "${YELLOW}Error:${NC} Invalid IP address format: '$IP_ADDRESS'"
     exit 1
 fi
 
-# --- Regex for basic hostname validation ---
-HOSTNAME_REGEX="^[a-zA-Z0-9.-]+$"
+# Regex for basic hostname validation
+HOTNAME_REGEX="^[a-zA-Z0-9.-]+$"
 if ! [[ $HOSTNAME =~ $HOSTNAME_REGEX ]]; then
     echo -e "${YELLOW}Error:${NC} Invalid hostname format: '$HOSTNAME'. Only alphanumeric characters, dots, and hyphens are allowed."
     exit 1
 fi
 
-# --- Generate the Entry and Command ---
-HOSTS_ENTRY="$IP_ADDRESS\t$HOSTNAME"
+# --- Duplicate Entry Check ---
+if grep -q -w "$IP_ADDRESS" "$HOSTS_FILE"; then
+    echo -e "${YELLOW}Warning:${NC} The IP address ${CYAN}$IP_ADDRESS${NC} already exists in $HOSTS_FILE."
+    echo "Line: $(grep -w "$IP_ADDRESS" "$HOSTS_FILE")"
+    exit 1
+fi
+if grep -q -w "$HOSTNAME" "$HOSTS_FILE"; then
+    echo -e "${YELLOW}Warning:${NC} The hostname ${CYAN}$HOSTNAME${NC} already exists in $HOSTS_FILE."
+    echo "Line: $(grep -w "$HOSTNAME" "$HOSTS_FILE")"
+    exit 1
+fi
 
-echo -e "$HOSTS_ENTRY" | sudo tee -a /etc/hosts
-sudo systemctl restart dnsmasq
+# --- Add Entry ---
+# 1. Backup the hosts file
+BACKUP_FILE="/etc/hosts.bak.$(date +%s)"
+echo -e "Backing up $HOSTS_FILE to $BACKUP_FILE..."
+cp "$HOSTS_FILE" "$BACKUP_FILE"
+
+# 2. Add the new entry
+HOSTS_ENTRY="$IP_ADDRESS\t$HOSTNAME"
+echo -e "Adding entry: ${CYAN}$HOSTS_ENTRY${NC}"
+echo -e "$HOSTS_ENTRY" >> "$HOSTS_FILE"
+
+# 3. Restart dnsmasq if it exists
+if systemctl cat dnsmasq &>/dev/null; then
+    echo "Restarting dnsmasq service..."
+    systemctl restart dnsmasq
+else
+    echo -e "${YELLOW}Warning:${NC} dnsmasq service not found. Skipping restart."
+fi
+
 echo ""
-echo -e "${GREEN}SUCCESS: Your DNS entry has been generated.${NC}"
+echo -e "${GREEN}SUCCESS: The entry has been added to $HOSTS_FILE.${NC}"

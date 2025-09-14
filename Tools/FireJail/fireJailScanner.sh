@@ -28,7 +28,7 @@ log_warning() {
 }
 
 log_step() {
-    echo -e "\n${CYAN}--- $1 ---${NC}"
+    echo -e "\n${CYAN}--- $1 ---"${NC}
 }
 
 # --- Root User Check ---
@@ -48,7 +48,7 @@ secure_service() {
     local service_name="$1"
     local service_file="${service_name}.service"
 
-    log_message "Attempting to secure '$service_name'..."
+    log_message "Preparing to secure '$service_name'..."
 
     # 1. Get the original ExecStart command path and arguments
     local original_exec_start
@@ -59,43 +59,67 @@ secure_service() {
         return 1
     fi
 
-    # The value is a struct; we just need the command and its args
-    # The first element is the path, the rest are args.
     local exec_command_line
     exec_command_line=$(echo "$original_exec_start" | sed -e "s/^{ path=\([^;]*\); args=\[\([^]]*\)\]; .*}/\1 \2/" -e 's/"//g' -e 's/;/ /g')
 
-    # 2. Create the systemd override directory
-    local override_dir="/etc/systemd/system/${service_file}.d"
-    mkdir -p "$override_dir"
-
-    # 3. Create the override.conf file
-    local override_file="${override_dir}/firejail.conf"
-    log_message "Creating systemd override at $override_file"
-
     local firejail_path
     firejail_path=$(command -v firejail)
+    local new_exec_start="${firejail_path} ${exec_command_line}"
 
-    # The ExecStart= is crucial to clear the original command before adding the new one.
+    # 2. Show the proposed change to the user
+    log_step "Proposed Change for '$service_name'"
+    echo "A systemd override will be created with the following content:"
+    echo -e "${CYAN}"
+    echo "[Service]"
+    echo "ExecStart="
+    echo "ExecStart=$new_exec_start"
+    echo -e "${NC}"
+
+    read -p "Do you want to apply this change? (y/n): " apply_confirm
+    if [[ "$apply_confirm" != [yY] ]]; then
+        log_message "Change for '$service_name' aborted by user."
+        return 0
+    fi
+
+    # 3. Create the override file
+    local override_dir="/etc/systemd/system/${service_file}.d"
+    mkdir -p "$override_dir"
+    local override_file="${override_dir}/firejail.conf"
+    
     cat > "$override_file" <<EOF
 [Service]
 ExecStart=
-ExecStart=${firejail_path} ${exec_command_line}
+ExecStart=${new_exec_start}
 EOF
 
     # 4. Reload systemd and restart the service
-    log_message "Reloading systemd daemon and restarting '$service_name'..."
+    log_message "Applying change: reloading systemd and restarting '$service_name'..."
     systemctl daemon-reload
     systemctl restart "$service_name"
 
     # 5. Verify the sandbox
     sleep 2 # Give the service a moment to start
     if systemctl is-active --quiet "$service_name" && firejail --list | grep -q -E "(${service_name}|$(basename "$exec_command_line"))"; then
-        log_message "✅ '$service_name' is now running inside a FireJail sandbox."
+        log_message "✅ SUCCESS: '$service_name' is now running inside a FireJail sandbox."
     elif systemctl is-active --quiet "$service_name"; then
-        log_warning "⚠️ '$service_name' restarted, but could not be found in 'firejail --list'. Please verify manually."
+        log_warning "⚠️ VERIFICATION FAILED: '$service_name' restarted, but was not found in 'firejail --list'."
+        log_warning "The service is running, but may not be sandboxed. Please verify manually."
+        log_warning "To revert, remove the override file: 'rm -f $override_file' and restart the service."
     else
-        log_warning "❌ '$service_name' failed to restart after applying the sandbox. Check 'systemctl status $service_name'."
-        log_warning "To revert, remove the override file: 'rm -f $override_file', then run 'systemctl daemon-reload' and 'systemctl restart $service_name'."
+        log_warning "❌ FAILED: '$service_name' failed to restart after applying the sandbox."
+        read -p "Do you want to automatically revert the change? (y/n): " revert_confirm
+        if [[ "$revert_confirm" == [yY] ]]; then
+            log_message "Reverting changes for '$service_name'வுகளை..."
+            rm -f "$override_file"
+            systemctl daemon-reload
+            systemctl restart "$service_name"
+            log_message "✅ Reverted. '$service_name' has been restored to its original state."
+        else
+            log_warning "Changes not reverted. To fix the service, run:"
+            log_warning "  1. rm -f $override_file"
+            log_warning "  2. systemctl daemon-reload"
+            log_warning "  3. systemctl restart $service_name"
+        fi
     fi
 }
 
@@ -133,6 +157,7 @@ if [ ${#securable_services[@]} -eq 0 ]; then
 fi
 
 log_step "Step 2: Interactive Hardening"
+
 echo "The following running services can be sandboxed by FireJail:"
 for service in "${securable_services[@]}"; do
     echo -e "  - ${CYAN}${service}${NC}"
@@ -140,13 +165,9 @@ done
 echo ""
 
 for service in "${securable_services[@]}"; do
-    read -p "Do you want to secure the '${service}' service now? (y/n): " confirm
-    if [[ "$confirm" == [yY] ]]; then
-        secure_service "$service"
-        echo "" # Add a newline for readability
-    else
-        log_message "Skipping '$service'."
-    fi
+    # The secure_service function now handles the confirmation internally
+    secure_service "$service"
+    echo "" # Add a newline for readability
 done
 
 log_step "Scan and hardening process complete."

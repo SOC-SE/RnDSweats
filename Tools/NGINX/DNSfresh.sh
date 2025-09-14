@@ -26,10 +26,19 @@ log_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-# --- Root User Check ---
+# --- Pre-flight Checks ---
+# 1. Root User Check
 if [ "$(id -u)" -ne 0 ]; then
   log_warning "This script requires root privileges. Please run it with sudo."
   exit 1
+fi
+
+# 2. Conflict Check for systemd-resolved
+if systemctl is-active --quiet systemd-resolved; then
+    log_warning "systemd-resolved is active. This script is incompatible as it could cause"
+    log_warning "unpredictable DNS behavior by conflicting with the system's native resolver."
+    log_warning "Please disable systemd-resolved first if you wish to use a standalone dnsmasq setup."
+    exit 1
 fi
 
 # --- Step 1: Detect Distro and Install dnsmasq ---
@@ -57,10 +66,21 @@ fi
 $PKG_MANAGER install -y dnsmasq
 
 # --- Step 2: Create Custom Configuration File ---
+CONF_FILE="/etc/dnsmasq.d/02-custom.conf"
+
+if [ -f "$CONF_FILE" ]; then
+    log_warning "An existing configuration file was found at $CONF_FILE."
+    read -p "Do you want to overwrite it? (y/n): " confirm_overwrite
+    if [[ "$confirm_overwrite" != [yY] ]]; then
+        log_message "Aborting script. The existing configuration file was not changed."
+        exit 0
+    fi
+fi
+
 log_message "Configuring dnsmasq with custom settings..."
 
 # This will create a new configuration file in /etc/dnsmasq.d/
-cat > /etc/dnsmasq.d/02-custom.conf <<EOF
+cat > $CONF_FILE <<EOF
 # --- Custom Configuration ---
 
 # Set the upstream DNS servers
@@ -80,7 +100,7 @@ port=5353
 listen-address=127.0.0.1
 EOF
 
-log_message "Configuration file created at /etc/dnsmasq.d/02-custom.conf"
+log_message "Configuration file created at $CONF_FILE"
 
 # --- Step 3: Restart and Enable the dnsmasq Service ---
 log_message "Restarting dnsmasq service to apply changes..."

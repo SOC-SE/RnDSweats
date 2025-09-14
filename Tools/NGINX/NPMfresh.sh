@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # ====================================================================================
-# Nginx Proxy Manager Setup Script for Ubuntu
+# Nginx Proxy Manager Setup Script
 #
 # This script automates the installation and setup of Nginx Proxy Manager
 # running inside a Docker container. It handles the installation of Docker,
-# Docker Compose, and configures the necessary files and directories.
+# the Docker Compose plugin, and configures the necessary files and directories.
 # ====================================================================================
 
 # --- Script Configuration ---
@@ -173,23 +173,14 @@ fi
 systemctl enable docker
 systemctl start docker
 
-# --- Step 3: Install Docker Compose ---
-log_message "Installing Docker Compose..."
-if ! command -v docker-compose &> /dev/null
-then
-    log_message "Docker Compose not found. Proceeding with installation."
-    # Get the latest stable release of Docker Compose
-    LATEST_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [ -z "$LATEST_COMPOSE_VERSION" ]; then
-        log_warning "Could not fetch latest Docker Compose version. Using a fallback."
-        LATEST_COMPOSE_VERSION="1.29.2" # Fallback version
-    fi
-    log_message "Downloading Docker Compose version ${LATEST_COMPOSE_VERSION}..."
-    curl -L "https://github.com/docker/compose/releases/download/${LATEST_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
-    log_message "Docker Compose installed successfully."
+# --- Step 3: Install Docker Compose Plugin ---
+log_message "Installing Docker Compose plugin..."
+if ! docker compose version &>/dev/null; then
+    log_message "Docker Compose plugin not found. Proceeding with installation."
+    $PKG_MANAGER install -y docker-compose-plugin
+    log_message "Docker Compose plugin installed successfully."
 else
-    log_message "Docker Compose is already installed."
+    log_message "Docker Compose plugin is already installed."
 fi
 
 # --- Step 4: Create Directory and Docker Compose File for Nginx Proxy Manager ---
@@ -218,21 +209,33 @@ log_message "docker-compose.yml created successfully in /opt/nginx-proxy-manager
 # --- Step 5: Start Nginx Proxy Manager Container ---
 log_message "Starting the Nginx Proxy Manager container..."
 cd /opt/nginx-proxy-manager
-docker-compose up -d
+docker compose up -d
 
 # --- Step 6: Set Permissions for Wazuh Integration ---
-log_message "Setting log file permissions for Wazuh agent..."
+log_message "Checking for Wazuh agent for log integration..."
 NPM_LOG_DIR="/opt/nginx-proxy-manager/data/logs"
 
 # Wait a moment for the log directory to be created by the container
-sleep 3
+sleep 5
 
-#It's not 100% certain if the Wazuh agent will be installed before NPM is set up. The following lines are commented out for now, but should be uncommented
-# if the agent installation is performed first.
-
-# Use ACLs to grant the wazuh group read access to the log directory and all future files
-#setfacl -R -m g:wazuh:rX "$NPM_LOG_DIR"
-#setfacl -dR -m g:wazuh:rX "$NPM_LOG_DIR"
+if getent group wazuh &>/dev/null; then
+    log_message "Wazuh group found on the system."
+    read -p "Do you want to grant the wazuh group read access to NPM logs? (y/n): " confirm_wazuh
+    if [[ "$confirm_wazuh" == [yY] ]]; then
+        if [ -d "$NPM_LOG_DIR" ]; then
+            log_message "Applying ACLs to NPM log directory for Wazuh..."
+            setfacl -R -m g:wazuh:rX "$NPM_LOG_DIR"
+            setfacl -dR -m g:wazuh:rX "$NPM_LOG_DIR"
+            log_message "Wazuh integration permissions applied."
+        else
+            log_warning "NPM log directory not found at $NPM_LOG_DIR. Skipping ACL setup."
+        fi
+    else
+        log_message "Skipping Wazuh ACL setup as requested."
+    fi
+else
+    log_message "Wazuh group not found. Skipping ACL setup."
+fi
 
 # --- Final Instructions ---
 log_message "Nginx Proxy Manager has been successfully deployed!"

@@ -74,7 +74,7 @@ function Enable-WindowsFeaturesAndRestart {
     if ($restartNeeded) {
         Write-Warning "A system restart is required to complete the installation of Windows features."
         $choice = Read-Host "Do you want to restart now? (Y/N)"
-        if ($choice -match '^[Yy]$') {
+        if ($choice -match '^[Yy]') {
             Write-Host "Restarting computer..."
             Restart-Computer -Force
             exit
@@ -130,6 +130,10 @@ function Deploy-WazuhOnWSL {
     $repoRoot = (Get-Location).Path
     $wslRepoPath = "/root/RnDSweats" # Where the repo will be copied inside WSL
 
+    # Convert the Windows path to a WSL path
+    $wslRepoRoot = $repoRoot -replace '([A-Za-z]):\[\s*]', '/mnt/$($1.ToLower())\' -replace '\', '/'
+    $wslToolsPath = "$wslRepoRoot/Tools/Wazuh"
+
     # The shell script that will be generated and run inside WSL
     $wslScript = @"
 #!/bin/bash
@@ -148,32 +152,33 @@ echo '--- [WSL] Downloading and running Wazuh installer... ---'
 curl -sO https://packages.wazuh.com/4.7/wazuh-install.sh
 bash ./wazuh-install.sh -a
 
-# Copy the repository content into WSL for the custom scripts
-echo '--- [WSL] Copying repository for custom configurations... ---'
-mkdir -p /root
-cp -R '$repoRoot' /root/
+# Copy the necessary repository content into WSL for the custom scripts
+echo '--- [WSL] Copying repository for custom configurations...'
+mkdir -p ${wslRepoPath}
+cp -R '$wslToolsPath' ${wslRepoPath}/Tools/
+# It seems fortressInstall.sh needs the parent directory structure, so we recreate it.
+mkdir -p ${wslRepoPath}/Tools/Wazuh
+cp -R '$wslToolsPath'/* ${wslRepoPath}/Tools/Wazuh/
+
 
 # Run the SOCFortress custom rules installation script
-echo '--- [WSL] Running fortressInstall.sh... ---'
+echo '--- [WSL] Running fortressInstall.sh...'
 bash ${wslRepoPath}/Tools/Wazuh/fortressInstall.sh
 
 # Run the group configuration script
-echo '--- [WSL] Running setConfigs.sh... ---'
+echo '--- [WSL] Running setConfigs.sh...'
 bash ${wslRepoPath}/Tools/Wazuh/Configs/setConfigs.sh
 
 # Restart the manager to apply all new rules and configurations
-echo '--- [WSL] Restarting wazuh-manager... ---'
+echo '--- [WSL] Restarting wazuh-manager...'
 # Check for systemd; use 'service' as a fallback for WSL1
 if [ -d /run/systemd/system ]; then
-    echo '--- [WSL] Restarting services via systemctl (WSL2 detected)... ---'
-    systemctl restart wazuh-manager
+    echo '--- [WSL] Restarting services via systemctl (WSL2 detected)...'    systemctl restart wazuh-manager
 else
-    echo '--- [WSL] Restarting services via init.d scripts (WSL1 detected)... ---'
-    # The all-in-one installer may not work correctly on WSL1, but we attempt to restart the manager anyway
+    echo '--- [WSL] Restarting services via init.d scripts (WSL1 detected)...'    # The all-in-one installer may not work correctly on WSL1, but we attempt to restart the manager anyway
     service wazuh-manager restart || echo "Could not restart wazuh-manager via 'service' command."
 fi
-echo '--- [WSL] Custom Wazuh deployment complete! ---'
-
+echo '--- [WSL] Custom Wazuh deployment complete!'
 "@
 
     Write-Host "Generated setup script. Now executing inside Debian WSL..."
@@ -212,8 +217,8 @@ function Deploy-WazuhOnDocker {
         exit 1
     }
 
-    # Setup working directory
-    $wazuhDockerDir = "C:\Wazuh-Docker"
+    # Setup working directory in the user's profile
+    $wazuhDockerDir = "$env:USERPROFILE\Wazuh-Docker"
     if (-not (Test-Path -Path $wazuhDockerDir)) {
         New-Item -Path $wazuhDockerDir -ItemType Directory | Out-Null
     }
@@ -240,18 +245,36 @@ function Deploy-WazuhOnDocker {
         exit 1
     }
 
-    # Wait for the manager to be ready. This is a critical step.
-    $waitTime = 120 # seconds
-    Write-Host "Waiting ${waitTime}s for the Wazuh manager to initialize before applying customizations..."
-    Start-Sleep -Seconds $waitTime
-
-    # Get the path to the repository root from where the script is run
-    $repoRoot = (Get-Location -PSProvider FileSystem).Path
     $containerName = "wazuh-1" # Default name from the official compose file
+
+    # Wait for the manager to be ready by polling its status.
+    $maxWaitTime = 300 # 5 minutes
+    $pollInterval = 10 # seconds
+    $elapsedTime = 0
+    Write-Host "Waiting for the Wazuh manager in container '$containerName' to initialize..."
+    while ($elapsedTime -lt $maxWaitTime) {
+        $status = docker exec $containerName systemctl is-active wazuh-manager 2>$null
+        if ($status -eq 'active') {
+            Write-Host "[SUCCESS] Wazuh manager is active." -ForegroundColor Green
+            break
+        }
+        Write-Host "Still waiting... (Status: $($status))"
+        Start-Sleep -Seconds $pollInterval
+        $elapsedTime += $pollInterval
+    }
+
+    if ($elapsedTime -ge $maxWaitTime) {
+        Write-Error "Wazuh manager did not become active within the timeout period. Please check the container logs: docker logs $containerName"
+        exit 1
+    }
+
+    # Get the path to the repository's Tools/Wazuh directory
+    $repoRoot = (Get-Location -PSProvider FileSystem).Path
+    $toolsDir = Join-Path -Path $repoRoot -ChildPath "Tools\Wazuh"
     $dockerRepoPath = "/tmp/RnDSweats"
 
-    Write-Host "Copying repository content into the '$containerName' container..."
-    docker cp "$repoRoot" "${containerName}:$dockerRepoPath"
+    Write-Host "Copying 'Tools/Wazuh' content into the '$containerName' container..."
+    docker cp "$toolsDir" "${containerName}:${dockerRepoPath}/Tools/Wazuh"
 
     Write-Host "Executing custom scripts inside the container..."
     
