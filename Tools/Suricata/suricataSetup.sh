@@ -157,13 +157,13 @@ echo "Backed up original YAML configuration to ${SURICATA_CONF}.bak.<timestamp>"
 # Atomically configure suricata.yaml using a single sed command
 echo "Configuring suricata.yaml..."
 sed -i -E \
-    -e "s|^(\s*HOME_NET:\s*).*|\1\"[$HOME_NET]\"|" \
-    -e "s|^    - interface: .*|    - interface: default|" \
-    -e 's|^(\s*- eve-log:\s*)enabled: no|\1enabled: yes|' \
-    -e '/- eve-log:/,/types:/s|^(\s*)#(\s*-\s*(alert|http|dns|tls|files|ssh|flow))|\1\2|' \
-    -e 's|^(\s*)#\s*(ja3-fingerprints:).*|\1\2 yes|' \
-    -e 's|^(\s*)#\s*(ja4-fingerprints:).*|\1\2 yes|' \
-    -e 's|^(\s*ja4:).*|\1 on|' \
+    -e "s|^(\s*HOME_NET:\s*)\\"\\[.*\\\\]\\"|\1\"\\[$HOME_NET\"\"|g" \
+    -e "s/^    - interface: .*/    - interface: default/" \
+    -e 's/^(\s*- eve-log:\s*)enabled: no/\1enabled: yes/' \
+    -e '/- eve-log:/,/types:/s/^(\s*)#(\s*-\s*(alert|http|dns|tls|files|ssh|flow))/\1\2/' \
+    -e 's/^(\s*)#\s*(ja3-fingerprints:).*/\1\2 yes/' \
+    -e 's/^(\s*)#\s*(ja4-fingerprints:).*/\1\2 yes/' \
+    -e 's/^(\s*ja4:).*/\1 on/' \
     "$SURICATA_CONF"
 
 # Configure system service for NFQUEUE mode
