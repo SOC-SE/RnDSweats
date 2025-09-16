@@ -33,7 +33,7 @@ fi
 
 #Get the easy dependencies
 apt update
-apt install curl ca-certificates python3 python3-pip ibxml2-dev libxslt-dev python3-dev python3-lxml
+apt install curl ca-certificates python3 python3-pip libxml2-dev libxslt-dev python3-dev python3-lxml
 
 #Install NodeJS
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
