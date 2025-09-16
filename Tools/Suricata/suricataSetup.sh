@@ -73,7 +73,7 @@ else
     exit_with_error "Unsupported distribution: '$OS_ID'. This script supports Debian and Red Hat families."
 fi
 
-
+https://gemini.google.com/app
 # --- User Input ---
 
 print_header "Suricata IPS Configuration"
@@ -151,14 +151,14 @@ else # redhat
     SURICATA_DEFAULTS="/etc/sysconfig/suricata"
 fi
 
-# Backup the original configuration file
+# Backup the originabout:blank#blockedal configuration file
 cp "$SURICATA_CONF" "${SURICATA_CONF}.bak.$(date +%s)"
 echo "Backed up original YAML configuration to ${SURICATA_CONF}.bak.<timestamp>"
 
-# Atomically configure suricata.yaml using a single sed command
+# Atomically configure suricata.yaml using a  sed command
 echo "Configuring suricata.yaml..."
 sed -i -E \
-    -e "s|^(\s*HOME_NET:\s*)\\"\\[.*\\\\]\\\"|\1\"\\[$HOME_NET\"\"|g" \
+    -e "s|^(\s*HOME_NET:\s*)\\"\\[.*\\\\]\\"|\1\"\\[$HOME_NET\"\"|g" \
     -e "s/^    - interface: .*/    - interface: default/" \
     -e 's/^(\s*- eve-log:\s*)enabled: no/\1enabled: yes/' \
     -e '/- eve-log:/,/types:/s/^(\s*)#(\s*-\s*(alert|http|dns|tls|files|ssh|flow))/\1\2/' \
@@ -178,9 +178,6 @@ fi
 # Ensure log directory exists and has correct permissions
 echo "Ensuring correct log directory permissions..."
 mkdir -p /var/log/suricata
-# Ensure suricata user and group exist before changing ownership
-groupadd -r suricata &>/dev/null || true
-useradd -r -g suricata -d /var/lib/suricata -s /sbin/nologin -c "Suricata IDS" suricata &>/dev/null || true
 chown -R suricata:suricata /var/log/suricata
 
 # Grant Wazuh agent access to Suricata logs
@@ -228,7 +225,7 @@ case "$OS_FAMILY" in
         echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
         # This is just to ensure the service is enabled, install was done earlier
         systemctl enable netfilter-persistent
-        ;; 
+        ;;
     "redhat")
         if systemctl is-active --quiet firewalld;
         then
@@ -260,7 +257,7 @@ echo "Saving iptables rules..."
 case "$OS_FAMILY" in
     "debian")
         iptables-save > /etc/iptables/rules.v4
-        ;; 
+        ;;
     "redhat")
         iptables-save > /etc/sysconfig/iptables
         ;; 
