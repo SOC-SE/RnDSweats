@@ -44,7 +44,7 @@ if [ -d "/opt/caldera" ]; then
     # If installed but not running, start the server
     echo "Caldera is installed but not running. Starting the server..."
     cd /opt/caldera
-    nohup python3 server.py --insecure > /var/caldera.log 2>&1 &
+    python3 server.py --insecure --build > /var/caldera.log 2>&1 &
     echo "🚀 Caldera server started in the background."
   fi
 else
@@ -87,7 +87,7 @@ else
   # 5. Start the Caldera server
   echo "🚀 Starting Caldera server for the first time..."
   # CORRECTED: Removed the invalid '--build' flag and used 'nohup'
-  nohup python3 server.py --insecure > /var/caldera.log 2>&1 &
+ python3 server.py --insecure --build > /var/caldera.log 2>&1 &
   echo "🎉 Caldera installation complete!"
 
 fi
