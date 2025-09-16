@@ -33,7 +33,7 @@ fi
 
 #Get the easy dependencies
 apt update
-apt install curl ca-certificates python3 python3-pip libxml2-dev libxslt-dev python3-dev python3-lxml
+apt install -y curl ca-certificates python3 python3-pip libxml2-dev libxslt-dev python3-dev python3-lxml
 
 #Install NodeJS
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
@@ -52,9 +52,11 @@ sudo tar -C /usr/local -xzf go1.17.13.linux-amd64.tar.gz
   # Source the profile to make 'go' command available immediately in this script
   export PATH=$PATH:/usr/local/go/bin
 
+  rm -f go1.17.13.linux-amd64.tar.gz
+
 
 git clone https://github.com/mitre/caldera.git --recursive /opt/caldera
 cd /opt/caldera
 sed -i '/^lxml/ s/^/#/' requirements.txt
-pip3 install --break-system-packages -r requirements.txt
-python3 server.py --insecure --build > /var/caldera.log 2.&1 &
+pip3 install --break-system-packages --ignore-installed -r requirements.txt
+python3 server.py --insecure --build > /var/caldera.log 2>&1 &
