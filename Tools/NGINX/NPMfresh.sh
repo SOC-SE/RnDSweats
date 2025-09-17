@@ -186,29 +186,19 @@ fi
 # --- Step 4: Create Directory and Docker Compose File for Nginx Proxy Manager ---
 log_message "Setting up Nginx Proxy Manager configuration..."
 mkdir -p /opt/nginx-proxy-manager
+cd /opt/nginx-proxy-manager
 
-# Create the docker-compose.yml file
-cat > /opt/nginx-proxy-manager/docker-compose.yml <<EOF
-version: '3'
-services:
-  app:
-    image: 'jc21/nginx-proxy-manager:latest'
-    restart: unless-stopped
-    ports:
-      # These ports are in format <host-port>:<container-port>
-      - '80:80' # Public HTTP Port
-      - '443:443' # Public HTTPS Port
-      - '666:81' # Admin Web Port
-    volumes:
-      - ./data:/data
-      - ./letsencrypt:/etc/letsencrypt
-EOF
-
+# Download config requirements
+wget https://raw.githubusercontent.com/openappsec/openappsec/main/deployment/docker-compose/nginx-proxy-manager/docker-compose.yaml
 log_message "docker-compose.yml created successfully in /opt/nginx-proxy-manager/"
+wget https://raw.githubusercontent.com/openappsec/openappsec/main/deployment/docker-compose/nginx-proxy-manager/.env
+log_message ".env created successfully in /opt/nginx-proxy-manager/"
+mkdir ./appsec-localconfig
+wget https://raw.githubusercontent.com/openappsec/open-appsec-npm/main/deployment/managed-from-npm-ui/local_policy.yaml -O ./appsec-localconfig/local_policy.yaml
+log_message "Declaritive config created in /opt/nginx-proxy-manager/appsec-localconfig"
 
 # --- Step 5: Start Nginx Proxy Manager Container ---
 log_message "Starting the Nginx Proxy Manager container..."
-cd /opt/nginx-proxy-manager
 docker compose up -d
 
 # --- Step 6: Set Permissions for Wazuh Integration ---
