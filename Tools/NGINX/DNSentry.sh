@@ -53,17 +53,8 @@ if ! [[ $HOSTNAME =~ $HOSTNAME_REGEX ]]; then
     exit 1
 fi
 
-# --- Duplicate Entry Check ---
-if grep -q -w "$IP_ADDRESS" "$HOSTS_FILE"; then
-    echo -e "${YELLOW}Warning:${NC} The IP address ${CYAN}$IP_ADDRESS${NC} already exists in $HOSTS_FILE."
-    echo "Line: $(grep -w "$IP_ADDRESS" "$HOSTS_FILE")"
-    exit 1
-fi
-if grep -q -w "$HOSTNAME" "$HOSTS_FILE"; then
-    echo -e "${YELLOW}Warning:${NC} The hostname ${CYAN}$HOSTNAME${NC} already exists in $HOSTS_FILE."
-    echo "Line: $(grep -w "$HOSTNAME" "$HOSTS_FILE")"
-    exit 1
-fi
+# Removed dupe check - proxy needs to have multiple entries pointing
+# at itself to be functional.
 
 # --- Add Entry ---
 # 1. Backup the hosts file
