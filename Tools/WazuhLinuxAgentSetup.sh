@@ -17,18 +17,19 @@ echo "The script is located in the directory:"
 echo "$SCRIPT_DIR"
 echo
 
+cd $SCRIPT_DIR
 
 echo "Setting up Auditd"
-bash $SCRIPT_DIR/Auditd/auditdSetup.sh
+bash Auditd/auditdSetup.sh
 
 echo "Installing Yara"
-bash $SCRIPT_DIR/Yara/yaraInstall.sh
+bash Yara/yaraInstall.sh
 
 echo "Configuring Yara rules"
-bash $SCRIPT_DIR/Yara/yaraConfigure.sh
+bash Yara/yaraConfigure.sh
 
 echo "Setting up the Wazuh agent"
-bash $SCRIPT_DIR/Wazuh/linuxSetup.sh
+bash Wazuh/linuxSetup.sh
 
 
 
