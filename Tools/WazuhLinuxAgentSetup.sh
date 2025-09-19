@@ -11,17 +11,24 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+echo "The script is located in the directory:"
+echo "$SCRIPT_DIR"
+echo
+
+
 echo "Setting up Auditd"
-bash Auditd/auditdSetup.sh
+bash $SCRIPT_DIR/Auditd/auditdSetup.sh
 
 echo "Installing Yara"
-bash Yara/yaraInstall.sh
+bash $SCRIPT_DIR/Yara/yaraInstall.sh
 
 echo "Configuring Yara rules"
-bash Yara/yaraConfigure.sh
+bash $SCRIPT_DIR/Yara/yaraConfigure.sh
 
 echo "Setting up the Wazuh agent"
-bash Wazuh/linuxSetup.sh
+bash $SCRIPT_DIR/Wazuh/linuxSetup.sh
 
 
 
