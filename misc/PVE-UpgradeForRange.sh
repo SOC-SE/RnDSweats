@@ -23,11 +23,19 @@ rm -f /etc/apt/sources.list.d/pvetest-for-beta.list
 #get and upgrade the initial set of free packages
 apt update && apt upgrade -y
 
+#This will re-enable the enterprise licences. This seems to help some upgrades and hurts others. 
+#If you uncomment this, make sure to uncomment the two lines below that disable them once more (assuming you don't have a paid license)
+#sed -i 's/^#deb/deb/' /etc/apt/sources.list.d/pve-enterprise.list
+
 #Full upgrade, this will switch over to the new major version
 apt full-upgrade -y
 
 #Comment out the enterprise repo again
 sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list
+
+#If you kept enterprise licenses enabled, this will disable them once more - commented out to disable since the enterprise license isn't re-enabled by default in this script
+#sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list
+#FILE="/etc/apt/sources.list.d/pve-enterprise.sources"; if grep -q "^Enabled:" "$FILE"; then sed -i 's/^Enabled:.*/Enabled: no/' "$FILE"; else echo "Enabled: no" |  tee -a "$FILE"; fi
 
 #sanity-checking / house keeping
 apt update
