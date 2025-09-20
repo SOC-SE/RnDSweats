@@ -30,6 +30,9 @@ sed -i 's/^#deb/deb/' /etc/apt/sources.list.d/pve-enterprise.list
 #Full upgrade, this will switch over to the new major version
 apt full-upgrade -y
 
+#Comment out the enterprise repo again
+sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list
+
 #sanity-checking / house keeping
 apt update
 apt upgrade -y
