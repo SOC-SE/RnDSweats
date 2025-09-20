@@ -23,10 +23,6 @@ rm -f /etc/apt/sources.list.d/pvetest-for-beta.list
 #get and upgrade the initial set of free packages
 apt update && apt upgrade -y
 
-#enable the enterprise mirrors - idk why this works or if it is 100% necessary, it's just part of the process I've been using so I'm leaving it in
-#it may not be needed at all, I haven't bothered to do the testing to tell me if it is or isn't
-sed -i 's/^#deb/deb/' /etc/apt/sources.list.d/pve-enterprise.list
-
 #Full upgrade, this will switch over to the new major version
 apt full-upgrade -y
 
