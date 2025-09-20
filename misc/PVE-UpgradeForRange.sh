@@ -7,6 +7,10 @@ cd /etc/apt/sources.list.d
 sed -i 's/bookworm/trixie/g' /etc/apt/sources.list
 sed -i 's/bookworm/trixie/g' /etc/apt/sources.list.d/pve-enterprise.list
 sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list
+
+#get the no subscription PVE mirrors for Trixie, if they don't exist in the sources.list file
+grep -qxF 'deb http://download.proxmox.com/debian/pve trixie pve-no-subscription' /etc/apt/sources.list || echo 'deb http://download.proxmox.com/debian/pve trixie pve-no-subscription' | sudo tee -a /etc/apt/sources.list
+
 #I ran into this issue where I didn't have the correct gpg key. This line pre-emptively fixes the possible issue
 wget https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg
 #We don't use ceph but it's randomly installed on some servers. Might as well simplify our process and remove the mirror
@@ -25,4 +29,5 @@ apt upgrade -y
 apt autoremove -y
 apt clean
 
+#Final check to make sure it actually upgraded to the latest version
 pveversion
