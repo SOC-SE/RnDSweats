@@ -140,6 +140,41 @@ all_installed() {
     is_ftp_installed && is_sftp_installed && is_tftp_installed
 }
 
+# --- Get Credentials (for view mode) ---
+get_credentials() {
+    local service=$1
+    local upper_service=$(echo "$service" | tr '[:lower:]' '[:upper:]')
+    if [ -f "$CRED_FILE" ]; then
+        local creds=$(grep "^\[$upper_service\]" "$CRED_FILE" | cut -d' ' -f2)
+        if [ -n "$creds" ]; then
+            echo "$creds"
+            return 0
+        fi
+    fi
+    echo "No credentials found."
+}
+
+# --- Save Credentials ---
+save_credentials() {
+    local service=$1
+    local username=$2
+    local password=$3
+    local upper_service=$(echo "$service" | tr '[:lower:]' '[:upper:]')
+
+    # Ensure file exists and is secure
+    touch "$CRED_FILE"
+    chmod 600 "$CRED_FILE"
+
+    # Remove old entry if exists
+    grep -v "^\[$upper_service\]" "$CRED_FILE" > "${CRED_FILE}.tmp" 2>/dev/null || true
+
+    # Add new entry
+    echo "[$upper_service] $username:$password" >> "${CRED_FILE}.tmp"
+    mv "${CRED_FILE}.tmp" "$CRED_FILE"
+
+    log_info "Credentials saved to $CRED_FILE for $service."
+}
+
 # --- Create Credentials for Service ---
 create_credentials() {
     local service=$1
@@ -170,30 +205,28 @@ create_credentials() {
     # Set password
     echo "$username:$password" | chpasswd
     if ! passwd --status "$username" | grep -q "P"; then
-        log_error "Password set failed for $username"
+        log_error "Failed to set password for user $username."
     fi
 
-    # Save to cred file (uppercase protocol)
-    local upper_service=$(echo "$service" | tr '[:lower:]' '[:upper:]')
-    touch "$CRED_FILE"
-    chmod 600 "$CRED_FILE"
-    grep -v "^\[$upper_service\]" "$CRED_FILE" > "${CRED_FILE}.tmp" 2>/dev/null || true
-    mv "${CRED_FILE}.tmp" "$CRED_FILE"
-    echo "[$upper_service] $username:$password" >> "$CRED_FILE"
+    # Save credentials
+    save_credentials "$service" "$username" "$password"
 
-    log_warn "Credentials are plaintext—secure file perms (chmod 600 applied)."
-    log_info "Credentials saved securely in $CRED_FILE. View them in 'View installed services' mode."
-    log_warn "For security: Restrict this user in config files (e.g., /etc/vsftpd.conf for FTP) and change password regularly."
-}
+    # For SFTP, create home dir and set ownership (required for chroot if configured)
+    if [ "$service" = "SFTP" ]; then
+        local home_dir="/home/$username"
+        mkdir -p "$home_dir"
+        chown "$username:$username" "$home_dir"
+        chmod 755 "$home_dir"
+        log_info "SFTP home directory created for $username."
+    fi
 
-# --- Get Credentials for Service ---
-get_credentials() {
-    local service=$1
-    local upper_service=$(echo "$service" | tr '[:lower:]' '[:upper:]')
-    if [ -f "$CRED_FILE" ]; then
-        grep "^\[$upper_service\]" "$CRED_FILE" | cut -d' ' -f2 || echo "No credentials found."
-    else
-        echo "No credentials file found."
+    # For FTP, create user dir in /srv/ftp
+    if [ "$service" = "FTP" ]; then
+        local ftp_dir="/srv/ftp/$username"
+        mkdir -p "$ftp_dir"
+        chown "$username:$username" "$ftp_dir"
+        chmod 755 "$ftp_dir"
+        log_info "FTP directory created for $username."
     fi
 }
 
@@ -208,30 +241,37 @@ install_ftp() {
     $UPDATE_CMD >/dev/null 2>&1
     $INSTALL_CMD vsftpd >/dev/null 2>&1 &
     spinner $!
-    systemctl enable --now vsftpd >/dev/null 2>&1
 
-    # Create directory if needed
-    mkdir -p /srv/ftp
-    chown nobody:nogroup /srv/ftp
+    # Basic config: disable anonymous, local users only
+    cat > /etc/vsftpd.conf << EOF
+listen=YES
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+local_umask=022
+dirmessage_enable=YES
+use_localtime=YES
+xferlog_enable=YES
+connect_from_port_20=YES
+chown_uploads=YES
+chown_upload_mode=0664
+xferlog_file=/var/log/vsftpd.log
+secure_email_list_enable=NO
+rsync_max_conn=5
+pam_service_name=vsftpd
+rsa_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+rsa_private_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+ssl_enable=NO
+allow_email_from=NO
+chroot_local_user=YES
+chroot_list_enable=NO
+chroot_list_file=/etc/vsftpd.chroot_list
+EOF
+
+    systemctl enable --now vsftpd >/dev/null 2>&1
+    log_info "FTP installed and configured."
 
     create_credentials "FTP"
-
-    # Firewall prompt
-    read -p "Open firewall port for FTP (21/tcp)? (y/n): " open_fw
-    if [[ $open_fw =~ ^[Yy]$ ]]; then
-        if [ "$PKG_MANAGER" = "apt" ] && command -v ufw >/dev/null; then
-            ufw allow 21/tcp
-            log_info "UFW rule added for port 21/tcp."
-        elif command -v firewall-cmd >/dev/null; then
-            firewall-cmd --permanent --add-port=21/tcp
-            firewall-cmd --reload
-            log_info "Firewalld rule added for port 21/tcp."
-        else
-            log_warn "No supported firewall tool found (ufw/firewalld)."
-        fi
-    fi
-
-    log_info "FTP installed and started on port 21."
     return 0
 }
 
@@ -246,26 +286,15 @@ install_sftp() {
     $UPDATE_CMD >/dev/null 2>&1
     $INSTALL_CMD openssh-server >/dev/null 2>&1 &
     spinner $!
+
+    # Basic config: disable password auth if desired, but keep for simplicity
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+
     systemctl enable --now ssh >/dev/null 2>&1
+    log_info "SFTP installed and configured."
 
     create_credentials "SFTP"
-
-    # Firewall prompt
-    read -p "Open firewall port for SFTP (22/tcp)? (y/n): " open_fw
-    if [[ $open_fw =~ ^[Yy]$ ]]; then
-        if [ "$PKG_MANAGER" = "apt" ] && command -v ufw >/dev/null; then
-            ufw allow 22/tcp
-            log_info "UFW rule added for port 22/tcp."
-        elif command -v firewall-cmd >/dev/null; then
-            firewall-cmd --permanent --add-port=22/tcp
-            firewall-cmd --reload
-            log_info "Firewalld rule added for port 22/tcp."
-        else
-            log_warn "No supported firewall tool found (ufw/firewalld)."
-        fi
-    fi
-
-    log_info "SFTP installed and started on port 22."
     return 0
 }
 
@@ -281,35 +310,22 @@ install_tftp() {
     if [ "$PKG_MANAGER" = "apt" ]; then
         $INSTALL_CMD tftpd-hpa >/dev/null 2>&1 &
         spinner $!
+        # Config
+        cat > /etc/default/tftpd-hpa << EOF
+TFTP_USERNAME="tftp"
+TFTP_DIRECTORY="/srv/tftp"
+TFTP_ADDRESS=":69"
+TFTP_OPTIONS="--secure"
+EOF
         mkdir -p /srv/tftp
-        chown tftp:tftp /srv/tftp
         systemctl enable --now tftpd-hpa >/dev/null 2>&1
     else
         $INSTALL_CMD tftp-server >/dev/null 2>&1 &
         spinner $!
         mkdir -p /var/lib/tftpboot
-        chown nobody:nobody /var/lib/tftpboot
         systemctl enable --now tftp >/dev/null 2>&1
     fi
-
-    log_warn "TFTP does not support authentication. No credentials created."
-
-    # Firewall prompt
-    read -p "Open firewall port for TFTP (69/udp)? (y/n): " open_fw
-    if [[ $open_fw =~ ^[Yy]$ ]]; then
-        if [ "$PKG_MANAGER" = "apt" ] && command -v ufw >/dev/null; then
-            ufw allow 69/udp
-            log_info "UFW rule added for port 69/udp."
-        elif command -v firewall-cmd >/dev/null; then
-            firewall-cmd --permanent --add-port=69/udp
-            firewall-cmd --reload
-            log_info "Firewalld rule added for port 69/udp."
-        else
-            log_warn "No supported firewall tool found (ufw/firewalld)."
-        fi
-    fi
-
-    log_info "TFTP installed and started on port 69 (UDP)."
+    log_info "TFTP installed and configured."
     return 0
 }
 
@@ -324,6 +340,16 @@ uninstall_ftp() {
     systemctl disable --now vsftpd >/dev/null 2>&1
     $REMOVE_CMD vsftpd >/dev/null 2>&1 &
     spinner $!
+
+    # Delete user if credentials exist
+    if [ -f "$CRED_FILE" ]; then
+        local creds=$(get_credentials "FTP")
+        if [ -n "$creds" ] && [ "$creds" != "No credentials found." ]; then
+            local username=$(echo "$creds" | cut -d':' -f1)
+            userdel "$username" 2>/dev/null || true
+            log_info "Deleted user $username for clean uninstall."
+        fi
+    fi
 
     # Remove cred entry
     if [ -f "$CRED_FILE" ]; then
@@ -347,6 +373,16 @@ uninstall_sftp() {
     systemctl disable --now ssh >/dev/null 2>&1
     $REMOVE_CMD openssh-server >/dev/null 2>&1 &
     spinner $!
+
+    # Delete user if credentials exist
+    if [ -f "$CRED_FILE" ]; then
+        local creds=$(get_credentials "SFTP")
+        if [ -n "$creds" ] && [ "$creds" != "No credentials found." ]; then
+            local username=$(echo "$creds" | cut -d':' -f1)
+            userdel "$username" 2>/dev/null || true
+            log_info "Deleted user $username for clean uninstall."
+        fi
+    fi
 
     # Remove cred entry
     if [ -f "$CRED_FILE" ]; then
