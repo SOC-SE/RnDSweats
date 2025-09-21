@@ -162,12 +162,10 @@ create_credentials() {
     done
 
     # Create restricted user (no home, no shell for security)
-    if id "$username" &>/dev/null; then
-        log_warn "User $username already exists. Updating password..."
-    else
-        useradd -M -s /bin/false "$username"
-        log_info "User $username created."
-    fi
+    # Delete user if exists to ensure fresh credentials
+    userdel "$username" 2>/dev/null || true
+    useradd -M -s /bin/false "$username"
+    log_info "User $username created."
 
     # Set password
     echo "$username:$password" | chpasswd
