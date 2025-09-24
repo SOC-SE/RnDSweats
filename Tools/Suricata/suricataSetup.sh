@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Suricata IPS Mode Installer and Configurator (v2.6 - Optimized)
+# Suricata IPS Mode Installer and Configurator (v2.7 - Multi-Subnet)
 #
 # Description: This script automates the installation of Suricata on
 #              Debian-based and Red Hat-based systems. It configures Suricata
@@ -12,7 +12,7 @@
 #          It is intended for use on a dedicated security monitoring
 #          system or a system you fully control. Run with caution.
 #
-# Usage: ./suricata_ips_setup.sh
+# Usage: ./suricataSetup.sh
 # ==============================================================================
 
 # --- Script Configuration ---
@@ -80,8 +80,8 @@ echo "This script will install and configure Suricata in IPS mode."
 echo "We need two pieces of information to get started."
 echo " "
 
-# Get HOME_NET from user
-read -p "Enter your home network range (e.g., 192.168.1.0/24): " HOME_NET
+# MODIFIED: Updated prompt to ask for multiple, comma-separated subnets.
+read -p "Enter your home network(s), comma-separated (e.g., 192.168.1.0/24,10.0.0.0/8): " HOME_NET
 if [ -z "$HOME_NET" ]; then
     exit_with_error "Home network range cannot be empty."
 fi
@@ -98,8 +98,8 @@ fi
 
 echo " "
 echo "Configuration:"
-echo "  - Home Network: $HOME_NET"
-echo "  - Interface:    $IFACE"
+echo "  - Home Network(s): $HOME_NET"
+echo "  - Interface:       $IFACE"
 echo " "
 read -p "Is this correct? (y/n): " confirm
 if [[ "$confirm" != [yY] ]]; then
@@ -116,7 +116,7 @@ case "$OS_FAMILY" in
         add-apt-repository -y ppa:oisf/suricata-stable || exit_with_error "Failed to add Suricata PPA."
         $PKG_MANAGER update
         $PKG_MANAGER install -y suricata iptables-persistent || exit_with_error "Failed to install Suricata and iptables-persistent."
-        ;; 
+        ;;
     "redhat")
         # Install correct COPR plugin based on package manager
         if [ "$PKG_MANAGER" == "dnf" ]; then
@@ -126,7 +126,7 @@ case "$OS_FAMILY" in
         fi
         $PKG_MANAGER copr enable -y @oisf/suricata-stable || exit_with_error "Failed to enable Suricata COPR repository."
         $PKG_MANAGER install -y suricata iptables-services || exit_with_error "Failed to install Suricata and iptables-services."
-        ;; 
+        ;;
 esac
 echo "Installation complete."
 
@@ -154,8 +154,16 @@ fi
 cp "$SURICATA_CONF" "${SURICATA_CONF}.bak.$(date +%s)"
 echo "Backed up original YAML configuration to ${SURICATA_CONF}.bak.<timestamp>"
 
-# Atomically configure suricata.yaml using a single sed command
+# Atomically configure suricata.yaml using sed commands
 echo "Configuring suricata.yaml..."
+
+# ADDED: Configure HOME_NET with user's input. This fixes the original script's omission.
+# The user's comma-separated list is wrapped in "[...]" to create the correct YAML format.
+FORMATTED_HOME_NET="[${HOME_NET}]"
+echo "Setting HOME_NET to: $FORMATTED_HOME_NET"
+sed -i "s|^\(\s*HOME_NET:\s*\).*|\1\"${FORMATTED_HOME_NET}\"|" "$SURICATA_CONF"
+
+# Other configurations from the original script
 sed -i 's/# ja4: off/ja4: on/g' $SURICATA_CONF
 sed -i 's/#ja3-fingerprints\: auto/ja3-fingerprints\: auto/g' $SURICATA_CONF
 sed -i 's/#ja4-fingerprints\: auto/ja4-fingerprints\: auto/g' $SURICATA_CONF
@@ -164,7 +172,7 @@ sed -i 's/#encryption-handling\: default/encryption-handling\: default/g' $SURIC
 # Configure system service for NFQUEUE mode
 echo "Configuring system service for NFQUEUE (IPS) mode..."
 if [ -f "$SURICATA_DEFAULTS" ]; then
-    sed -i 's/^LISTENMODE=.*/LISTENMODE=nfqueue/' "$SURICATA_DEFAULTS"
+    sed -i "s|^LISTENMODE=.*|LISTENMODE=nfqueue|" "$SURICATA_DEFAULTS"
 else
     echo 'LISTENMODE=nfqueue' > "$SURICATA_DEFAULTS"
 fi
@@ -222,7 +230,7 @@ case "$OS_FAMILY" in
         echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
         # This is just to ensure the service is enabled, install was done earlier
         systemctl enable netfilter-persistent
-        ;; 
+        ;;
     "redhat")
         if systemctl is-active --quiet firewalld;
         then
@@ -232,7 +240,7 @@ case "$OS_FAMILY" in
         fi
         echo "Enabling iptables-services..."
         systemctl enable iptables
-        ;; 
+        ;;
 esac
 
 # Flush any existing rules to be safe
@@ -254,10 +262,10 @@ echo "Saving iptables rules..."
 case "$OS_FAMILY" in
     "debian")
         iptables-save > /etc/iptables/rules.v4
-        ;; 
+        ;;
     "redhat")
         iptables-save > /etc/sysconfig/iptables
-        ;; 
+        ;;
 esac
 echo "iptables rules added and made persistent."
 
