@@ -230,7 +230,7 @@ fi
 # --- Final Instructions ---
 log_message "Nginx Proxy Manager has been successfully deployed!"
 echo -e "${GREEN}You can now access the admin panel by navigating to:${NC}"
-echo -e "  ${YELLOW}http://<your-server-ip>:666${NC}"
+echo -e "  ${YELLOW}http://<your-server-ip>:81${NC}"
 echo ""
 echo -e "${GREEN}Default Administrator User:${NC}"
 echo -e "  Email:    ${YELLOW}admin@example.com${NC}"
