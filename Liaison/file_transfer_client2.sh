@@ -158,6 +158,16 @@ get_server_details() {
         fi
     done
 
+    # Prompt to remove known_hosts entry for SFTP to handle key changes on reinstall
+    if [ "$PROTOCOL" = "SFTP" ]; then
+        read -p "Is this a new or reinstalled server (may require updating host keys)? (y/n): " is_new_server
+        if [[ $is_new_server =~ ^[Yy]$ ]]; then
+            ssh-keygen -R "$SERVER_IP" >/dev/null 2>&1
+            log_info "Removed old host key entry for $SERVER_IP from ~/.ssh/known_hosts."
+            log_warn "On connection, you may be prompted to accept the new host key."
+        fi
+    fi
+
     case $PROTOCOL in
         ftp|FTP)
             read -p "FTP Port (default 21): " SERVER_PORT
@@ -213,93 +223,74 @@ get_auth_details() {
             read -p "SFTP Username (default: $default_user): " USERNAME
             USERNAME=${USERNAME:-$default_user}
             log_info "Note: Password not auto-passed for security reasons."
-            log_info "For SFTP, you'll be prompted for password/key during connection (default: [hidden])"
-            PASSWORD=$default_pass  # For non-interactive if needed, but sftp prompts
+            log_info "For SFTP, enter password interactively when prompted."
             ;;
         tftp|TFTP)
-            log_warn "TFTP doesn't require authentication by default"
-            USERNAME=""
-            PASSWORD=""
+            log_info "TFTP requires no credentials (unauthenticated)."
             ;;
     esac
 }
 
-# --- Common Interactive Instructions ---
+# --- Print Interactive Instructions ---
 print_interactive_instructions() {
-    log_info "Common commands:"
-    echo "ls                - List files"
-    echo "get <file>        - Download file"
-    echo "put <file>        - Upload file"
-    echo "mkdir <dir>       - Create directory"
-    echo "cd <dir>          - Change directory"
-    echo "pwd               - Show current directory"
-    echo "help              - Show all commands"
-    echo "exit/quit/bye     - Exit session"
-    log_info "Use Ctrl+D or 'exit' to return to menu"
+    echo ""
+    log_info "Interactive Session Instructions:"
+    echo "  - Use standard commands for the protocol (e.g., ls, get, put for SFTP/FTP; get/put for TFTP)"
+    echo "  - Type 'help' or '?' for command help"
+    echo "  - Type 'quit' or 'exit' to end the session"
+    echo "  - Be careful with file paths and permissions"
+    echo ""
 }
 
 # --- FTP Operations ---
 ftp_operations() {
-    log_step "FTP File Transfer Operations"
-    echo ""
-    log_info "Available operations:"
-    echo "1) Upload file to server"
-    echo "2) Download file from server"
-    echo "3) List server files"
-    echo "4) Create directory on server"
-    echo "5) Start FTP interactive session"
-    echo "6) Return to main menu"
-    echo ""
-
-    read -p "Select operation (1-6): " operation
-
-    case $operation in
+    case $choice in
         1) ftp_upload ;;
         2) ftp_download ;;
         3) ftp_list ;;
         4) ftp_mkdir ;;
         5) ftp_interactive ;;
-        6) return ;;
-        *) log_error "Invalid option. Please select 1-6." ;;
     esac
 }
 
 ftp_upload() {
     log_step "FTP File Upload"
-    echo ""
-
-    read -p "Local file path to upload: " local_file
+    read -p "Enter local file path to upload: " local_file
     if [ ! -f "$local_file" ]; then
         log_error "Local file does not exist: $local_file"
         return
     fi
-
-    read -p "Remote directory on server (leave empty for root): " remote_dir
+    read -p "Enter remote directory/path on server (default: current): " remote_dir
     remote_dir=${remote_dir:-""}
 
-    log_info "Uploading $local_file to server..."
+    log_info "Uploading $local_file to $SERVER_IP:$SERVER_PORT..."
 
-    local temp_output=$(mktemp)
-    ( echo "user $USERNAME $PASSWORD"
-      if [ -n "$remote_dir" ]; then echo "cd $remote_dir"; fi
-      echo "binary"
-      echo "put $local_file"
-      echo "bye" ) | ftp -n $SERVER_IP $SERVER_PORT > "$temp_output" 2>&1
+    # Create FTP script
+    local ftp_script=$(mktemp)
+    cat > "$ftp_script" << EOF
+open $SERVER_IP $SERVER_PORT
+user $USERNAME $PASSWORD
+binary
+$([ -n "$remote_dir" ] && echo "cd $remote_dir")
+put "$local_file"
+quit
+EOF
 
-    if [ $? -eq 0 ]; then
+    local output=$(ftp -n < "$ftp_script" 2>&1)
+
+    if echo "$output" | grep -q "226 Transfer complete"; then
         log_info "✅ File uploaded successfully!"
     else
-        log_error "❌ File upload failed. Output: $(cat "$temp_output")"
+        log_error "❌ Upload failed. Output: $output"
     fi
-    rm -f "$temp_output"
+
+    rm -f "$ftp_script"
 }
 
 ftp_download() {
     log_step "FTP File Download"
-    echo ""
-
-    read -p "Remote file path on server: " remote_file
-    read -p "Local directory to save (leave empty for current): " local_dir
+    read -p "Enter remote file path to download: " remote_file
+    read -p "Enter local directory (default: current): " local_dir
     local_dir=${local_dir:-"."}
 
     if [ ! -d "$local_dir" ]; then
@@ -308,129 +299,117 @@ ftp_download() {
 
     log_info "Downloading $remote_file to $local_dir..."
 
-    local temp_output=$(mktemp)
-    local remote_basename=$(basename "$remote_file")
-    ( echo "user $USERNAME $PASSWORD"
-      echo "binary"
-      echo "get $remote_file $local_dir/$remote_basename"
-      echo "bye" ) | ftp -n $SERVER_IP $SERVER_PORT > "$temp_output" 2>&1
+    # Create FTP script
+    local ftp_script=$(mktemp)
+    cat > "$ftp_script" << EOF
+open $SERVER_IP $SERVER_PORT
+user $USERNAME $PASSWORD
+binary
+get "$remote_file" "$local_dir/$(basename "$remote_file")"
+quit
+EOF
 
-    if [ $? -eq 0 ]; then
+    local output=$(ftp -n < "$ftp_script" 2>&1)
+
+    if echo "$output" | grep -q "226 Transfer complete"; then
         log_info "✅ File downloaded successfully!"
     else
-        log_error "❌ File download failed. Output: $(cat "$temp_output")"
+        log_error "❌ Download failed. Output: $output"
     fi
-    rm -f "$temp_output"
+
+    rm -f "$ftp_script"
 }
 
 ftp_list() {
-    log_step "FTP List Files"
-    echo ""
-
-    read -p "Remote directory (leave empty for root): " remote_dir
+    log_step "FTP List Remote Files"
+    read -p "Enter remote directory (default: root): " remote_dir
     remote_dir=${remote_dir:-""}
 
-    log_info "Listing files in $remote_dir..."
+    log_info "Listing files on $SERVER_IP:$SERVER_PORT..."
 
-    ( echo "user $USERNAME $PASSWORD"
-      if [ -n "$remote_dir" ]; then echo "cd $remote_dir"; fi
-      echo "ls"
-      echo "bye" ) | ftp -n $SERVER_IP $SERVER_PORT
+    # Create FTP script
+    local ftp_script=$(mktemp)
+    cat > "$ftp_script" << EOF
+open $SERVER_IP $SERVER_PORT
+user $USERNAME $PASSWORD
+$([ -n "$remote_dir" ] && echo "cd $remote_dir")
+ls
+quit
+EOF
+
+    ftp -n < "$ftp_script"
+    rm -f "$ftp_script"
 }
 
 ftp_mkdir() {
     log_step "FTP Create Directory"
-    echo ""
+    read -p "Enter directory name to create: " dir_name
 
-    read -p "Remote directory name to create: " remote_dir
+    log_info "Creating directory '$dir_name' on $SERVER_IP:$SERVER_PORT..."
 
-    log_info "Creating directory $remote_dir..."
+    # Create FTP script
+    local ftp_script=$(mktemp)
+    cat > "$ftp_script" << EOF
+open $SERVER_IP $SERVER_PORT
+user $USERNAME $PASSWORD
+mkdir "$dir_name"
+quit
+EOF
 
-    local temp_output=$(mktemp)
-    ( echo "user $USERNAME $PASSWORD"
-      echo "mkdir $remote_dir"
-      echo "bye" ) | ftp -n $SERVER_IP $SERVER_PORT > "$temp_output" 2>&1
-
-    if [ $? -eq 0 ]; then
+    local output=$(ftp -n < "$ftp_script" 2>&1)
+    if echo "$output" | grep -q "257"; then
         log_info "✅ Directory created successfully!"
     else
-        log_error "❌ Directory creation failed. Output: $(cat "$temp_output")"
+        log_error "❌ Directory creation failed. Output: $output"
     fi
-    rm -f "$temp_output"
+
+    rm -f "$ftp_script"
 }
 
 ftp_interactive() {
     log_step "FTP Interactive Session"
     print_interactive_instructions
-    log_info "Connecting to FTP server... (You will be prompted for commands)"
+    log_info "Connecting to FTP server..."
 
-    ftp -n $SERVER_IP $SERVER_PORT <<EOF
+    ftp $SERVER_IP $SERVER_PORT << EOF
 user $USERNAME $PASSWORD
+prompt
 EOF
-    # ftp will enter interactive mode after login
 }
 
 # --- SFTP Operations ---
 sftp_operations() {
-    log_step "SFTP File Transfer Operations"
-    echo ""
-    log_info "Available operations:"
-    echo "1) Start SFTP interactive session"
-    echo "2) Return to main menu"
-    echo ""
-
-    read -p "Select operation (1-2): " operation
-
-    case $operation in
-        1) sftp_interactive ;;
-        2) return ;;
-        *) log_error "Invalid option. Please select 1-2." ;;
-    esac
+    sftp_interactive
 }
 
 sftp_interactive() {
     log_step "SFTP Interactive Session"
     print_interactive_instructions
-    log_info "Connecting to SFTP server... (You will be prompted for password/key)"
+    log_info "Connecting to SFTP server... (Enter password when prompted)"
 
-    sftp -P $SERVER_PORT $USERNAME@$SERVER_IP || log_error "❌ SFTP connection failed. Check credentials, port, and server status."
+    sftp -o StrictHostKeyChecking=accept-new -P $SERVER_PORT $USERNAME@$SERVER_IP || log_error "❌ SFTP connection failed. Check credentials, port, and server status."
 }
 
 # --- TFTP Operations ---
 tftp_operations() {
-    log_step "TFTP File Transfer Operations"
-    echo ""
-    log_info "Available operations:"
-    echo "1) Upload file to server"
-    echo "2) Download file from server"
-    echo "3) Start TFTP interactive session"
-    echo "4) Return to main menu"
-    echo ""
-
-    read -p "Select operation (1-4): " operation
-
-    case $operation in
+    case $choice in
         1) tftp_upload ;;
         2) tftp_download ;;
         3) tftp_interactive ;;
-        4) return ;;
-        *) log_error "Invalid option. Please select 1-4." ;;
     esac
 }
 
 tftp_upload() {
     log_step "TFTP File Upload"
-    echo ""
-
-    read -p "Local file path to upload: " local_file
+    read -p "Enter local file path to upload: " local_file
     if [ ! -f "$local_file" ]; then
         log_error "Local file does not exist: $local_file"
         return
     fi
+    read -p "Enter remote file name on server: " remote_file
+    remote_file=${remote_file:-$(basename "$local_file")}
 
-    read -p "Remote filename on server: " remote_file
-
-    log_info "Uploading $local_file as $remote_file..."
+    log_info "Uploading $local_file to $SERVER_IP:$SERVER_PORT as $remote_file..."
 
     # Create TFTP script
     local tftp_script=$(mktemp)
@@ -447,7 +426,7 @@ EOF
     if [ $? -eq 0 ]; then
         log_info "✅ File uploaded successfully!"
     else
-        log_error "❌ File upload failed. Output: $output"
+        log_error "❌ Upload failed. Output: $output"
     fi
 
     rm -f "$tftp_script"
@@ -455,10 +434,8 @@ EOF
 
 tftp_download() {
     log_step "TFTP File Download"
-    echo ""
-
-    read -p "Remote filename on server: " remote_file
-    read -p "Local directory to save file (leave empty for current): " local_dir
+    read -p "Enter remote file path to download: " remote_file
+    read -p "Enter local directory (default: current): " local_dir
     local_dir=${local_dir:-"."}
 
     if [ ! -d "$local_dir" ]; then
@@ -690,17 +667,14 @@ main() {
         case $choice in
             1)
                 PROTOCOL="FTP"
-                PROTOCOL=$(echo "$PROTOCOL" | tr '[:lower:]' '[:upper:]')
                 handle_ftp_connection
                 ;;
             2)
                 PROTOCOL="SFTP"
-                PROTOCOL=$(echo "$PROTOCOL" | tr '[:lower:]' '[:upper:]')
                 handle_sftp_connection
                 ;;
             3)
                 PROTOCOL="TFTP"
-                PROTOCOL=$(echo "$PROTOCOL" | tr '[:lower:]' '[:upper:]')
                 handle_tftp_connection
                 ;;
             4)
