@@ -42,7 +42,7 @@ $$/   $$/ $$/   $$/ $$$$$$$/  $$/        $$$$$$/ $$/   $$/  $$$$$$$ |        $$$
 '
 
 
-read -p "\n\nSelect an operation (1: Add, 2: List, 3: Remove): " response
+read -p "\n\nSelect an operation (1: Add, 2: List, 3: Remove, 4: Print Config): " response
 
 case $response in
   1) # Add
@@ -80,6 +80,9 @@ case $response in
     sed -i "/^#s${p_name}-proxy$/,/^#e${p_name}-proxy$/d" /etc/haproxy/haproxy.cfg
     log_message "Proxy '${p_name}' has been removed."
     ;;
+
+  4) # Print Config
+    cat /etc/haproxy/haproxy.cfg | awk "/#s/,0"
   *)
     log_warning "Invalid option selected."
     exit 1
