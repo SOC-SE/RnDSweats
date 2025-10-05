@@ -1,6 +1,6 @@
-# Test Scripts - Quick Reference Guide
+# CCDC Test Scripts - Quick Reference Guide
 
-A collection of automated scripts for setting up and managing cybersecurity tools, optimized for competition environments.
+A collection of automated scripts for setting up and managing cybersecurity tools, optimized for CCDC (Collegiate Cyber Defense Competition) environments.
 
 ## 📋 Script Overview
 
@@ -19,6 +19,7 @@ A collection of automated scripts for setting up and managing cybersecurity tool
 | `Network_Scanner_Tshark.sh` | Network Scanning with Tshark | `sudo ./Version_1/Network_Scanner_Tshark.sh` |
 | `PCAP_Analyzer_Tshark.sh` | PCAP File Analysis | `sudo ./Version_1/PCAP_Analyzer_Tshark.sh` |
 | `system_enumerator.sh` | System Enumeration | `sudo ./Version_1/system_enumerator.sh` |
+| `Network_Scanner_Nmap.sh` | Network Scanning with Nmap | `sudo ./Version_1/Network_Scanner_Nmap.sh` |
 
 ---
 
@@ -287,6 +288,32 @@ sudo ./Version_1/system_enumerator.sh
 **Example Usage:**
 - Run script → Select enumeration type → Review output for security insights
 
+#### `Network_Scanner_Nmap.sh` - Network Scanner with Nmap
+**What it does:** Performs host discovery, port scanning, service/OS detection, and vulnerability scanning using NMAP for reconnaissance and threat hunting in CCDC. Auto-installs NMAP if missing, with colored output, progress spinner, and timestamped logs in `/var/log/nmap_logs/`.
+
+**How to run:**
+```bash
+sudo ./Version_1/Network_Scanner_Nmap.sh
+```
+
+**Menu Options:**
+- 1) List available scan types (NMAP help)
+- 2) Basic host discovery (-sn)
+- 3) Port scan (all ports, -p-)
+- 4) Service version detection (-sV)
+- 5) OS detection (-O)
+- 6) Vulnerability scan (--script vuln)
+- 7) Aggressive scan (-A)
+- 8) Scan and save to file (-oN)
+- 9) Custom script scan (--script <name>)
+- 10) Custom NMAP command
+- 0) Exit
+
+**Example Usage:**
+- Choose option 2 → Enter target (e.g., 192.168.1.0/24) → Discovers live hosts with summary of results
+- Choose option 6 → Enter target → Runs vulnerability scripts and logs potential CVEs
+- Choose option 10 → Enter custom command (e.g., "nmap -sV --top-ports 100 target.com") → Executes and summarizes output
+
 ---
 
 ## 🚀 Quick Start Examples
@@ -338,7 +365,7 @@ sudo ./Version_2/File_Transfer_Server4.sh
 
 ### Network Analysis Setup
 ```bash
-# Network Scanning
+# Network Scanning with TShark
 sudo ./Version_1/Network_Scanner_Tshark.sh
 # → 3 (Capture to PCAP) → Select interface → Saves capture
 
@@ -349,6 +376,11 @@ sudo ./Version_1/PCAP_Analyzer_Tshark.sh
 # System Enumeration
 sudo ./Version_1/system_enumerator.sh
 # → Select enumeration category → Review system details
+
+# Network Scanning with Nmap
+sudo ./Version_1/Network_Scanner_Nmap.sh
+# → 2 (Host Discovery) → Enter target range → View live hosts and save logs
+# → 6 (Vulnerability Scan) → Enter target → Identify potential exploits
 ```
 
 ---
@@ -407,6 +439,7 @@ sudo ./Version_1/system_enumerator.sh
 | Network Scanner | ✅ | ✅ | ✅ | ❌ |
 | PCAP Analyzer | ✅ | ✅ | ❌ | ❌ |
 | System Enumerator | ✅ | ✅ | ✅ | ❌ |
+| Network Scanner Nmap | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -417,7 +450,7 @@ sudo ./Version_1/system_enumerator.sh
 2. **Security:** IDS, Honeypot, FIM
 3. **Services:** File Transfer Servers
 4. **Connectivity:** VPN Server + Client connections
-5. **Analysis:** Network Scanner, PCAP Analyzer, System Enumerator
+5. **Analysis:** Network Scanner (TShark/Nmap), PCAP Analyzer, System Enumerator
 
 ### Team Coordination
 - Use VPN scripts for secure team communication

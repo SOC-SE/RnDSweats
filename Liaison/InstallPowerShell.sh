@@ -118,7 +118,7 @@ install_powershell() {
     # Verify installation
     if is_powershell_installed; then
         log_info "✅ PowerShell installed successfully!"
-        log_info "Version: $(pwsh --version)"
+        log_info "Version: $(pwsh -c '$PSVersionTable.PSVersion' 2>/dev/null || pwsh --version)"
         
         # Offer to start PowerShell immediately
         echo ""
@@ -200,7 +200,7 @@ start_powershell_interactive() {
 verify_powershell() {
     if is_powershell_installed; then
         log_info "✅ PowerShell is installed"
-        log_info "Version: $(pwsh --version)"
+        log_info "Version: $(pwsh -c '$PSVersionTable.PSVersion' 2>/dev/null || pwsh --version)"
         
         # Test basic functionality
         log_info "Testing PowerShell functionality..."
