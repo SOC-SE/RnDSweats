@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# File: install_vpns.sh
+# File: install_vpns_2.sh
 # Description: Installs and configures multiple VPN solutions (OpenVPN, WireGuard, SoftEther) on Linux.
 #              Supports Debian/Ubuntu (apt) and Fedora/CentOS/RHEL (dnf).
 #              Includes quick mode for faster installations with reduced security (e.g., 1024-bit DH for OpenVPN).
@@ -13,7 +13,7 @@ set -euo pipefail
 #              Added: Client credential export, backups (PBF Core), enhanced error handling.
 #
 # Dependencies: apt (Debian/Ubuntu) or dnf (Fedora/CentOS/RHEL).
-# Usage: sudo ./install_vpns.sh [--openvpn|--wireguard|--softether|--all|--quick]
+# Usage: sudo ./install_vpns_2.sh [--openvpn|--wireguard|--softether|--all|--quick]
 #        Follow prompts if no flags provided.
 # Notes: 
 # - Run as root.
@@ -42,33 +42,33 @@ RED='\033[0;31m'
 NC='\033[0m'
 LOG_FILE="/var/log/vpn_install.log"
 QUICK_MODE=false
-VPN_FLAGS=()
+declare -a VPN_FLAGS  # Explicitly declare as array for older bash compatibility
 
 # --- Helper Functions ---
-log_info() { echo -e "${GREEN}[INFO] $1${NC}" | tee -a $LOG_FILE; }
-log_warn() { echo -e "${YELLOW}[WARN] $1${NC}" | tee -a $LOG_FILE; }
-log_error() { echo -e "${RED}[ERROR] $1${NC}" >&2 | tee -a $LOG_FILE; exit 1; }
+log_info() { echo -e "${GREEN}[INFO] $1${NC}" | tee -a "$LOG_FILE"; }
+log_warn() { echo -e "${YELLOW}[WARN] $1${NC}" | tee -a "$LOG_FILE"; }
+log_error() { echo -e "${RED}[ERROR] $1${NC}" >&2 | tee -a "$LOG_FILE"; exit 1; }
 
 # Spinner with timeout
 spinner() {
     local pid=$1
     local delay=0.1
     local spinstr='|/-\'
-    local timeout=10  # 10s timeout
+    local timeout=120  # Increased timeout for long operations like gen-dh
     local start_time=$(date +%s)
     while kill -0 $pid 2>/dev/null; do
         local elapsed=$(($(date +%s) - start_time))
         if [ $elapsed -ge $timeout ]; then
-            log_warn "Spinner timeout reached."
+            log_warn "Spinner timeout reached ($timeout s)."
             break
         fi
         local temp=${spinstr#?}
-        printf "%c " "${spinstr:0:1}"
+        printf "%c  " "${spinstr:0:1}"  # Added space for better visibility
         spinstr=$temp${spinstr%"$temp"}
         sleep $delay
-        printf "\b\b"
+        printf "\b\b\b"  # Adjusted for the added space
     done
-    printf " \b"
+    printf "\n"
 }
 
 # Sanitize input
@@ -93,53 +93,67 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Fix dpkg interruptions
+# Fix dpkg interruptions (apt only); for dnf, check for locks
 fix_dpkg() {
-    log_info "Checking and fixing dpkg interruptions..."
-    dpkg --configure -a >> $LOG_FILE 2>&1 || true
-    apt-get install -f >> $LOG_FILE 2>&1 || true
+    log_info "Checking and fixing package manager interruptions..."
+    if [[ "${PKG_MANAGER:-}" == "apt" ]]; then
+        dpkg --configure -a >> "$LOG_FILE" 2>&1 || true
+        apt-get install -f >> "$LOG_FILE" 2>&1 || true
+    elif [[ "${PKG_MANAGER:-}" == "dnf" ]]; then
+        # Remove lock files if present
+        rm -f /var/run/dnf.pid /var/lib/dnf/history.lock || true
+    fi
 }
 
 # Detect package manager
 detect_pkg_manager() {
-    if command -v apt &> /dev/null; then
+    if command -v apt >/dev/null 2>&1; then
         PKG_MANAGER="apt"
         INSTALL_CMD="apt install -y"
         UPDATE_CMD="apt update -y"
         UPGRADE_CMD="apt upgrade -y"
-        REMOVE_CMD="apt-get purge -y"
-    elif command -v dnf &> /dev/null; then
+        REMOVE_CMD="apt-get purge -y --autoremove"
+    elif command -v dnf >/dev/null 2>&1; then
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf update -y"
-        UPGRADE_CMD="$UPDATE_CMD"
+        UPDATE_CMD="dnf check-update"
+        UPGRADE_CMD="dnf upgrade -y"
         REMOVE_CMD="dnf remove -y"
     else
-        log_error "Unsupported package manager (apt or dnf)."
+        log_error "Unsupported package manager (apt or dnf required)."
     fi
     log_info "Detected package manager: $PKG_MANAGER"
 }
 
 # Install dependencies including nc and ipcalc
 install_dependencies() {
-    log_info "Installing common dependencies including nc and ipcalc..."
-    $INSTALL_CMD curl wget git build-essential libssl-dev libreadline-dev zlib1g-dev ncurses-dev netcat-openbsd ipcalc >> $LOG_FILE 2>&1 || log_warn "Some dependencies failed, continuing..."
-    command -v git &> /dev/null || command -v nc &> /dev/null || command -v ipcalc &> /dev/null || log_error "Critical dependencies (git/nc/ipcalc) not installed."
+    log_info "Installing common dependencies..."
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        $INSTALL_CMD curl wget git build-essential libssl-dev libreadline-dev zlib1g-dev libncurses5-dev netcat-openbsd ipcalc easy-rsa >/dev/null 2>&1 || \
+        log_warn "Some dependencies failed to install, continuing..."
+    else  # dnf
+        $INSTALL_CMD curl wget git @development-tools openssl-devel readline-devel zlib-devel ncurses-devel nc ipcalc easy-rsa >/dev/null 2>&1 || \
+        log_warn "Some dependencies failed to install, continuing..."
+    fi
+    # Verify critical
+    command -v git >/dev/null 2>&1 || command -v curl >/dev/null 2>&1 || command -v nc >/dev/null 2>&1 || command -v ipcalc >/dev/null 2>&1 || \
+    log_error "Critical dependencies not available. Install manually."
 }
 
 # Backup configs (PBF Core)
 backup_configs() {
     local backup_dir="/backup/vpn_$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$backup_dir"
-    rsync -a /etc/openvpn/ "$backup_dir/openvpn/" 2>/dev/null || true
-    rsync -a /etc/wireguard/ "$backup_dir/wireguard/" 2>/dev/null || true
+    if [[ -d /etc/openvpn ]]; then rsync -a /etc/openvpn/ "$backup_dir/openvpn/" 2>/dev/null || true; fi
+    if [[ -d /etc/wireguard ]]; then rsync -a /etc/wireguard/ "$backup_dir/wireguard/" 2>/dev/null || true; fi
+    if [[ -d /usr/local/vpnserver ]]; then rsync -a /usr/local/vpnserver/ "$backup_dir/softether/" 2>/dev/null || true; fi
     log_info "Backups created in $backup_dir"
 }
 
 # Check if VPN Installed
-is_openvpn_installed() { command -v openvpn &> /dev/null; }
-is_wireguard_installed() { command -v wg &> /dev/null; }
-is_softether_installed() { command -v vpnserver &> /dev/null; }
+is_openvpn_installed() { command -v openvpn >/dev/null 2>&1; }
+is_wireguard_installed() { command -v wg >/dev/null 2>&1; }
+is_softether_installed() { [[ -x /usr/local/vpnserver/vpnserver ]] && pgrep vpnserver >/dev/null 2>&1; }  # Check binary and process
 
 all_installed() { is_openvpn_installed && is_wireguard_installed && is_softether_installed; }
 
@@ -173,12 +187,16 @@ prompt_mode() {
 # Install Mode with flag support
 install_mode() {
     if all_installed && [ ${#VPN_FLAGS[@]} -eq 0 ]; then
-        log_warn "All VPNs installed."
-        return
+        log_warn "All VPNs already installed."
+        return 0
     fi
     if [ ${#VPN_FLAGS[@]} -gt 0 ]; then
         for vpn in "${VPN_FLAGS[@]}"; do
-            install_"$vpn"
+            if install_"$vpn"; then
+                log_info "$vpn installed successfully."
+            else
+                log_error "$vpn installation failed."
+            fi
         done
     else
         prompt_choice install
@@ -189,11 +207,11 @@ install_mode() {
 uninstall_mode() {
     if ! is_openvpn_installed && ! is_wireguard_installed && ! is_softether_installed; then
         log_warn "No VPNs installed."
-        return
+        return 0
     fi
     if [ ${#VPN_FLAGS[@]} -gt 0 ]; then
         for vpn in "${VPN_FLAGS[@]}"; do
-            un"install_$vpn"
+            uninstall_"$vpn"
         done
     else
         prompt_choice uninstall
@@ -211,8 +229,7 @@ show_instructions_mode() {
     echo "SoftEther: $softether_installed"
     
     if ! all_installed; then
-        log_warn "Install VPNs first."
-        return
+        log_warn "Not all VPNs installed. Instructions may be incomplete."
     fi
     prompt_choice show
 }
@@ -221,29 +238,37 @@ show_instructions_mode() {
 prompt_choice() {
     local action=$1
     local vpns=( "OpenVPN" "WireGuard" "SoftEther" )
-    local func_prefix=""
-    if [ "$action" = "uninstall" ]; then func_prefix="un"; fi
-    if [ "$action" = "show" ]; then func_prefix="show_"; fi
     
     log_info "Select a VPN to $action:"
     for i in "${!vpns[@]}"; do echo "$((i+1))) ${vpns[$i]}"; done
     read -p "Enter your choice (1-3): " choice
     
     local vpn_index=$((choice - 1))
+    if [ $vpn_index -lt 0 ] || [ $vpn_index -ge ${#vpns[@]} ]; then
+        log_error "Invalid choice (1-3)."
+    fi
+    
     local vpn="${vpns[$vpn_index]}"
-    [ -z "$vpn" ] && log_error "Invalid choice."
     
     if [ "$action" != "show" ]; then
         read -p "Sure to $action $vpn? (y/n): " confirm
-        [ "$confirm" != "y" ] && [ "$confirm" != "Y" ] && return
+        [[ "$confirm" =~ ^[yY]$ ]] || return 0
     fi
     
-    local func="${func_prefix}${vpn,,}"
-    if [ "$action" = "show" ]; then func="${func_prefix}${vpn,,}_instructions"; fi
-    $func
+    local func_base=$(echo "$vpn" | tr '[:upper:]' '[:lower:]')
+    local func
+    if [ "$action" = "show" ]; then
+        func="show_${func_base}_instructions"
+    else
+        local func_prefix=""
+        if [ "$action" = "uninstall" ]; then func_prefix="un"; fi
+        func="${func_prefix}install_${func_base}"
+    fi
+    $func || log_warn "$action $vpn completed with warnings."
 }
 
-# Update system (skipped)
+# Update system (optional, but enable
+
 update_system() { log_info "Skipping updates for efficiency."; }
 
 # Install OpenVPN with client gen
@@ -458,20 +483,52 @@ setup_network_config() {
     log_info "Network config complete. Verify Palo Alto NAT."
 }
 
-# Diagnostics (unchanged, but added PBF note)
-run_vpn_diagnostics() {
-    # ... (original code, with added log_info "PBF Moderate: IDS-like port checks performed.")
-    log_info "PBF Moderate: IDS-like port checks performed."
-    # (Full original diagnostics here for brevity)
+show_active_services() {
+    log_info "Showing active VPN services..."
+    if is_openvpn_installed; then
+        systemctl status openvpn@server || log_warn "OpenVPN not running."
+    fi
+    if is_wireguard_installed; then
+        wg show wg0 || log_warn "WireGuard not running."
+    fi
+    if is_softether_installed; then
+        /usr/local/vpnserver/vpncmd /SERVER localhost /CMD StatusGet || log_warn "SoftEther not running."
+    fi
 }
 
-# Other functions (show_active_services, etc.) remain similar, with security warnings enhanced
+show_certificate_management() {
+    log_info "Certificate & User Management"
+    echo "For OpenVPN: Use easyrsa in /etc/openvpn/easy-rsa to build/revoke clients."
+    echo "For WireGuard: Generate keys and add [Peer] to wg0.conf."
+    echo "For SoftEther: Use vpncmd to manage users/hubs."
+}
+
+run_vpn_diagnostics() {
+    log_info "Running VPN Diagnostics..."
+    log_info "PBF Moderate: IDS-like port checks performed."
+    echo "Checking open ports..."
+    if command -v netstat &> /dev/null; then
+        netstat -tuln
+    else
+        ss -tuln
+    fi
+    show_active_services
+}
+
+show_integration_help() {
+    log_info "Integration & Testing Help"
+    echo "For CCDC: Ensure firewalls allow VPN ports, test connections from external."
+    echo "Integrate with Palo Alto NAT if needed."
+    echo "Test multi-device connectivity."
+}
+
+# Security warnings enhanced
 check_security_warnings() {
     log_info "🔒 SECURITY AUDIT..."
     # Enhanced: Prompt for changes
     if is_softether_installed; then
         read -p "Change SoftEther password? (y/n): " change_pw
-        [ "$change_pw" = "y" ] && vpncmd /SERVER localhost /PASSWORD:adminpassword /CMD ServerPasswordSet
+        [ "$change_pw" = "y" ] && /usr/local/vpnserver/vpncmd /SERVER localhost /PASSWORD:adminpassword /CMD ServerPasswordSet
     fi
     # ... (original)
 }
@@ -495,3 +552,4 @@ main() {
 }
 
 main "$@"
+```

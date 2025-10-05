@@ -1,21 +1,3 @@
-# ==============================================================================
-# File: PCAP_Analyzer_Tshark.sh
-# Description: Complementary script to Network_Scanner_Tshark.sh for analyzing saved PCAP files.
-#              Reads PCAP files from /tmp/tshark_logs/, allows user to select a file, and apply filters (e.g., HTTP, DNS, ports, IPs).
-#              Displays filtered results in a tabular format using Tshark fields. Provides multiple filter options and loops for new filters or exit.
-#              Supports threat hunting by extracting specific traffic details for incident reporting. Checks if Tshark is installed.
-#              Aligns with Perfect Box Framework (PBF) Moderate (IDS, Log Aggregation) and Advanced (Analysis Tools, SIEM Alerts) categories.
-#
-# Dependencies: Tshark (from Wireshark package). Install via apt install wireshark or dnf install wireshark.
-# Usage: sudo ./PCAP_Analyzer_Tshark.sh
-#        Follow on-screen prompts to select PCAP and filter type. Loop allows multiple analyses.
-# Notes: 
-# - Run as root if needed for file access (though not strictly required for reading PCAPs).
-# - In CCDC, use for post-capture analysis without disrupting services. Tables are displayed in console; copy for reports.
-# - Custom filters allow flexibility; use Tshark syntax (e.g., 'tcp.port == 80').
-# - If no PCAPs found in /tmp/tshark_logs/, notifies and exits.
-# ==============================================================================
-
 #!/bin/bash
 
 set -euo pipefail
@@ -55,7 +37,6 @@ cat << "EOF"
                             | |____\___ \| '_ \ / _` | '__| |/ / | |_  | | | __/ _ \ '__|
                             | |_____|__) | | | | (_| | |  |   <  |  _| | | | ||  __/ |   
                             |_|    |____/|_| |_|\__,_|_|  |_|\_\ |_|   |_|_|\__\___|_|   
-EOF  
 EOF
 echo -e "\033[0m"
 echo "PCAP Analyzer with Tshark - For CCDC Log Filtering"
@@ -66,27 +47,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
-LOG_DIR="/tmp/tshark_logs"
+LOG_DIR="/var/log/tshark_logs"
+mkdir -p "$LOG_DIR"
 
 # --- Helper Functions ---
 log_info() { echo -e "${GREEN}[INFO] $1${NC}"; }
 log_warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
 log_error() { echo -e "${RED}[ERROR] $1${NC}" >&2; exit 1; }
-
-# Spinner function for progress
-spinner() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
-    while kill -0 $pid 2>/dev/null; do
-        local temp=${spinstr#?}
-        printf "%c " "${spinstr:0:1}"
-        spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b"
-    done
-    printf " \b"
-}
 
 # --- Check if Tshark Installed ---
 check_tshark() {
@@ -96,35 +63,64 @@ check_tshark() {
     log_info "Tshark detected and ready."
 }
 
-# --- List Available PCAP Files ---
-list_pcaps() {
-    local pcaps=("$LOG_DIR"/*.pcap)
-    if [ ${#pcaps[@]} -eq 0 ]; then
-        log_error "No PCAP files found in $LOG_DIR. Run Network_Scanner_Tshark.sh first."
+# --- Check Directory Access ---
+check_dir_access() {
+    if [ ! -r "$LOG_DIR" ]; then
+        log_error "Cannot read from $LOG_DIR. Run as root or fix permissions (e.g., sudo chown -R $(whoami) $LOG_DIR)."
     fi
-    log_info "Available PCAP files:"
-    local i=1
-    for pcap in "${pcaps[@]}"; do
-        echo "$i) $(basename "$pcap")"
-        ((i++))
-    done
+    if [ ! -w "$LOG_DIR" ]; then
+        log_warn "Cannot write to $LOG_DIR. Some save operations may fail. Run as root or fix permissions."
+    fi
 }
 
-# --- Get Selected PCAP ---
-get_pcap() {
-    list_pcaps
-    local pcaps=("$LOG_DIR"/*.pcap)
-    local choice
-    read -p "Select PCAP number: " choice
-    while ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#pcaps[@]} ]; do
-        log_warn "Invalid selection."
-        read -p "Select PCAP number: " choice
+    local logs=("$LOG_DIR"/*.log)
+    local all_files=()
+    if [ ${#pcaps[@]} -gt 0 ] || [ ${#logs[@]} -gt 0 ]; then
+        if [ ${#pcaps[@]} -gt 0 ]; then
+            all_files+=("${pcaps[@]}")
+        fi
+        if [ ${#logs[@]} -gt 0 ]; then
+            all_files+=("${logs[@]}")
+        fi
+    else
+        log_error "No PCAP or LOG files found in $LOG_DIR. Run Network_Scanner_Tshark.sh first."
+    fi
+    log_info "Available files:"
+    local i=1
+    for file in "${all_files[@]}"; do
+        if [[ "$file" == *.pcap ]]; then
+            echo "$i) [PCAP] $(basename "$file")"
+        else
+            echo "$i) [LOG] $(basename "$file")"
+        fi
+        ((i++))
     done
-    echo "${pcaps[$choice-1]}"
+    echo "${#all_files[@]}"
+}
+
+# --- Get Selected File ---
+get_file() {
+    local num_files=$(list_files)
+    local choice
+    read -p "Select file number: " choice
+    local all_files=()
+    local pcaps=("$LOG_DIR"/*.pcap)
+    local logs=("$LOG_DIR"/*.log)
+    if [ ${#pcaps[@]} -gt 0 ]; then
+        all_files+=("${pcaps[@]}")
+    fi
+    if [ ${#logs[@]} -gt 0 ]; then
+        all_files+=("${logs[@]}")
+    fi
+    while ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#all_files[@]} ]; do
+        log_warn "Invalid selection."
+        read -p "Select file number: " choice
+    done
+    echo "${all_files[$choice-1]}"
 }
 
 # --- Run Tshark Filter and Display Table ---
-run_filter() {
+run_pcap_filter() {
     local pcap=$1
     local filter=$2
     local fields=$3
@@ -149,22 +145,55 @@ run_filter() {
     fi
 }
 
+# --- Run LOG/Text Filter and Display ---
+run_log_filter() {
+    local log_file=$1
+    local pattern=$2
+    local headers=$3
+    log_info "Applying text filter on $(basename "$log_file"): grep-like for '$pattern'"
+    local output=$(grep -i "$pattern" "$log_file" 2>/dev/null || awk -v pat="$pattern" '/'"$pattern"'/ {print}' "$log_file")
+    if [ -z "$output" ]; then
+        log_warn "No results found for this filter."
+        return
+    fi
+    echo -e "$headers"
+    echo "------------------------------------------------------------"
+    echo "$output"
+    echo "------------------------------------------------------------"
+    read -p "Save this output to file? (y/n): " save
+    if [[ $save =~ ^[Yy]$ ]]; then
+        local save_file="$LOG_DIR/filtered_log_$(date +"%Y-%m-%d_%H-%M-%S").txt"
+        echo -e "$headers\n------------------------------------------------------------\n$output" > "$save_file"
+        log_info "Output saved to $save_file"
+    fi
+}
+
 # --- Filter Functions ---
 
 # 1. Filter HTTP Traffic
-filter_http() {
+filter_http_pcap() {
     local pcap=$1
-    run_filter "$pcap" "http" "-e frame.time -e ip.src -e ip.dst -e http.request.method -e http.request.uri -e http.response.code" "Time\tSource IP\tDest IP\tMethod\tURI\tResponse Code"
+    run_pcap_filter "$pcap" "http" "-e frame.time -e ip.src -e ip.dst -e http.request.method -e http.request.uri -e http.response.code" "Time\tSource IP\tDest IP\tMethod\tURI\tResponse Code"
+}
+
+filter_http_log() {
+    local log_file=$1
+    run_log_filter "$log_file" "HTTP" "Filtered HTTP Lines from Log"
 }
 
 # 2. Filter DNS Queries
-filter_dns() {
+filter_dns_pcap() {
     local pcap=$1
-    run_filter "$pcap" "dns" "-e frame.time -e ip.src -e ip.dst -e dns.qry.name -e dns.qry.type" "Time\tSource IP\tDest IP\tQuery Name\tQuery Type"
+    run_pcap_filter "$pcap" "dns" "-e frame.time -e ip.src -e ip.dst -e dns.qry.name -e dns.qry.type" "Time\tSource IP\tDest IP\tQuery Name\tQuery Type"
+}
+
+filter_dns_log() {
+    local log_file=$1
+    run_log_filter "$log_file" "DNS" "Filtered DNS Lines from Log"
 }
 
 # 3. Filter by Port Number
-filter_port() {
+filter_port_pcap() {
     local pcap=$1
     local port
     read -p "Enter port number (e.g., 80): " port
@@ -172,11 +201,22 @@ filter_port() {
         log_warn "Invalid port."
         read -p "Enter port number: " port
     done
-    run_filter "$pcap" "tcp.port == $port or udp.port == $port" "-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e ip.proto" "Time\tSource IP\tDest IP\tSrc Port\tDst Port\tProtocol"
+    run_pcap_filter "$pcap" "tcp.port == $port or udp.port == $port" "-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e ip.proto" "Time\tSource IP\tDest IP\tSrc Port\tDst Port\tProtocol"
+}
+
+filter_port_log() {
+    local log_file=$1
+    local port
+    read -p "Enter port number (e.g., 80): " port
+    while [ -z "$port" ] || ! [[ "$port" =~ ^[0-9]+$ ]]; do
+        log_warn "Invalid port."
+        read -p "Enter port number: " port
+    done
+    run_log_filter "$log_file" "$port" "Filtered Lines Containing Port $port from Log"
 }
 
 # 4. Filter by IP Address
-filter_ip() {
+filter_ip_pcap() {
     local pcap=$1
     local ip
     read -p "Enter IP address (e.g., 192.168.1.1): " ip
@@ -184,61 +224,141 @@ filter_ip() {
         log_warn "IP cannot be empty."
         read -p "Enter IP address: " ip
     done
-    run_filter "$pcap" "ip.src == $ip or ip.dst == $ip" "-e frame.time -e ip.src -e ip.dst -e ip.proto -e frame.len" "Time\tSource IP\tDest IP\tProtocol\tLength"
+    run_pcap_filter "$pcap" "ip.src == $ip or ip.dst == $ip" "-e frame.time -e ip.src -e ip.dst -e ip.proto -e frame.len" "Time\tSource IP\tDest IP\tProtocol\tLength"
+}
+
+filter_ip_log() {
+    local log_file=$1
+    local ip
+    read -p "Enter IP address (e.g., 192.168.1.1): " ip
+    while [ -z "$ip" ]; do
+        log_warn "IP cannot be empty."
+        read -p "Enter IP address: " ip
+    done
+    run_log_filter "$log_file" "$ip" "Filtered Lines Containing IP $ip from Log"
 }
 
 # 5. Filter TCP SYN/ACK (Potential Scans)
-filter_tcp_syn() {
+filter_tcp_syn_pcap() {
     local pcap=$1
-    run_filter "$pcap" "tcp.flags.syn == 1 or tcp.flags.ack == 1" "-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e tcp.flags" "Time\tSource IP\tDest IP\tSrc Port\tDst Port\tFlags"
+    run_pcap_filter "$pcap" "tcp.flags.syn == 1 or tcp.flags.ack == 1" "-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e tcp.flags" "Time\tSource IP\tDest IP\tSrc Port\tDst Port\tFlags"
+}
+
+filter_tcp_syn_log() {
+    local log_file=$1
+    # Enhanced with regex for SYN or ACK flags
+    local output=$(grep -i -E "(tcp\.flags\.syn|tcp\.flags\.ack)" "$log_file" 2>/dev/null || awk '/(SYN|ACK)/ {print}' "$log_file")
+    if [ -z "$output" ]; then
+        log_warn "No SYN/ACK results found."
+        return
+    fi
+    echo "Filtered SYN/ACK Lines from Log"
+    echo "------------------------------------------------------------"
+    echo "$output"
+    echo "------------------------------------------------------------"
+    read -p "Save to file? (y/n): " save
+    if [[ $save =~ ^[Yy]$ ]]; then
+        local save_file="$LOG_DIR/syn_ack_$(date +"%Y-%m-%d_%H-%M-%S").txt"
+        echo -e "Filtered SYN/ACK Lines\n------------------------------------------------------------\n$output" > "$save_file"
+        log_info "Output saved to $save_file"
+    fi
 }
 
 # 6. Extract Credentials (if any)
-filter_creds() {
+filter_creds_pcap() {
     local pcap=$1
     local output=$(tshark -r "$pcap" -z credentials 2>/dev/null)
     if [ -z "$output" ]; then
         log_warn "No credentials found."
         return
     fi
-    echo "$output"
+    echo "$output" | column -t
     read -p "Save to file? (y/n): " save
     if [[ $save =~ ^[Yy]$ ]]; then
         local save_file="$LOG_DIR/creds_$(date +"%Y-%m-%d_%H-%M-%S").txt"
-        echo "$output" > "$save_file"
+        echo "$output" > "$save_file" 2>/dev/null || log_warn "Save failed - permission issue?"
         log_info "Credentials saved to $save_file"
     fi
 }
 
+filter_creds_log() {
+    local log_file=$1
+    run_log_filter "$log_file" "credentials" "Filtered Credentials Lines from Log"
+}
+
 # 7. TCP Conversation Statistics
-filter_tcp_stats() {
+filter_tcp_stats_pcap() {
     local pcap=$1
     local output=$(tshark -r "$pcap" -z conv,tcp 2>/dev/null)
+    if [ -z "$output" ]; then
+        log_warn "No TCP stats available."
+        return
+    fi
     echo "$output" | column -t
+    read -p "Save to file? (y/n): " save
+    if [[ $save =~ ^[Yy]$ ]]; then
+        local save_file="$LOG_DIR/tcp_stats_$(date +"%Y-%m-%d_%H-%M-%S").txt"
+        echo "$output" > "$save_file" 2>/dev/null || log_warn "Save failed - permission issue?"
+        log_info "Stats saved to $save_file"
+    fi
+}
+
+filter_tcp_stats_log() {
+    local log_file=$1
+    local output=$(grep -A 50 "TCP Conversations" "$log_file" 2>/dev/null || awk '/TCP/ && /Conversations/ {print; getline; while(getline) {if (/^-/) break; print}}' "$log_file")
+    if [ -z "$output" ]; then
+        log_warn "No TCP stats section found in log."
+        return
+    fi
+    echo "TCP Conversation Statistics from Log"
+    echo "------------------------------------------------------------"
+    echo "$output" | column -t
+    echo "------------------------------------------------------------"
+    read -p "Save to file? (y/n): " save
+    if [[ $save =~ ^[Yy]$ ]]; then
+        local save_file="$LOG_DIR/tcp_stats_log_$(date +"%Y-%m-%d_%H-%M-%S").txt"
+        echo -e "TCP Conversation Statistics\n------------------------------------------------------------\n$output" > "$save_file"
+        log_info "Stats saved to $save_file"
+    fi
 }
 
 # 8. Custom Filter
 filter_custom() {
-    local pcap=$1
+    local file=$1
     local custom_filter
-    read -p "Enter Tshark display filter (e.g., 'tcp.port == 80'): " custom_filter
+    read -p "Enter filter pattern (for PCAP: Tshark filter; for LOG: grep pattern): " custom_filter
     while [ -z "$custom_filter" ]; do
         log_warn "Filter cannot be empty."
-        read -p "Enter Tshark display filter: " custom_filter
+        read -p "Enter filter pattern: " custom_filter
     done
-    local custom_fields
-    read -p "Enter fields to display (e.g., -e frame.time -e ip.src -e ip.dst): " custom_fields
-    custom_fields=${custom_fields:-"-e frame.time -e ip.src -e ip.dst -e ip.proto"}
-    local custom_headers
-    read -p "Enter table headers (tab-separated, e.g., Time\tSource\tDest): " custom_headers
-    custom_headers=${custom_headers:-"Time\tSource IP\tDest IP\tProtocol"}
-    run_filter "$pcap" "$custom_filter" "$custom_fields" "$custom_headers"
+    if [[ "$file" == *.pcap ]]; then
+        local custom_fields
+        read -p "Enter fields to display (e.g., -e frame.time -e ip.src -e ip.dst): " custom_fields
+        custom_fields=${custom_fields:-"-e frame.time -e ip.src -e ip.dst -e ip.proto"}
+        local custom_headers
+        read -p "Enter table headers (tab-separated, e.g., Time\tSource\tDest): " custom_headers
+        custom_headers=${custom_headers:-"Time\tSource IP\tDest IP\tProtocol"}
+        run_pcap_filter "$file" "$custom_filter" "$custom_fields" "$custom_headers"
+    else
+        local custom_headers
+        read -p "Enter output headers: " custom_headers
+        custom_headers=${custom_headers:-"Filtered Lines from Log"}
+        run_log_filter "$file" "$custom_filter" "$custom_headers"
+    fi
 }
 
 # --- Prompt for Filter Mode (Looped) ---
 prompt_filter() {
-    local pcap=$1
-    log_info "Select filter/analysis type for $(basename "$pcap"):"
+    local file=$1
+    local is_pcap=1
+    if [[ "$file" != *.pcap ]]; then
+        is_pcap=0
+    fi
+    if [ $is_pcap -eq 1 ]; then
+        log_info "Select filter/analysis type for PCAP $(basename "$file"):"
+    else
+        log_info "Select filter/analysis type for LOG $(basename "$file"):"
+    fi
     echo "1) Filter HTTP Traffic"
     echo "2) Filter DNS Queries"
     echo "3) Filter by Port Number"
@@ -251,14 +371,14 @@ prompt_filter() {
     echo "10) Exit"
     read -p "Enter your choice (1-10): " choice
     case "$choice" in
-        1) filter_http "$pcap" ;;
-        2) filter_dns "$pcap" ;;
-        3) filter_port "$pcap" ;;
-        4) filter_ip "$pcap" ;;
-        5) filter_tcp_syn "$pcap" ;;
-        6) filter_creds "$pcap" ;;
-        7) filter_tcp_stats "$pcap" ;;
-        8) filter_custom "$pcap" ;;
+        1) if [ $is_pcap -eq 1 ]; then filter_http_pcap "$file"; else filter_http_log "$file"; fi ;;
+        2) if [ $is_pcap -eq 1 ]; then filter_dns_pcap "$file"; else filter_dns_log "$file"; fi ;;
+        3) if [ $is_pcap -eq 1 ]; then filter_port_pcap "$file"; else filter_port_log "$file"; fi ;;
+        4) if [ $is_pcap -eq 1 ]; then filter_ip_pcap "$file"; else filter_ip_log "$file"; fi ;;
+        5) if [ $is_pcap -eq 1 ]; then filter_tcp_syn_pcap "$file"; else filter_tcp_syn_log "$file"; fi ;;
+        6) if [ $is_pcap -eq 1 ]; then filter_creds_pcap "$file"; else filter_creds_log "$file"; fi ;;
+        7) if [ $is_pcap -eq 1 ]; then filter_tcp_stats_pcap "$file"; else filter_tcp_stats_log "$file"; fi ;;
+        8) filter_custom "$file" ;;
         9) return 1 ;;  # Back to selection
         10) exit 0 ;;
         *) log_error "Invalid choice. Please select 1-10." ;;
@@ -269,18 +389,16 @@ prompt_filter() {
 # --- Main Logic ---
 main() {
     check_tshark
-    if [ ! -d "$LOG_DIR" ]; then
-        log_error "Log directory $LOG_DIR does not exist. Run Network_Scanner_Tshark.sh first to create PCAP files."
-    fi
+    check_dir_access
     while true; do
-        local pcap=$(get_pcap)
+        local file=$(get_file)
         while true; do
-            prompt_filter "$pcap"
+            prompt_filter "$file"
             if [ $? -eq 1 ]; then break; fi  # Break inner loop if back selected
-            read -p "Apply another filter to this PCAP? (y/n): " again
+            read -p "Apply another filter to this file? (y/n): " again
             if ! [[ $again =~ ^[Yy]$ ]]; then break; fi
         done
-        read -p "Analyze another PCAP? (y/n): " another
+        read -p "Analyze another file? (y/n): " another
         if ! [[ $another =~ ^[Yy]$ ]]; then break; fi
     done
     log_info "${GREEN}--- Script Complete ---${NC}"
@@ -288,3 +406,4 @@ main() {
 }
 
 main "$@"
+
