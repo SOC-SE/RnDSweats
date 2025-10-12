@@ -1,0 +1,20 @@
+Set up Debian 10 box with a Wazuh agent, Caldera sandcat shell, and allow Wazuh access to the bind9 logs. For light IR exercises.
+
+sudo apt install -y curl git
+git clone https://github.com/SOC-SE/rndsweats --branch=Development
+cd rndsweats/Tools
+sudo bash WazuhLinuxAgentSetup.sh
+
+sudo chgrp wazuh /var/log/bind/query.log
+sudo chmod 640 /var/log/bind/query.log
+cd ../redTeamNotes
+sudo bash installAgent.sh
+cd ..
+rm -rf rndsweats/
+
+
+
+
+
+
+Set up Ubuntu 18 with a Wazuh agent and Caldera sandcat shell
