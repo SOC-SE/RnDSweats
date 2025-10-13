@@ -1,12 +1,5 @@
 #!/bin/bash
 
-# 
-# Salt Minion installation script
-#
-# Samuel Brucker 2025-2026
-#
-
-
 # Define the installation script title
 SCRIPT_TITLE="Salt Minion Universal Installer (Debian/RHEL)"
 
@@ -91,9 +84,9 @@ if [[ "$OS_ID_LOWER" == "ubuntu" || "$OS_ID_LOWER" == "debian" ]]; then
 
 elif [[ "$OS_ID_LOWER" == "centos" || "$OS_ID_LOWER" == "rhel" || "$OS_ID_LOWER" == "redhat" ]]; then
 
-    # === RHEL/CentOS Installation Logic ===
+    # === RHEL/CentOS Installation Logic (Updated for Robustness) ===
     echo "--- Installing Salt Minion for RHEL-based system (yum/dnf) ---"
-    
+
     # Use yum for CentOS 7, dnf for newer RHEL 8/9
     if command -v dnf &> /dev/null; then
         PACKAGE_MANAGER="dnf"
@@ -106,11 +99,26 @@ elif [[ "$OS_ID_LOWER" == "centos" || "$OS_ID_LOWER" == "rhel" || "$OS_ID_LOWER"
         CLEAN_CMD="sudo yum clean expire-cache"
         INSTALL_CMD="sudo yum install -y"
     fi
+
+    REPO_RPM_URL="https://repo.saltproject.io/py3/redhat/salt-py3-repo-latest.$RELEASE_VERSION.noarch.rpm"
+    REPO_RPM_FILENAME="salt-repo-latest.rpm"
+
+    # 1. Download the Salt Project repository package (Python 3) using curl
+    echo "Downloading Salt Project repository package ($PACKAGE_MANAGER) from $REPO_RPM_URL..."
+    # Ensure curl is installed first
+    $INSTALL_CMD curl
     
-    # 1. Install the Salt Project repository package (Python 3)
-    echo "Installing Salt Project repository package ($PACKAGE_MANAGER)..."
-    $INSTALL_CMD "https://repo.saltproject.io/py3/redhat/salt-py3-repo-latest.$RELEASE_VERSION.noarch.rpm"
+    sudo curl -L -o /tmp/$REPO_RPM_FILENAME $REPO_RPM_URL
+
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to download the Salt repository RPM. Check network connectivity or proxy settings on the CentOS host."
+        exit 1
+    fi
     
+    # Install the downloaded RPM using rpm (more reliable than yum install <URL>)
+    echo "Installing repository RPM..."
+    sudo rpm -Uvh /tmp/$REPO_RPM_FILENAME
+
     # 2. Clean cache and install salt-minion
     $CLEAN_CMD
     $INSTALL_CMD salt-minion
@@ -137,7 +145,11 @@ echo "$MINION_ID" | sudo tee /etc/salt/minion_id > /dev/null
 
 # 5. Start and enable the minion service
 echo "Starting and enabling salt-minion service..."
-sudo systemctl enable salt-minion
+# Use conditional execution based on command success for robustness
+if ! sudo systemctl enable salt-minion; then
+    echo "Warning: Could not enable salt-minion service. It may not be installed or configured correctly."
+    # Attempt to start anyway
+fi
 sudo systemctl restart salt-minion
 
 echo "#####################################################"
