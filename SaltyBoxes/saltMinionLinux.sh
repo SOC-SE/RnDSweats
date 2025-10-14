@@ -124,8 +124,13 @@ echo "$MINION_ID" | tee /etc/salt/minion_id > /dev/null
 
 # Start and enable the minion service
 echo "Starting and enabling salt-minion service..."
-systemctl enable salt-minion
-systemctl restart salt-minion
+systemctl enable --now salt-minion
+
+
+echo "Copying major tools to /etc/runtl"
+mkdir -p /etc/runtl
+cp -r ../Tools/* /etc/runtl
+
 
 echo "#####################################################"
 echo "# MINION SETUP COMPLETE #"
@@ -133,10 +138,3 @@ echo "#####################################################"
 echo "Minion ID: $MINION_ID"
 echo "Master IP: $SALT_MASTER_IP"
 echo ""
-echo "NEXT STEP: On your Salt Master, run the following commands:"
-echo "1. List pending keys:"
-echo "   sudo salt-key -L"
-echo "2. Accept the new minion key (replace <MINION_ID>):"
-echo "   sudo salt-key -a $MINION_ID"
-echo "3. Verify the connection:"
-echo "   sudo salt '$MINION_ID' test.ping"
