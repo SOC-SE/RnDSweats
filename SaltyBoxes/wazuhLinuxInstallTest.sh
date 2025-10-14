@@ -6,14 +6,14 @@
 #
 
 # Make sure this is being ran as sudo
-if [ "$EUID" -ne 0 ]; then
-  echo "❌ This script must be run as root or with sudo. Please try again."
-  exit 1
-fi
+#if [ "$EUID" -ne 0 ]; then
+#  echo "❌ This script must be run as root or with sudo. Please try again."
+#  exit 1
+#fi
 
 hostname = $(hostname -f)
 
-echo "$pwd" 2>&1
+echo "$pwd"
 
 cd /etc/runtl/
 
@@ -30,7 +30,7 @@ echo "Setting up the Wazuh agent"
 bash Wazuh/linuxSetup.sh
 
 
-echo "Wazuh Agent installation and configuration for $hostname comeplete." 2>&1
+echo "Wazuh Agent installation and configuration for $hostname comeplete."
 
 
 
