@@ -1,3 +1,4 @@
+#!/bin/bash
 #    Setup file to automate all of our tooling for the individual servers and endpoints
 #
 #    Created by Samuel Brucker, 2025-2026
