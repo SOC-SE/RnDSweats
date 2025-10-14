@@ -10,7 +10,7 @@
     - Ensuring the salt-minion service is enabled and started.
 .NOTES
     Author: Samuel Brucker 2025-2026
-    Version: 1.1
+    Version: 1.3
     Created: 10/14/2025
 #>
 
