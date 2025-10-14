@@ -46,6 +46,10 @@ if command -v apt &> /dev/null; then
     # Commands confirmed to work for fetching key and sources list for Debian/Ubuntu
     REPO_COMMAND="mkdir -p /etc/apt/keyrings && curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null && curl -fsSL https://github.com/saltstack/salt-install-guide/releases/latest/download/salt.sources | tee /etc/apt/sources.list.d/salt.sources > /dev/null && apt update"
     
+    echo 'Package: salt-*
+Pin: version 3007.*
+Pin-Priority: 1001' | sudo tee /etc/apt/preferences.d/salt-pin-1001
+
     MINION_PACKAGE="salt-minion"
     INSTALL_COMMAND="apt install -y $MINION_PACKAGE"
     echo "Detected Debian/Ubuntu system (Using apt)."
