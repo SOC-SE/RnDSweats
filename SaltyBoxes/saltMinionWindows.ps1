@@ -53,7 +53,7 @@ if ([string]::IsNullOrWhiteSpace($MINION_ID)) {
 # --- Installation Logic ---
 
 # Define the installer URL and local file path
-$installerUrl = "https://packages.broadcom.com/artifactory/saltproject-generic/windows/3007.8/Salt-Minion-3007.8-Py3-x86.msi"
+$installerUrl = "https://packages.broadcom.com/artifactory/saltproject-generic/windows/3007.8/Salt-Minion-3007.8-Py3-AMD64.msi"
 $installerFileName = "Salt-Minion-3007.8-Py3-x86.msi"
 $downloadPath = Join-Path $env:TEMP $installerFileName
 
