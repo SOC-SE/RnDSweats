@@ -11,6 +11,8 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+hostname = $(hostname -f)
+
 cd /etc/runtl
 
 echo "Setting up Auditd"
@@ -26,9 +28,7 @@ echo "Setting up the Wazuh agent"
 bash Wazuh/linuxSetup.sh
 
 
+echo "Wazuh Agent installation and configuration for $hostname comeplete." 2>&1
 
-echo "############################################################################"
-echo "#                                                                          #"
-echo "# Everything is set up and all good to go, Stage 1 is complete. Good luck! #"
-echo "#                                                                          #"
-echo "############################################################################"
+
+
