@@ -11,6 +11,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+echo "The script is located in the directory:"
+echo "$SCRIPT_DIR"
+echo
+
+cd $SCRIPT_DIR
+
 echo "Setting up Auditd"
 bash Auditd/auditdSetup.sh
 
