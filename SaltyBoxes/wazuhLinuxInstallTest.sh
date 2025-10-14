@@ -15,7 +15,7 @@ hostname = $(hostname -f)
 
 echo "$pwd" 2>&1
 
-cd /etc/runtl
+cd /etc/runtl/
 
 echo "Setting up Auditd"
 bash Auditd/auditdSetup.sh
