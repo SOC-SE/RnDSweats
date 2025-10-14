@@ -6,6 +6,7 @@ Develop:
 - Agent configurations
 - Manager configuration
 - Installation Process
+- SOCFortress Integration
 
 
 **Linux**
@@ -17,5 +18,4 @@ Test integration for:
 - Suricata
 - ModSecurity
 - Bind9
-- Shuffle
 
