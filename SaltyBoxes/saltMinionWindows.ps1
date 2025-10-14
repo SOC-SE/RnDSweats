@@ -1,23 +1,22 @@
 <#
 .SYNOPSIS
-    A universal script to install the Salt Minion on Windows systems.
+    Installs the Salt Minion on Windows using a direct MSI link and msiexec.
 .DESCRIPTION
-    This PowerShell script automates the Salt Minion installation process on Windows. It:
-    - Verifies it is running with Administrator privileges.
-    - Prompts for the Salt Master's IP address and an optional Minion ID.
-    - Automatically detects and downloads the latest 64-bit Salt Minion installer.
-    - Performs a silent installation, configuring the master and minion ID.
-    - Enables and restarts the salt-minion service.
-    - Provides instructions for accepting the key on the Salt Master.
+    This script automates the Salt Minion installation by:
+    - Verifying it is running with Administrator privileges.
+    - Prompting for the Salt Master's IP and an optional Minion ID.
+    - Downloading a specific Salt Minion MSI installer.
+    - Using msiexec to perform a quiet installation with the provided configuration.
+    - Ensuring the salt-minion service is enabled and started.
 .NOTES
-    Author: Samuel Brucker 2025 - 2026
-    Version: 1.0
+    Author: Samuel Brucker 2025-2026
+    Version: 1.1
     Created: 10/14/2025
 #>
 
 # --- Script Title ---
 Write-Host "#####################################################" -ForegroundColor Green
-Write-Host "# Salt Minion Universal Installer (Windows)         #" -ForegroundColor Green
+Write-Host "# Salt Minion Installer (Windows)                   #" -ForegroundColor Green
 Write-Host "#####################################################" -ForegroundColor Green
 Write-Host
 
@@ -27,7 +26,6 @@ Write-Host
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Error "This script must be run with Administrator privileges."
     Write-Warning "Please right-click the script and select 'Run as Administrator' or run from an elevated PowerShell prompt."
-    # Pause to allow the user to read the error before the window closes
     Read-Host "Press Enter to exit..."
     exit 1
 }
@@ -46,7 +44,7 @@ if ([string]::IsNullOrWhiteSpace($SALT_MASTER_IP)) {
 # Prompt for Minion ID (Optional)
 $MINION_ID = Read-Host -Prompt "Enter a unique Minion ID (Press ENTER to use system hostname)"
 
-# If MINION_ID is empty, Salt will default to the system's hostname
+# If MINION_ID is empty, use the system's hostname
 if ([string]::IsNullOrWhiteSpace($MINION_ID)) {
     $MINION_ID = $env:COMPUTERNAME
     Write-Host "Using default Minion ID: $MINION_ID"
@@ -54,26 +52,14 @@ if ([string]::IsNullOrWhiteSpace($MINION_ID)) {
 
 # --- Installation Logic ---
 
+# Define the installer URL and local file path
+$installerUrl = "https://packages.broadcom.com/artifactory/saltproject-generic/windows/3007.8/Salt-Minion-3007.8-Py3-x86.msi"
+$installerFileName = "Salt-Minion-3007.8-Py3-x86.msi"
+$downloadPath = Join-Path $env:TEMP $installerFileName
+
 try {
-    Write-Host "`n--- Locating the latest Salt Minion installer ---" -ForegroundColor Cyan
-    
-    # URL to the YAML file containing the latest installer info
-    $latestYmlUrl = "https://repo.saltproject.io/salt/py3/windows/latest/latest.yml"
-    
-    # Download the YAML content and parse out the installer's file name
-    $ymlContent = Invoke-WebRequest -Uri $latestYmlUrl -UseBasicParsing | Select-Object -ExpandProperty Content
-    $installerFileName = ($ymlContent | Select-String -Pattern "path:\s+(Salt-Minion-.*-Py3-AMD64-Setup\.exe)" | ForEach-Object { $_.Matches.Groups[1].Value }).Trim()
-
-    if ([string]::IsNullOrWhiteSpace($installerFileName)) {
-         Write-Error "Could not automatically determine the latest installer file name. Exiting."
-         throw "Installer detection failed."
-    }
-
-    $installerUrl = "https://repo.saltproject.io/salt/py3/windows/latest/$installerFileName"
-    $downloadPath = Join-Path $env:TEMP $installerFileName
-    
-    Write-Host "Found installer: $installerFileName"
-    Write-Host "Downloading from: $installerUrl"
+    Write-Host "`n--- Downloading Salt Minion Installer ---" -ForegroundColor Cyan
+    Write-Host "From: $installerUrl"
     
     # Download the installer file
     Invoke-WebRequest -Uri $installerUrl -OutFile $downloadPath
@@ -81,18 +67,20 @@ try {
     Write-Host "`n--- Installing $installerFileName ---" -ForegroundColor Cyan
     Write-Host "This may take a few moments..."
     
-    # Define arguments for silent installation
-    # /S             - Silent mode
-    # /master=<ip>   - Sets the Salt Master address
-    # /minion-id=<id>- Sets the Minion ID
-    # /start-minion=1- Ensures the minion service starts after installation
-    $installArgs = "/S /master=$SALT_MASTER_IP /minion-id=$MINION_ID /start-minion=1"
+    # Define arguments for msiexec quiet installation
+    # /i <file>     - Specifies the installer file
+    # /quiet        - Suppresses the installer UI
+    # /norestart    - Prevents the system from restarting after installation
+    # MASTER=...    - Sets the Salt Master address
+    # MINION_ID=... - Sets the Minion ID
+    $msiArgs = "/i `"$downloadPath`" /quiet /norestart MASTER=$SALT_MASTER_IP MINION_ID=$MINION_ID"
     
-    # Execute the installer silently and wait for it to complete
-    $process = Start-Process -FilePath $downloadPath -ArgumentList $installArgs -Wait -PassThru
+    # Execute msiexec and wait for it to complete
+    $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
     
+    # Check the exit code from the installer
     if ($process.ExitCode -ne 0) {
-        Write-Error "The installer exited with a non-zero exit code: $($process.ExitCode). Installation may have failed."
+        Write-Error "The installer exited with code: $($process.ExitCode). Check msiexec logs for details."
         throw "Installation failed."
     } else {
         Write-Host "Installation completed successfully."
@@ -101,7 +89,6 @@ try {
     # --- Service Configuration ---
     
     Write-Host "`n--- Configuring Minion Service ---" -ForegroundColor Cyan
-    
     $serviceName = "salt-minion"
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     
@@ -109,8 +96,8 @@ try {
         Write-Host "Setting the '$serviceName' service to start automatically."
         Set-Service -Name $serviceName -StartupType Automatic
         
-        Write-Host "Restarting the '$serviceName' service to apply configuration..."
-        Restart-Service -Name $serviceName
+        Write-Host "Starting the '$serviceName' service..."
+        Start-Service -Name $serviceName
     } else {
         Write-Warning "Could not find the '$serviceName' service. It may not have been installed correctly."
     }
