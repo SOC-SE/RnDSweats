@@ -507,28 +507,28 @@ fi
 
 
 # IMPROVED: Fedora specific fix.
-if [[ "$ID" == "fedora" ]]; then
-  echo "${YELLOW}Fedora system detected. Reloading systemd and restarting service to ensure stability...${NC}"
-  sudo systemctl daemon-reload
-  sudo systemctl restart SplunkForwarder
-fi
+#if [[ "$ID" == "fedora" ]]; then
+#  echo "${YELLOW}Fedora system detected. Reloading systemd and restarting service to ensure stability...${NC}"
+#  sudo systemctl daemon-reload
+#  sudo systemctl restart SplunkForwarder
+#fi
 
 # --- OLD FEDORA FIX (COMMENTED OUT FOR POSTERITY) ---
 #
 # # Fedora specific fix. The forwarder doesn't like to work when you install it. For some reason, rebooting just solves this so nicely
 # # I've looked for logs, tried starting it manually, etc. I couldn't figure it out and am running out of time. Therefore, this beautiful addition.
 # # This will reboot the machine after a 10 second timer.
-# if [[ "$ID" == "fedora" ]]; then
-#   echo "${RED}Fedora system detected, a reboot is required. System will reboot in 10 seconds.${NC}"
-#   sleep 10;
-# 
-#   # Reboot with 10 second delay
-#   if ! sudo shutdown -r +0 "${GREEN}First reboot attempt failed. System will reattempt in 5 seconds${NC}" & sleep 5; then
-#     echo "${RED}Warning: Graceful reboot failed, attempting forced reboot${NC}"
-#     if ! sudo reboot -f; then
-#       echo "${RED}Error: Unable to initiate reboot. Manual reboot required.${NC}"
-#       exit 1
-#     fi
-#   fi
-#   exit 0
-# fi
+ if [[ "$ID" == "fedora" ]]; then
+   echo "${RED}Fedora system detected, a reboot is required. System will reboot in 10 seconds.${NC}"
+   sleep 10;
+ 
+   # Reboot with 10 second delay
+   if ! sudo shutdown -r +0 "${GREEN}First reboot attempt failed. System will reattempt in 5 seconds${NC}" & sleep 5; then
+     echo "${RED}Warning: Graceful reboot failed, attempting forced reboot${NC}"
+     if ! sudo reboot -f; then
+       echo "${RED}Error: Unable to initiate reboot. Manual reboot required.${NC}"
+       exit 1
+     fi
+   fi
+   exit 0
+ fi
