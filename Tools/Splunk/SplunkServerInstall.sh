@@ -97,8 +97,8 @@ fi
 
 # Configure Splunk to receive logs on ports 9997 and 514
 echo "Configuring Splunk ports..."
-sudo /opt/splunk/bin/splunk add udp 514 -auth admin:$SPLUNK_PASS
-sudo /opt/splunk/bin/splunk add tcp 9997 -auth admin:$SPLUNK_PASS
+sudo /opt/splunk/bin/splunk enable listen 514 -auth admin:$SPLUNK_PASS
+sudo /opt/splunk/bin/splunk enable listen 9997 -auth admin:$SPLUNK_PASS
 
 # Final restart
 echo "Performing final restart..."
