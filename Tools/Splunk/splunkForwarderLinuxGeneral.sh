@@ -1,13 +1,11 @@
 #!/bin/bash
-# Automates the installation of the Splunk Universal Forwarder. Dynamically prompts for configuration.
-# Works with Debian, Ubuntu, CentOS, Fedora, and Oracle Linux. It should work with more distros, but those are what it was tested with.
-
-#You need to run this as sudo.
+# Automates the installation of the Splunk Universal Forwarder. Currently set to v9.1.1, but that is easily changed.
+# Works with Debian, Ubuntu, CentOS, Fedora, and Oracle Linux. You need to run this as sudo.
 
 # This was put together as an amalgamation of code from my own work, other automatic installation scripts, and AI to tie everything together.
-# Lots of time went into this script. Be nice to it plz <3
+# Lots time went into this script. Be nice to it plz <3
 #
-# Samuel Brucker 2025-2026
+# Samuel Brucker 2024-2025
 
 # Define Splunk Forwarder variables
 SPLUNK_VERSION="9.1.1"
@@ -15,9 +13,17 @@ SPLUNK_BUILD="64e843ea36b1"
 SPLUNK_PACKAGE_TGZ="splunkforwarder-${SPLUNK_VERSION}-${SPLUNK_BUILD}-Linux-x86_64.tgz"
 SPLUNK_DOWNLOAD_URL="https://download.splunk.com/products/universalforwarder/releases/${SPLUNK_VERSION}/linux/${SPLUNK_PACKAGE_TGZ}"
 INSTALL_DIR="/opt/splunkforwarder"
-ADMIN_USERNAME="admin"
-ADMIN_PASSWORD="Changeme1!"  # Replace with a secure password
-RECEIVER_PORT="9997"
+
+# Set defaults for configuration
+DEFAULT_INDEXER_IP="172.20.241.20"
+DEFAULT_ADMIN_USERNAME="admin"
+DEFAULT_ADMIN_PASSWORD="Changeme1!"  # Replace with a secure password
+
+# Override defaults with command-line arguments if they are provided
+# Usage: ./script.sh [indexer_ip] [username] [password]
+INDEXER_IP=${1:-$DEFAULT_INDEXER_IP}
+ADMIN_USERNAME=${2:-$DEFAULT_ADMIN_USERNAME}
+ADMIN_PASSWORD=${3:-$DEFAULT_ADMIN_PASSWORD}
 
 # Pretty colors :)
 RED=$'\e[0;31m'
@@ -26,23 +32,45 @@ YELLOW=$'\e[0;33m'
 BLUE=$'\e[0;34m'
 NC=$'\e[0m'  #No Color - resets the color back to default
 
+# Function to check for required command dependencies
+check_dependencies() {
+  local missing_deps=()
+  for cmd in wget tar setfacl; do
+    if ! command -v "$cmd" &> /dev/null; then
+      missing_deps+=("$cmd")
+    fi
+  done
+
+  if [ ${#missing_deps[@]} -gt 0 ]; then
+    echo "${RED}Error: Missing required dependencies: ${missing_deps[*]}.${NC}"
+    echo "${YELLOW}Please install them and run the script again.${NC}"
+    exit 1
+  fi
+}
+
+# --- SCRIPT EXECUTION STARTS HERE ---
+check_dependencies
+
+# Announce the configuration that will be used
+echo "${BLUE}--- Splunk Forwarder Configuration ---${NC}"
+echo "${GREEN}Indexer IP:      ${NC}$INDEXER_IP"
+echo "${GREEN}Admin Username:  ${NC}$ADMIN_USERNAME"
+echo "${GREEN}Admin Password:  ${NC}(hidden)"
+echo "${BLUE}------------------------------------${NC}"
+
 # Make sure this is being run as root or sudo
 if [[ $EUID -ne 0 ]]; then
     echo "${RED}This script must be run as root or with sudo.${NC}"
     exit 1
 fi
 
-# Ask for Splunk Indexer IP
-while true; do
-  read -p "${YELLOW}Please enter the IP address of the Splunk Indexer/Server: ${NC}" INDEXER_IP
-  if [[ -n "$INDEXER_IP" ]]; then
-    break
-  else
-    echo "${RED}Indexer IP cannot be empty. Please try again.${NC}"
-  fi
-done
+# IDEMPOTENCY CHECK: Exit if Splunk is already installed
+if [ -d "$INSTALL_DIR" ]; then
+  echo "${YELLOW}Splunk Universal Forwarder is already installed in $INSTALL_DIR. Aborting installation.${NC}"
+  exit 0
+fi
 
-# Check the OS and install the necessary packages
+# Check the OS and install the necessary package
 if [ -f /etc/os-release ]; then
   . /etc/os-release
 else
@@ -121,88 +149,296 @@ EOL
   echo "${GREEN}Admin credentials set.${NC}"
 }
 
-# Function to set up user-defined monitors
+# Function to set up a consolidated set of monitors
 setup_monitors() {
-  echo "${BLUE}Setting up user-defined monitors...${NC}"
+  echo "${BLUE}Setting up consolidated monitors...${NC}"
   MONITOR_CONFIG="$INSTALL_DIR/etc/system/local/inputs.conf"
-  USER_MONITORS="" # Initialize empty string
-
-  while true; do
-    read -p "${YELLOW}Enter the full path of a file or directory to monitor (or press Enter to finish): ${NC}" FILE_PATH
-
-    # Exit loop if input is empty
-    if [ -z "$FILE_PATH" ]; then
-      break
-    fi
-
-    # Check if the file or directory exists
-    if [ ! -e "$FILE_PATH" ]; then
-      echo "${RED}Warning: Path '$FILE_PATH' does not exist. Skipping.${NC}"
-      continue
-    fi
-
-    echo "${GREEN}Adding '$FILE_PATH' to monitors.${NC}"
-    # Append the monitor stanza to the variable. Using auto_high_volume for better generic line breaking.
-    USER_MONITORS+=$(printf "[monitor://%s]\nindex = main\nsourcetype = auto_high_volume\ndisabled = false\n\n" "$FILE_PATH")
-  done
   
-  # Add a default monitor for /tmp/test.log for consistency with the original script's verification step
-  USER_MONITORS+=$(printf "[monitor:///tmp/test.log]\nindex = main\nsourcetype = test\ndisabled = false\n\n")
+  # Consolidated list of monitors. Splunk will gracefully ignore files that do not exist on the host.
+  MONITORS="
+# -----------------------------------------------------------------------------
+# System, Kernel, & Package Management
+# -----------------------------------------------------------------------------
 
-  # Write the configuration only if monitors were added
-  if [ -n "$USER_MONITORS" ]; then
-    sudo bash -c "cat > $MONITOR_CONFIG" <<EOL
-$USER_MONITORS
+[monitor:///var/log/auth.log]
+index = main
+sourcetype = linux_secure
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/secure]
+index = main
+sourcetype = linux_secure
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/messages]
+index = main
+sourcetype = syslog
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/syslog]
+index = main
+sourcetype = syslog
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/kern.log]
+index = main
+sourcetype = linux_kernel
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/cron]
+index = main
+sourcetype = cron
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/yum.log]
+index = main
+sourcetype = package
+crcSalt = <SOURCE>
+
+[monitor:///var/log/apt/history.log]
+index = main
+sourcetype = package
+crcSalt = <SOURCE>
+
+
+# -----------------------------------------------------------------------------
+# Security Services (Audit, Firewall, IDS, etc.)
+# -----------------------------------------------------------------------------
+
+[monitor:///var/log/audit/audit.log]
+index = main
+sourcetype = linux:audit
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/fail2ban.log]
+index = main
+sourcetype = fail2ban
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/ufw.log]
+index = main
+sourcetype = ufw
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/firewalld]
+index = main
+sourcetype = firewalld
+crcSalt = <SOURCE>
+
+[monitor:///var/log/suricata/eve.json]
+index = main
+sourcetype = suricata:eve
+crcSalt = <SOURCE>
+
+# For cron-driven YARA scans. The path may need to be adjusted.
+[monitor:///var/log/yara_scans.log]
+index = main
+sourcetype = yara
+crcSalt = <SOURCE>
+
+# Firejail events are typically found in the auditd logs (linux:audit)
+# or syslog and do not require a separate monitor.
+
+# Velociraptor integration is best handled by configuring the Velociraptor
+# server to forward events to Splunk via its own Syslog output.
+
+
+# -----------------------------------------------------------------------------
+# Wazuh SIEM
+# -----------------------------------------------------------------------------
+
+[monitor:///var/ossec/logs/ossec.log]
+index = main
+sourcetype = wazuh:agent
+crcSalt = <SOURCE>
+
+# The following monitors are for a Wazuh MANAGER host.
+[monitor:///var/ossec/logs/api.log]
+index = main
+sourcetype = wazuh:api
+crcSalt = <SOURCE>
+
+# archives.log can be very high volume. Enable with caution.
+# [monitor:///var/ossec/logs/archives.log]
+# index = main
+# sourcetype = wazuh:archives
+# crcSalt = <SOURCE>
+
+
+# -----------------------------------------------------------------------------
+# Web Servers, Proxies, & Databases
+# -----------------------------------------------------------------------------
+
+[monitor:///var/log/nginx/access.log]
+index = main
+sourcetype = nginx:access
+crcSalt = <SOURCE>
+
+[monitor:///var/log/nginx/error.log]
+index = main
+sourcetype = nginx:error
+crcSalt = <SOURCE>
+
+[monitor:///var/log/haproxy.log]
+index = main
+sourcetype = haproxy:log
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/httpd/access_log]
+index = main
+sourcetype = apache:access
+crcSalt = <SOURCE>
+
+[monitor:///var/log/httpd/error_log]
+index = main
+sourcetype = apache:error
+crcSalt = <SOURCE>
+
+[monitor:///var/log/apache2/access.log]
+index = main
+sourcetype = apache:access
+crcSalt = <SOURCE>
+
+[monitor:///var/log/apache2/error.log]
+index = main
+sourcetype = apache:error
+crcSalt = <SOURCE>
+
+[monitor:///var/log/mariadb/mariadb.log]
+index = main
+sourcetype = mysql:error
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/postgresql/*.log]
+index = main
+sourcetype = postgresql:log
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/redis/redis-server.log]
+index = main
+sourcetype = redis
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/apache2/modsec_audit.log]
+index = main
+sourcetype = modsecurity
+crcSalt = <SOURCE>
+
+[monitor:///var/log/nginx/modsec_audit.log]
+index = main
+sourcetype = modsecurity
+crcSalt = <SOURCE>
+
+
+# -----------------------------------------------------------------------------
+# Infrastructure & Automation
+# -----------------------------------------------------------------------------
+
+[monitor:///var/log/salt/master]
+index = main
+sourcetype = salt:master
+crcSalt = <SOURCE>
+
+[monitor:///var/log/salt/minion]
+index = main
+sourcetype = salt:minion
+crcSalt = <SOURCE>
+
+
+# -----------------------------------------------------------------------------
+# Virtualization & Containers
+# -----------------------------------------------------------------------------
+
+[monitor:///var/log/pveproxy/access.log]
+index = main
+sourcetype = proxmox:access
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/lib/docker/containers/*/*.log]
+index = main
+sourcetype = docker:json
+crcSalt = <SOURCE>
+
+
+# -----------------------------------------------------------------------------
+# Application & Network Services
+# -----------------------------------------------------------------------------
+
+[monitor:///var/log/tomcat*/catalina.out]
+index = main
+sourcetype = tomcat:catalina
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/maillog]
+index = main
+sourcetype = postfix
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/dovecot.log]
+index = main
+sourcetype = dovecot
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/dns/queries]
+index = main
+sourcetype = bind:query
+recursive = true
+crcSalt = <SOURCE>
+
+#Test log
+[monitor:///tmp/test.log]
+index = main
+sourcetype = test
+crcSalt = <SOURCE>
+"
+
+  # Write the configuration
+  sudo bash -c "cat > $MONITOR_CONFIG" <<EOL
+$MONITORS
 EOL
-    sudo chown splunk:splunk $MONITOR_CONFIG
-    echo "${GREEN}Monitors configured successfully.${NC}"
-  else
-    echo "${YELLOW}No custom monitors were specified.${NC}"
-  fi
+
+  sudo chown splunk:splunk $MONITOR_CONFIG
+  echo "${GREEN}Monitors configured.${NC}"
 }
 
 # Function to configure the forwarder to send logs to the Splunk indexer
 configure_forwarder() {
-  echo "${BLUE}Configuring Splunk Universal Forwarder to send logs to $INDEXER_IP:$RECEIVER_PORT...${NC}"
-  sudo $INSTALL_DIR/bin/splunk add forward-server $INDEXER_IP:$RECEIVER_PORT -auth $ADMIN_USERNAME:$ADMIN_PASSWORD
+  echo "${BLUE}Configuring Splunk Universal Forwarder to send logs to $INDEXER_IP:9997...${NC}"
+  sudo $INSTALL_DIR/bin/splunk add forward-server $INDEXER_IP:9997 -auth $ADMIN_USERNAME:$ADMIN_PASSWORD
   echo "${GREEN}Forward-server configuration complete.${NC}"
 }
 
-# Function to restart Splunk with timeout and retry handling
+# SIMPLIFIED: Function to restart Splunk using systemd
 restart_splunk() {
-  local max_attempts=3
-  local attempt=1
-  local timeout=30  # 30 seconds per attempt
-
-  echo "${BLUE}Attempting to restart Splunk Forwarder...${NC}"
-
-  while [ $attempt -le $max_attempts ]; do
-    # Start Splunk in background and capture PID
-    sudo $INSTALL_DIR/bin/splunk restart &>/dev/null &
-    local splunk_pid=$!
-
-    # Wait for timeout or process completion
-    wait $splunk_pid &>/dev/null &
-    local wait_pid=$!
-    sleep $timeout
-    kill $wait_pid &>/dev/null
-
-    # Check if Splunk is running
-    if sudo $INSTALL_DIR/bin/splunk status | grep -q "running"; then
-      echo "${GREEN}Splunk Forwarder successfully restarted.${NC}"
-      return 0
-    fi
-
-    # If we reach here, restart failed
-    echo "${YELLOW}Attempt $attempt failed. Trying again...${NC}"
-    attempt=$((attempt + 1))
-    sleep 5  # Brief pause before retry
-  done
-
-  # If we reach here, all attempts failed
-  echo "${RED}Failed to restart Splunk after $max_attempts attempts. Please check logs for errors.${NC}"
-  return 1
+  echo "${BLUE}Restarting Splunk Forwarder via systemd...${NC}"
+  if sudo systemctl restart SplunkForwarder; then
+    echo "${GREEN}Splunk Forwarder successfully restarted.${NC}"
+    return 0
+  else
+    echo "${RED}Failed to restart Splunk. Please check logs for errors.${NC}"
+    sudo systemctl status SplunkForwarder --no-pager # Show status on failure
+    return 1
+  fi
 }
+
+# --- Main Installation Logic ---
 
 # Perform installation
 install_splunk
@@ -236,80 +472,63 @@ fi
 echo "${BLUE}Creating test log. ${NC}"
 echo "Test log entry" > /tmp/test.log
 sudo setfacl -m u:splunk:r /tmp/test.log
-  
+
 # Verify installation
 sudo $INSTALL_DIR/bin/splunk version
 
 echo "${YELLOW}Splunk Universal Forwarder v$SPLUNK_VERSION installation complete with monitors and forwarder configuration!${NC}"
 
-# CentOS-specific fixes
+# CentOS-specific fix using a systemd drop-in file
 if [[ "$ID" == "centos" || "$ID_LIKE" == *"centos"* ]]; then
-  echo "${RED}Applying CentOS-specific fixes...${NC}"
-
-  # Remove AmbientCapabilities line from the systemd service file
-  # This needs to be performed on every reboot, because CentOS. This section makes sure it's applied at install, so it can run immediately.
-  SERVICE_FILE="/etc/systemd/system/SplunkForwarder.service"
-  if [ -f "$SERVICE_FILE" ]; then
-    sudo sed -i '/AmbientCapabilities/d' "$SERVICE_FILE"
-    echo "${GREEN}Removed AmbientCapabilities line from $SERVICE_FILE ${NC}"
-  fi
-
-  # Create a systemd service to handle the fix
-  FIX_SERVICE_FILE="/etc/systemd/system/splunk-fix.service"
-
-  # Create the service file
-  cat > "$FIX_SERVICE_FILE" <<EOL
-[Unit]
-Description=Splunk Fix Service
-Before=network-online.target
-Before=multi-user.target
-
+  echo "${RED}Applying CentOS-specific fix using systemd drop-in...${NC}"
+  
+  # Define the path for the drop-in file
+  DROP_IN_DIR="/etc/systemd/system/SplunkForwarder.service.d"
+  DROP_IN_FILE="$DROP_IN_DIR/override.conf"
+  
+  # Create the directory
+  sudo mkdir -p "$DROP_IN_DIR"
+  
+  # Create the drop-in file to nullify AmbientCapabilities
+  sudo bash -c "cat > $DROP_IN_FILE" <<EOL
 [Service]
-Type=oneshot
-ExecStart=/bin/bash -c "/usr/bin/sed -i '/AmbientCapabilities/d' /etc/systemd/system/SplunkForwarder.service"
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
+AmbientCapabilities=
 EOL
 
-  # Enable and start the fix service
-  echo "${BLUE}Enabling and starting the fix service${NC}"
+  echo "${GREEN}Drop-in file created at $DROP_IN_FILE${NC}"
+  
+  # Reload systemd to apply the changes and restart Splunk
+  echo "${BLUE}Reloading systemd daemon and restarting Splunk...${NC}"
   sudo systemctl daemon-reload
-  sudo systemctl enable splunk-fix.service
-  sudo systemctl start splunk-fix.service
-
-  # Verify the fix service status
-  echo "${BLUE}Verifying fix service status: ${NC}"
-  sudo systemctl status splunk-fix.service
-
-  # Reload systemd daemon
-  echo "${BLUE}Reloading systemctl daemons${NC}"
-  sudo systemctl daemon-reload
-
-  # Run Splunk again
-  echo "${BLUE}Restarting the Splunk Forwarder${NC}"
   sudo systemctl restart SplunkForwarder
-
-  echo "${YELLOW}Restart complete, forwarder installation on CentOS complete${NC}}"
-else
-  echo "${GREEN}Operating system not recognized as CentOS. Skipping CentOS fix.${NC}"
+  
+  echo "${YELLOW}CentOS fix applied and Splunk restarted.${NC}}"
 fi
 
-# Fedora 21 specific fix. The forwarder doesn't like to work when you install it. For some reason, rebooting just solves this so nicely
-# I've looked for logs, tried starting it manually, etc. I couldn't figure it out and am running out of time. Therefore, this beautiful addition.
-# This will reboot the machine after a 10 second timer.
+
+# IMPROVED: Fedora specific fix.
 if [[ "$ID" == "fedora" ]]; then
-  echo "${RED}Fedora system detected, a reboot is required. System will reboot in 10 seconds.${NC}"
-  sleep 10;
-
-  # Reboot with 10 second delay
-  if ! sudo shutdown -r +0 "${GREEN}First reboot attempt failed. System will reattempt in 5 seconds${NC}" & sleep 5; then
-    echo "${RED}Warning: Graceful reboot failed, attempting forced reboot${NC}"
-    if ! sudo reboot -f; then
-      echo "${RED}Error: Unable to initiate reboot. Manual reboot required.${NC}"
-      exit 1
-    fi
-  fi
-  exit 0
+  echo "${YELLOW}Fedora system detected. Reloading systemd and restarting service to ensure stability...${NC}"
+  sudo systemctl daemon-reload
+  sudo systemctl restart SplunkForwarder
 fi
+
+# --- OLD FEDORA FIX (COMMENTED OUT FOR POSTERITY) ---
+#
+# # Fedora specific fix. The forwarder doesn't like to work when you install it. For some reason, rebooting just solves this so nicely
+# # I've looked for logs, tried starting it manually, etc. I couldn't figure it out and am running out of time. Therefore, this beautiful addition.
+# # This will reboot the machine after a 10 second timer.
+# if [[ "$ID" == "fedora" ]]; then
+#   echo "${RED}Fedora system detected, a reboot is required. System will reboot in 10 seconds.${NC}"
+#   sleep 10;
+# 
+#   # Reboot with 10 second delay
+#   if ! sudo shutdown -r +0 "${GREEN}First reboot attempt failed. System will reattempt in 5 seconds${NC}" & sleep 5; then
+#     echo "${RED}Warning: Graceful reboot failed, attempting forced reboot${NC}"
+#     if ! sudo reboot -f; then
+#       echo "${RED}Error: Unable to initiate reboot. Manual reboot required.${NC}"
+#       exit 1
+#     fi
+#   fi
+#   exit 0
+# fi
