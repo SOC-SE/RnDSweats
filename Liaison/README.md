@@ -1,465 +1,150 @@
 # CCDC Test Scripts - Quick Reference Guide
 
-A collection of automated scripts for setting up and managing cybersecurity tools, optimized for CCDC (Collegiate Cyber Defense Competition) environments.
+Automated setup and response tooling for MWCCDC-style ranges. Every script ships ready for Debian/Ubuntu and Fedora/RHEL hosts and assumes competition VMs with `sudo` access.
 
-## 📋 Script Overview
+## Compliance Reminder
+- Each script now pauses on launch with a TeamPack compliance prompt. Type `YES` to confirm you are working only on team-owned hosts.
+- Most scripts require root; run with `sudo ./script.sh` unless otherwise noted.
 
-| Script | Purpose | Quick Run |
-|--------|---------|-----------|
-| `install_vpns_2.sh` | VPN Server Setup | `sudo ./Version_2/install_vpns_2.sh` |
-| `vpn_client_connect_2.sh` | VPN Client Connection | `sudo ./Version_2/vpn_client_connect_2.sh` |
-| `FIM.sh` | File Integrity Monitoring | `sudo ./Version_1/FIM.sh` |
-| `Docker_install.sh` | Docker Installation | `sudo ./Version_1/Docker_install.sh` |
-| `InstallPowerShell.sh` | PowerShell Setup | `sudo ./Version_1/InstallPowerShell.sh` |
-| `IDS.sh` | IDS/IPS Management | `sudo ./Version_1/IDS.sh` |
-| `Honeypot.sh` | Honeypot Setup | `sudo ./Version_1/Honeypot.sh` |
-| `SubnetAndPingConfigs.sh` | Subnet and Ping Configurations | `sudo ./Version_1/SubnetAndPingConfigs.sh` |
-| `File_Transfer_Server4.sh` | File Transfer Servers | `sudo ./Version_2/File_Transfer_Server4.sh` |
-| `file_transfer_client2.sh` | File Transfer Client | `./Version_2/file_transfer_client2.sh` |
-| `Network_Scanner_Tshark.sh` | Network Scanning with Tshark | `sudo ./Version_1/Network_Scanner_Tshark.sh` |
-| `PCAP_Analyzer_Tshark.sh` | PCAP File Analysis | `sudo ./Version_1/PCAP_Analyzer_Tshark.sh` |
-| `system_enumerator.sh` | System Enumeration | `sudo ./Version_1/system_enumerator.sh` |
-| `Network_Scanner_Nmap.sh` | Network Scanning with Nmap | `sudo ./Version_1/Network_Scanner_Nmap.sh` |
+## Script Quick Reference
 
----
-
-## 🔧 Detailed Script Guide
-
-### 1. VPN Scripts
-
-#### `install_vpns_2.sh` - VPN Server Manager
-**What it does:** Installs and manages VPN servers (OpenVPN, WireGuard, SoftEther)
-
-**How to run:**
-```bash
-sudo ./Version_2/install_vpns_2.sh
-```
-
-**Menu Options:**
-- 1) Install a VPN
-- 2) Uninstall a VPN
-- 3) Show connection instructions
-- 4) Show active VPN services
-- 5) Certificate & User Management
-- 6) Run VPN Diagnostics
-- 7) Integration & Testing Help
-
-**Example Usage:**
-- Choose option 1 → Select OpenVPN → Follow prompts
-- Choose option 5 → Generate client certificates for team members
-
-#### `vpn_client_connect_2.sh` - VPN Client Connector
-**What it does:** Connects to VPN servers and manages client configurations
-
-**How to run:**
-```bash
-sudo ./Version_2/vpn_client_connect_2.sh
-```
-
-**Menu Options:**
-- 1) Connect to OpenVPN Server
-- 2) Connect to WireGuard Server
-- 3) Connect to SoftEther Server
-- 4) Detect Server VPN Services
-- 5) Test Server Connectivity
-- 6) Exit
-
-**Example Usage:**
-- Choose option 4 → Enter server IP to auto-detect available VPNs
-- Choose option 1 → Enter server details and certificate paths
+| Script | Focus | Quick Run | Highlights |
+|--------|-------|-----------|------------|
+| `install_vpns_2.sh` | Multi-VPN server automation | `sudo ./install_vpns_2.sh [--quick|--openvpn|--wireguard|--softether|--all]` | Installs/removes OpenVPN, WireGuard, SoftEther with backups, NAT prep, diagnostics, and credential export |
+| `vpn_client_connect_2.sh` | VPN client onboarding | `sudo ./vpn_client_connect_2.sh` | Builds OpenVPN/WireGuard/SoftEther clients, runs TCP/UDP reachability tests, bundles secure file-transfer helpers |
+| `FIM.sh` | File integrity monitoring | `sudo ./FIM.sh` | Multiple concurrent watchers with SHA256 baselines, live log tailing, graceful cleanup |
+| `Docker_install.sh` | Docker engine lifecycle | `sudo ./Docker_install.sh` | Adds official repos, installs or purges Docker CE stack, groups users, prints CCDC usage primer |
+| `docker_service_manager.sh` | Containerize team services | `sudo ./docker_service_manager.sh` | Detects eight security services, backs up configs, dockerizes via run or Compose with security flags |
+| `InstallPowerShell.sh` | PowerShell for Linux | `sudo ./InstallPowerShell.sh` | Adds Microsoft feed, installs/ verifies/uninstalls `pwsh`, offers interactive launch |
+| `IDS.sh` | Suricata IDS/IPS | `sudo ./IDS.sh` | Guided install/uninstall, mode and interface selection, service tuning |
+| `Honeypot.sh` | Endlessh tarpit | `sudo ./Honeypot.sh` | Deploys or removes Endlessh, adjusts service settings, exports incident logs |
+| `SubnetAndPingConfigs.sh` | Subnetting & ICMP validation | `sudo ./SubnetAndPingConfigs.sh` | IPv4/IPv6 subnet calculators, temporary interface config, firewall ICMP rules, cleanup paths |
+| `File_Transfer_Server4.sh` | FTP/SFTP/TFTP servers | `sudo ./File_Transfer_Server4.sh` | Installs or removes individual services, provisions users, stores credentials, provides view/export utility |
+| `file_transfer_client2.sh` | File transfer client | `./file_transfer_client2.sh` | Menu workflows for FTP/SFTP/TFTP, auto-imports creds, built-in connectivity tests, interactive sessions |
+| `Network_Scanner_Tshark.sh` | Live capture tooling | `sudo ./Network_Scanner_Tshark.sh` | Interface discovery, capture/save/read filters, credential extraction, custom command runner |
+| `PCAP_Analyzer_Tshark.sh` | Saved PCAP analytics | `sudo ./PCAP_Analyzer_Tshark.sh` | Guided filter library (DNS/HTTP/ports/SYN), exports summaries, incident-response friendly |
+| `system_enumerator.sh` | Host baseline & reporting | `sudo ./system_enumerator.sh` | Category-based enumeration with summary counts, rootkit checks, report saved to `/root/enum_report.txt` |
+| `Network_Scanner_Nmap.sh` | Nmap reconnaissance | `sudo ./Network_Scanner_Nmap.sh` | Installs Nmap if absent, 10-option scan menu, progress spinner, logs in `/var/log/nmap_logs/` |
 
 ---
 
-### 2. Security Monitoring Scripts
+## VPN & Connectivity
 
-#### `FIM.sh` - File Integrity Monitor
-**What it does:** Monitors file changes using SHA256 hashes
+**`install_vpns_2.sh`**
+- Supports CLI flags for unattended installs (`--quick`, `--all`, module-specific flags).
+- Creates `/backup/vpn_*` snapshots, fixes package-manager locks, hardens NAT/firewall rules, and runs diagnostics.
+- Menu also surfaces certificate management guidance and integration checklists for Palo Alto NAT.
 
-**How to run:**
+**`vpn_client_connect_2.sh`**
+- Installs tooling (OpenVPN, WireGuard, SoftEther client dependencies) and validates IPs/ports with TCP or UDP netcat probes.
+- Generates WireGuard key material, scrubs known-host entries on SoftEther rebuilds, and bundles rsync/scp helpers for post-tunnel file movement.
+- Keeps a log at `/var/log/vpn_client.log` for after-action reviews.
+
+**Quick start**
 ```bash
-sudo ./Version_1/FIM.sh
-```
-
-**Menu Options:**
-- 1) Start monitoring a new path
-- 2) List active monitors
-- 3) Stop monitoring a path
-- 4) View live logs for a monitor
-- 5) Exit
-
-**Example Usage:**
-- Choose option 1 → Enter `/etc` to monitor system config files
-- Choose option 4 → View real-time change logs
-
-#### `IDS.sh` - IDS/IPS Manager
-**What it does:** Installs and configures Suricata IDS/IPS
-
-**How to run:**
-```bash
-sudo ./Version_1/IDS.sh
-```
-
-**Menu Options:**
-- 1) Install Suricata
-- 2) Uninstall Suricata
-- 3) Adjust Service
-- 4) Quit
-
-**Example Usage:**
-- Choose option 1 → Select IDS or IPS mode → Configure network interface
-
-#### `Honeypot.sh` - Honeypot Manager
-**What it does:** Sets up Endlessh SSH tarpit honeypot
-
-**How to run:**
-```bash
-sudo ./Version_1/Honeypot.sh
-```
-
-**Menu Options:**
-- 1) Install Endlessh
-- 2) Uninstall Endlessh
-- 3) Adjust Service
-- 4) Export Logs for IR
-- 5) Quit
-
-**Example Usage:**
-- Choose option 1 → Installs and configures SSH honeypot on port 2222
-
----
-
-### 3. Infrastructure Scripts
-
-#### `Docker_install.sh` - Docker Manager
-**What it does:** Installs/uninstalls Docker Engine
-
-**How to run:**
-```bash
-sudo ./Version_1/Docker_install.sh
-```
-
-**Menu Options:**
-- 1) Install Docker
-- 2) Uninstall Docker
-- 3) Quit
-
-**Example Usage:**
-- Choose option 1 → Installs Docker and adds user to docker group
-
-#### `InstallPowerShell.sh` - PowerShell Installer
-**What it does:** Installs Microsoft PowerShell on Linux
-
-**How to run:**
-```bash
-sudo ./Version_1/InstallPowerShell.sh
-```
-
-**What it does:**
-- Auto-detects if PowerShell is installed
-- Installs if missing, offers uninstall if present
-- Sets up Microsoft repository
-
-**Example Usage:**
-- Run script → Follow prompts → Use `pwsh` command to start PowerShell
-
-#### `SubnetAndPingConfigs.sh` - Subnet and Ping Configurations
-**What it does:** Configures subnets and ping settings for network management
-
-**How to run:**
-```bash
-sudo ./Version_1/SubnetAndPingConfigs.sh
-```
-
-**Example Usage:**
-- Run script → Configure subnet settings and ping parameters
-
-#### `File_Transfer_Server4.sh` - File Transfer Manager
-**What it does:** Manages FTP, SFTP, and TFTP servers
-
-**How to run:**
-```bash
-sudo ./Version_2/File_Transfer_Server4.sh
-```
-
-**Menu Options:**
-- 1) Install a service
-- 2) Uninstall a service
-
-**Sub-options:**
-- FTP (vsftpd)
-- SFTP (OpenSSH)
-- TFTP (tftpd-hpa)
-
-**Example Usage:**
-- Choose option 1 → Select FTP → Installs and starts FTP server on port 21
-
-#### `file_transfer_client2.sh` - File Transfer Client
-**What it does:** Connects to and transfers files with FTP/SFTP/TFTP servers
-
-**How to run:**
-```bash
-./Version_2/file_transfer_client2.sh
-```
-
-**Menu Options:**
-- 1) Connect to FTP Server
-- 2) Connect to SFTP Server
-- 3) Connect to TFTP Server
-- 4) Test Server Connectivity
-- 5) Show Connection Status
-- 6) Exit
-
-**Supported Operations:**
-- **FTP:** Upload/download files, list directories, create directories
-- **SFTP:** Interactive session with full file operations
-- **TFTP:** Simple upload/download operations
-
-**Example Usage:**
-- Choose option 1 → Enter FTP server details → Upload/download files
-- Choose option 4 → Test connectivity to multiple servers
-
----
-
-### 4. Network Analysis Scripts
-
-#### `Network_Scanner_Tshark.sh` - Network Scanner with Tshark
-**What it does:** Performs advanced network scans and captures using Tshark for threat hunting
-
-**How to run:**
-```bash
-sudo ./Version_1/Network_Scanner_Tshark.sh
-```
-
-**Menu Options:**
-- 1) List Available Interfaces
-- 2) Basic Live Capture
-- 3) Capture and Save to PCAP
-- 4) Read and Display from PCAP
-- 5) Filter HTTP Traffic (Live)
-- 6) Filter DNS Queries (Live)
-- 7) TCP Conversation Statistics
-- 8) Extract Credentials
-- 9) Follow TCP Stream (from PCAP)
-- 10) Custom Tshark Command
-
-**Example Usage:**
-- Choose option 3 → Select interface and duration → Saves PCAP to /tmp/tshark_logs/
-- Choose option 5 → Monitor live HTTP traffic for anomalies
-
-#### `PCAP_Analyzer_Tshark.sh` - PCAP File Analyzer
-**What it does:** Analyzes saved PCAP files with various filters for incident response
-
-**How to run:**
-```bash
-sudo ./Version_1/PCAP_Analyzer_Tshark.sh
-```
-
-**Filter Options:**
-- HTTP Traffic
-- DNS Queries
-- Port-based filtering
-- IP-based filtering
-- TCP SYN/ACK analysis
-- Credential extraction
-- TCP conversation statistics
-- Custom filters
-
-**Example Usage:**
-- Run script → Select PCAP file → Choose filter (e.g., HTTP) → View tabular results
-- Option to save filtered results to file
-
-#### `system_enumerator.sh` - System Enumerator
-**What it does:** Performs comprehensive system enumeration for security assessment
-
-**How to run:**
-```bash
-sudo ./Version_1/system_enumerator.sh
-```
-
-**Enumeration Categories:**
-- System Information
-- User and Group Details
-- Network Configuration
-- Running Processes
-- Installed Packages
-- File System Analysis
-- Security Settings
-
-**Example Usage:**
-- Run script → Select enumeration type → Review output for security insights
-
-#### `Network_Scanner_Nmap.sh` - Network Scanner with Nmap
-**What it does:** Performs host discovery, port scanning, service/OS detection, and vulnerability scanning using NMAP for reconnaissance and threat hunting in CCDC. Auto-installs NMAP if missing, with colored output, progress spinner, and timestamped logs in `/var/log/nmap_logs/`.
-
-**How to run:**
-```bash
-sudo ./Version_1/Network_Scanner_Nmap.sh
-```
-
-**Menu Options:**
-- 1) List available scan types (NMAP help)
-- 2) Basic host discovery (-sn)
-- 3) Port scan (all ports, -p-)
-- 4) Service version detection (-sV)
-- 5) OS detection (-O)
-- 6) Vulnerability scan (--script vuln)
-- 7) Aggressive scan (-A)
-- 8) Scan and save to file (-oN)
-- 9) Custom script scan (--script <name>)
-- 10) Custom NMAP command
-- 0) Exit
-
-**Example Usage:**
-- Choose option 2 → Enter target (e.g., 192.168.1.0/24) → Discovers live hosts with summary of results
-- Choose option 6 → Enter target → Runs vulnerability scripts and logs potential CVEs
-- Choose option 10 → Enter custom command (e.g., "nmap -sV --top-ports 100 target.com") → Executes and summarizes output
-
----
-
-## 🚀 Quick Start Examples
-
-### Basic VPN Setup (Server + Client)
-```bash
-# On VPN Server
-sudo ./Version_2/install_vpns_2.sh
-# → 1 (Install) → 1 (OpenVPN) → Follow prompts
-
-# On Client Machine
-sudo ./Version_2/vpn_client_connect_2.sh
-# → 4 (Detect) → Enter server IP
-# → 1 (OpenVPN) → Enter details
-```
-
-### Security Monitoring Setup
-```bash
-# File Integrity Monitoring
-sudo ./Version_1/FIM.sh
-# → 1 (Start) → Enter path like /etc
-
-# IDS Setup
-sudo ./Version_1/IDS.sh
-# → 1 (Install) → Choose IDS mode
-```
-
-### Infrastructure Setup
-```bash
-# Docker
-sudo ./Version_1/Docker_install.sh
-# → 1 (Install)
-
-# PowerShell
-sudo ./Version_1/InstallPowerShell.sh
-# → Auto-installs if missing
-```
-
-### File Transfer Setup
-```bash
-# First, set up a file server
-sudo ./Version_2/File_Transfer_Server4.sh
-# → 1 (Install) → 1 (FTP) → Installs FTP server
-
-# Then connect and transfer files
-./Version_2/file_transfer_client2.sh
-# → 1 (FTP) → Enter server details → Upload/download files
-```
-
-### Network Analysis Setup
-```bash
-# Network Scanning with TShark
-sudo ./Version_1/Network_Scanner_Tshark.sh
-# → 3 (Capture to PCAP) → Select interface → Saves capture
-
-# PCAP Analysis
-sudo ./Version_1/PCAP_Analyzer_Tshark.sh
-# → Select saved PCAP → Choose filter → Analyze traffic
-
-# System Enumeration
-sudo ./Version_1/system_enumerator.sh
-# → Select enumeration category → Review system details
-
-# Network Scanning with Nmap
-sudo ./Version_1/Network_Scanner_Nmap.sh
-# → 2 (Host Discovery) → Enter target range → View live hosts and save logs
-# → 6 (Vulnerability Scan) → Enter target → Identify potential exploits
+# Server
+sudo ./install_vpns_2.sh --openvpn
+
+# Client
+sudo ./vpn_client_connect_2.sh
+# 1) OpenVPN Client Setup → provide cert bundle → follow connect steps
 ```
 
 ---
 
-## ⚠️ Important Notes
+## Security Monitoring & Deception
 
-### Prerequisites
-- **Root Access:** All scripts require `sudo` privileges
-- **Package Managers:** Support for `apt` (Ubuntu/Debian) and `dnf` (Fedora/RHEL)
-- **Internet:** Required for downloading packages
-- **CCDC Environment:** Optimized for competition VMs
+**`FIM.sh`**
+- Launches background watchers with SHA256 baselines and per-session state in `/tmp/fim_sessions`.
+- Blocks duplicate paths, offers live `tail -f` view, and cleans dead sessions automatically.
 
-### Common Requirements
-- Run all scripts as root: `sudo ./script.sh`
-- Ensure internet connectivity for package downloads
-- Check firewall settings (especially for CCDC Palo Alto configs)
-- Review logs after installation for any issues
+**`IDS.sh`**
+- Installs or removes Suricata, toggles IDS/IPS (NFQUEUE) modes, and exposes service-management utilities.
 
-### CCDC-Specific Tips
-- Test all installations in isolated environments first
-- Document IP addresses and ports for team coordination
-- Use certificate management for secure team access
-- Monitor logs for security incidents
-- Backup configurations before competitions
+**`Honeypot.sh`**
+- Deploys Endlessh, allows port/service edits, exports tarpit logs for incident response, or removes cleanly.
 
 ---
 
-## 🔍 Troubleshooting
+## Infrastructure & Automation
 
-### Common Issues
-- **Permission Denied:** Run with `sudo`
-- **Package Not Found:** Check internet connection
-- **Service Won't Start:** Check system logs with `journalctl`
-- **Port Conflicts:** Verify ports aren't already in use
+**`Docker_install.sh`**
+- Installs Docker CE/CLI/Buildx/Compose plugins from the official repositories with progress spinners and verification.
+- Removes legacy packages, adds the invoking user to the `docker` group, and prints MWCCDC-specific Docker usage notes.
 
-### Getting Help
-- Check script logs in `/var/log/`
-- Run diagnostic options where available
-- Test in clean VM environment
-- Review CCDC documentation
+**`docker_service_manager.sh`**
+- Detects host services (e.g., Suricata, vsftpd, OpenVPN, Cowrie) and offers to dockerize them with backups and hardened run options (`no-new-privileges`, read-only filesystems, capability controls).
+- Generates Compose files on demand, tails logs, and can stop all managed containers in one action.
 
----
+**`InstallPowerShell.sh`**
+- Adds Microsoft repositories for apt/dnf/yum, installs PowerShell, verifies the install, offers to launch or uninstall, and prints cross-platform cheat sheets.
 
-## 📝 Script Compatibility
-
-| Script | Debian/Ubuntu | Fedora/RHEL | Root Required | Internet Required |
-|--------|---------------|-------------|---------------|-------------------|
-| VPN Scripts | ✅ | ✅ | ✅ | ✅ |
-| FIM | ✅ | ✅ | ✅ | ❌ |
-| Docker | ✅ | ✅ | ✅ | ✅ |
-| PowerShell | ✅ | ✅ | ✅ | ✅ |
-| IDS | ✅ | ✅ | ✅ | ✅ |
-| Honeypot | ✅ | ✅ | ✅ | ✅ |
-| File Transfer | ✅ | ✅ | ✅ | ✅ |
-| File Transfer Client | ✅ | ✅ | ❌ | ❌ |
-| Network Scanner | ✅ | ✅ | ✅ | ❌ |
-| PCAP Analyzer | ✅ | ✅ | ❌ | ❌ |
-| System Enumerator | ✅ | ✅ | ✅ | ❌ |
-| Network Scanner Nmap | ✅ | ✅ | ✅ | ✅ |
+**`SubnetAndPingConfigs.sh`**
+- Provides IPv4/IPv6 subnet calculators, temporary interface configuration, firewall rule toggles (UFW or firewalld), and teardown routines.
 
 ---
 
-## 🎯 CCDC Competition Use
+## File Transfer Tooling
 
-### Recommended Setup Order
-1. **Infrastructure:** Docker, PowerShell (if needed)
-2. **Security:** IDS, Honeypot, FIM
-3. **Services:** File Transfer Servers
-4. **Connectivity:** VPN Server + Client connections
-5. **Analysis:** Network Scanner (TShark/Nmap), PCAP Analyzer, System Enumerator
+**`File_Transfer_Server4.sh`**
+- Handles install/remove/view for FTP (vsftpd), SFTP (OpenSSH chroot), and TFTP, provisioning users and storing credentials securely in `/etc/fts_credentials.conf`.
+- View mode shows IP/port, current status, and can base64-export credentials for quick client setup.
 
-### Team Coordination
-- Use VPN scripts for secure team communication
-- Share certificates securely between team members
-- Monitor honeypot and IDS logs for red team activity
-- Use FIM to detect unauthorized file changes
-- Employ network analysis tools for traffic inspection and threat hunting
-- Run system enumeration to baseline and monitor system state
+**`file_transfer_client2.sh`**
+- Detects required client binaries, imports stored credentials automatically, performs network reachability checks, and supports upload/download/list/interactive workflows for each protocol.
+- Maintains connection state so teams can pivot between protocols without re-entering details.
 
 ---
 
-*For detailed documentation and advanced features, see the comprehensive README or run scripts with `--help` where available.*
+## Network Visibility & Analysis
+
+**`Network_Scanner_Tshark.sh`**
+- Offers live capture, PCAP output, credential extraction, TCP conversation stats, and custom command entry with saved logs under `/tmp/tshark_logs`.
+
+**`PCAP_Analyzer_Tshark.sh`**
+- Reads stored captures and applies ready-made filters (HTTP, DNS, SYN/ACK, conversations, credential hunts) with optional export of filtered results.
+
+**`Network_Scanner_Nmap.sh`**
+- Presents 10 curated scan modes, installs Nmap automatically, and logs results with timestamps; summary output highlights open ports and discoveries.
+
+---
+
+## Host Baselines & Reporting
+
+**`system_enumerator.sh`**
+- Category-driven enumeration (system, users, network, processes, logs, filesystem, security) with counts for SUID files and hidden artifacts.
+- Runs optional rootkit scanners, captures cron jobs, packages, firewall states, and writes a master report to `/root/enum_report.txt`.
+
+---
+
+## Suggested Run Order (Competition Prep)
+- Infrastructure first: `Docker_install.sh`, `docker_service_manager.sh`, `InstallPowerShell.sh`, `SubnetAndPingConfigs.sh`.
+- Defensive stack: `IDS.sh`, `Honeypot.sh`, `FIM.sh`.
+- Services and access: `File_Transfer_Server4.sh`, `install_vpns_2.sh`, `vpn_client_connect_2.sh`.
+- Monitoring and hunting: `Network_Scanner_Tshark.sh`, `Network_Scanner_Nmap.sh`, `PCAP_Analyzer_Tshark.sh`, `system_enumerator.sh`.
+
+---
+
+## Troubleshooting Cheatsheet
+- Missing privileges → rerun with `sudo` and ensure TeamPack prompt is acknowledged.
+- Package installation errors → check network access or rerun `apt update`/`dnf makecache`.
+- Service startups → inspect `journalctl -u <service>` or the script-specific log paths noted above.
+- Port collisions → verify active listeners with `ss -tulpen` before redeploying.
+
+Logs worth bookmarking:
+- VPN server installs: `/var/log/vpn_install.log`
+- VPN client runs: `/var/log/vpn_client.log`
+- Nmap scans: `/var/log/nmap_logs/`
+- TShark captures: `/tmp/tshark_logs/`
+- File transfer credentials: `/etc/fts_credentials.conf`
+- System enumeration: `/root/enum_report.txt`
+
+---
+
+## Competition Reminders
+- Document IPs, ports, and credentials as services come online—especially for Palo Alto NAT updates.
+- Rotate keys/passwords immediately after scripted installs.
+- Keep backups of generated configs (`/backup`, Docker backups, credential files) off-box where possible.
+- Review script change logs regularly; the repository reflects 2025 updates across all automation.
+
+Need deeper detail? Launch any script with the default menu and browse its help/diagnostic options.

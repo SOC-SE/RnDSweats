@@ -1,12 +1,12 @@
-# ==============================================================================
+#!/bin/bash
+
+# ============================================================================== 
 # File: IDS.sh 
 # Description: Installs, uninstalls, configures, and adjusts Suricata as IDS or IPS.
 #              Menu-driven with install/uninstall/adjust/quit options. Supports apt and dnf.
 #              Spinner for install/uninstall, error capture, usage instructions aligned with MWCCDC.
 #              Adjust option for CCDC-related configurations, with apply/revert and status display.
-# ==============================================================================
-
-#!/bin/bash
+# ============================================================================== 
 
 set -euo pipefail
 
@@ -76,7 +76,7 @@ detect_pkg_manager() {
     elif command -v dnf &> /dev/null; then
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf check-update"
+        UPDATE_CMD="dnf makecache -y"
         QUERY_CMD="rpm -q"
         REMOVE_CMD="dnf remove -y"
     else
@@ -101,14 +101,21 @@ install_suricata() {
     printf "Installing Suricata... "
     local err_file=$(mktemp)
     if [ "$PKG_MANAGER" = "apt" ]; then
-        ( apt-get install -y software-properties-common >/dev/null 2>"$err_file" &&
-          add-apt-repository -y ppa:oisf/suricata-stable >/dev/null 2>>"$err_file" &&
-          $UPDATE_CMD >/dev/null 2>>"$err_file" &&
+        ( $UPDATE_CMD >/dev/null 2>"$err_file"
           $INSTALL_CMD suricata >/dev/null 2>>"$err_file" ) &
     else
-        ( dnf install -y epel-release dnf-plugins-core >/dev/null 2>"$err_file" &&
-          dnf copr enable @oisf/suricata-7.0 -y >/dev/null 2>>"$err_file" &&
-          $INSTALL_CMD suricata >/dev/null 2>>"$err_file" ) &
+        if [ -r /etc/os-release ]; then
+            . /etc/os-release
+            case "$ID" in
+                ol)
+                    dnf install -y "oracle-epel-release-el${VERSION_ID%%.*}" >/dev/null 2>>"$err_file" || true
+                    ;;
+                centos|rhel|rocky|almalinux)
+                    dnf install -y epel-release >/dev/null 2>>"$err_file" || true
+                    ;;
+            esac
+        fi
+        ( $INSTALL_CMD suricata >/dev/null 2>>"$err_file" ) &
     fi
     local pid=$!
     spinner $pid
@@ -127,8 +134,8 @@ install_suricata() {
     # Post-install with spinner and error capture
     printf "Configuring Suricata... "
     local err_file=$(mktemp)
-    ( suricata-update >/dev/null 2>"$err_file" || true
-      configure_suricata_initial $mode >/dev/null 2>>"$err_file"
+            ( suricata-update >/dev/null 2>"$err_file" || true
+                configure_suricata_initial "$mode" >/dev/null 2>>"$err_file"
       systemctl enable suricata >/dev/null 2>>"$err_file"
       systemctl start suricata >/dev/null 2>>"$err_file" ) &
     local pid=$!

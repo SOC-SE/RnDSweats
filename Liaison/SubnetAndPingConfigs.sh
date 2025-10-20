@@ -107,17 +107,49 @@ install_tools() {
     done
 }
 
+# TeamPack compliance: confirm authorized environment
+teampack_confirm() {
+    read -p "Confirm you will run this only on your authorized team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+teampack_confirm
+
 # --- Calculate IPv4 Subnets ---
 calculate_ipv4_subnets() {
     read -p "Enter IPv4 network (e.g., 192.168.1.0/24): " network
     read -p "Enter new subnet prefix (e.g., 26): " new_prefix
-    ipcalc "$network" -s "$((2 ** (new_prefix - ${network##*/})))" | grep -E 'Network|HostMin|HostMax|Broadcast'
+    if ! ipcalc "$network" >/dev/null 2>&1; then
+        log_error "Invalid IPv4 network provided."
+    fi
+    if [[ ! $new_prefix =~ ^[0-9]+$ ]] || (( new_prefix < 0 || new_prefix > 32 )); then
+        log_error "New prefix must be an integer between 0 and 32."
+    fi
+    local original_prefix=${network##*/}
+    if (( new_prefix < original_prefix )); then
+        log_error "New prefix must be greater than or equal to original prefix /$original_prefix."
+    fi
+    local diff=$((new_prefix - original_prefix))
+    local subnet_count=$(( diff == 0 ? 1 : (1 << diff) ))
+    ipcalc "$network" -s "$subnet_count" | grep -E 'Network|HostMin|HostMax|Broadcast'
 }
 
 # --- Calculate IPv6 Subnets ---
 calculate_ipv6_subnets() {
     read -p "Enter IPv6 network (e.g., 2001:db8::/64): " network
     read -p "Enter new subnet prefix (e.g., 68): " new_prefix
+    if ! sipcalc "$network" >/dev/null 2>&1; then
+        log_error "Invalid IPv6 network provided."
+    fi
+    if [[ ! $new_prefix =~ ^[0-9]+$ ]] || (( new_prefix < 0 || new_prefix > 128 )); then
+        log_error "New prefix must be an integer between 0 and 128."
+    fi
+    local original_prefix=${network##*/}
+    if (( new_prefix < original_prefix )); then
+        log_error "New prefix must be greater than or equal to original prefix /$original_prefix."
+    fi
     sipcalc "$network" -s "$new_prefix" | grep -E 'Network range|Usable range'
 }
 
@@ -162,7 +194,7 @@ configure_ipv6_ping() {
 
     # Firewall allow ICMPv6
     if command -v ufw &> /dev/null; then
-        ufw allow proto ipv6-icmp from any to any
+        ufw allow proto ipv6-icmp from any to any || ufw allow ipv6-icmp
         ufw reload
         log_info "UFW rule added for ICMPv6."
     elif command -v firewall-cmd &> /dev/null; then

@@ -45,6 +45,25 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------------------------
+# TeamPack Compliance Notice
+# Network scanning and vulnerability checks must only be performed on systems you
+# are authorized to scan (your team/lab VMs). Scanning outside that scope may
+# violate competition rules and local laws. You must type YES to confirm.
+# ------------------------------------------------------------------------------
+teampack_confirm() {
+    echo ""
+    echo "WARNING: Only scan systems you are authorized to test."
+    read -p "I confirm I will only scan my team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+
+# Run TeamPack confirmation
+teampack_confirm
+
 # Colors for output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

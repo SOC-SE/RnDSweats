@@ -102,7 +102,11 @@ check_legacy_tpot() {
 handle_security_modules() {
     if command -v getenforce &> /dev/null && [ "$(getenforce)" = "Enforcing" ]; then
         log_info "SELinux detected and enforcing. Allowing port binding for Endlessh..."
-        semanage port -a -t ssh_port_t -p tcp $HONEYPOT_PORT || log_warn "SELinux port labeling failed; manual check needed."
+        if command -v semanage &> /dev/null; then
+            semanage port -a -t ssh_port_t -p tcp $HONEYPOT_PORT || log_warn "SELinux port labeling failed; manual check needed."
+        else
+            log_warn "semanage not available (install policycoreutils-python-utils); manual SELinux check needed."
+        fi
     fi
     if command -v aa-status &> /dev/null && aa-status | grep -q "endlessh"; then
         log_info "AppArmor profile for Endlessh detected. Disabling if conflicting..."
@@ -167,6 +171,66 @@ install_openssh() {
     fi
 }
 
+# Attempt to build Endlessh from source on distros without a packaged version
+build_endlessh_from_source() {
+    log_warn "Falling back to source build for Endlessh (package not available)."
+    local deps_installed=true
+    if ! command -v git &> /dev/null || ! command -v make &> /dev/null || ! command -v gcc &> /dev/null; then
+        log_info "Installing build prerequisites (git make gcc)..."
+        if ! $INSTALL_CMD git make gcc >/dev/null 2>&1; then
+            log_warn "Automatic install of build prerequisites failed. Install git/make/gcc manually."
+            deps_installed=false
+        fi
+    fi
+    if ! $deps_installed; then
+        return 1
+    fi
+
+    local build_dir
+    build_dir=$(mktemp -d)
+    if ! git clone --depth 1 https://github.com/skeeto/endlessh.git "$build_dir/endlessh" >/dev/null 2>&1; then
+        log_warn "Git clone failed (check connectivity)."
+        rm -rf "$build_dir"
+        return 1
+    fi
+
+    pushd "$build_dir/endlessh" >/dev/null || { rm -rf "$build_dir"; return 1; }
+    if ! make >/dev/null 2>&1; then
+        log_warn "Building Endlessh failed."
+        popd >/dev/null
+        rm -rf "$build_dir"
+        return 1
+    fi
+    if ! install -m 755 endlessh /usr/local/bin/endlessh >/dev/null 2>&1; then
+        log_warn "Installing Endlessh binary failed."
+        popd >/dev/null
+        rm -rf "$build_dir"
+        return 1
+    fi
+    popd >/dev/null
+    rm -rf "$build_dir"
+
+    if [ ! -f /etc/systemd/system/endlessh.service ]; then
+        cat << 'EOF' > /etc/systemd/system/endlessh.service
+[Unit]
+Description=Endlessh SSH Tarpit Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/endlessh -f /etc/endlessh/config
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    fi
+    systemctl daemon-reload >/dev/null 2>&1
+    log_info "Endlessh compiled from source and service file installed."
+    return 0
+}
+
 # --- Install Endlessh --- (unchanged)
 install_endlessh() {
     if is_endlessh_installed; then
@@ -188,7 +252,9 @@ install_endlessh() {
         echo ""
         echo -e "${RED}Error during Endlessh installation:${NC}"
         echo "$err_content"
-        log_error "Installation failed."
+        if ! build_endlessh_from_source; then
+            log_error "Installation failed."
+        fi
     fi
     echo ""
 
@@ -260,7 +326,11 @@ LogLevel 2
 EOF
     if command -v rsyslogd &> /dev/null; then
         echo "local0.* /var/log/endlessh.log" >> /etc/rsyslog.d/10-endlessh.conf
-        systemctl restart rsyslog >/dev/null 2>&1
+        if systemctl restart rsyslog >/dev/null 2>&1; then
+            log_info "rsyslog restarted successfully."
+        else
+            log_warn "rsyslog restart failed; check status manually."
+        fi
     fi
     if command -v mailx &> /dev/null; then
         echo "*/5 * * * * journalctl -u endlessh --since '5 minutes ago' | grep 'connection' | wc -l | xargs -I {} [ {} -gt 10 ] && echo 'High Endlessh attempts!' | mailx -s 'Honeypot Alert' team@email.com" > /etc/cron.d/endlessh-alert
@@ -435,6 +505,16 @@ export_logs() {
 
     log_info "Logs exported to $output_file for IR report."
 }
+
+# --- TeamPack compliance: confirm authorized environment ---
+teampack_confirm() {
+    read -p "Confirm you will run this only on your authorized team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+teampack_confirm
 
 # --- Menu (Launches on script start) ---
 prompt_menu() {

@@ -1,4 +1,6 @@
-# ==============================================================================
+#!/bin/bash
+
+# ============================================================================== 
 # File: FIM.sh
 # Description: Monitors file integrity in specified directories/files using SHA256 hashes.
 #              Supports multiple background sessions, menu-driven management.
@@ -11,9 +13,7 @@
 # 5. Live log viewing with tail -f (Ctrl+C to exit view).
 # 6. No package installation; uses built-in tools for CCDC portability.
 # 7. Validated for efficiency in virtual environments (e.g., NETLAB VE VMs).
-# ==============================================================================
-
-#!/bin/bash
+# ============================================================================== 
 
 set -euo pipefail
 
@@ -51,9 +51,19 @@ setup_sessions() {
     mkdir -p "$SESSION_DIR"
 }
 
+# TeamPack compliance: confirm authorized environment
+teampack_confirm() {
+    read -p "Confirm you will run this only on your authorized team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+teampack_confirm
+
 # --- Generate Unique ID for Path (MD5 hash) ---
 generate_id() {
-    echo -n "$1" | md5sum | awk '{print $1}'
+    echo -n "$1" | sha256sum | awk '{print $1}'
 }
 
 # --- Check if Path Already Monitored ---

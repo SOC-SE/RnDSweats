@@ -28,6 +28,26 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------------------------
+# TeamPack Compliance Notice
+# This script is intended for use only against systems that you own or
+# are explicitly authorized to test (your team lab / competition VMs).
+# By continuing you confirm you will NOT use this tool to connect to or transfer
+# files to systems you do not control. Follow MWCCDC Team Pack rules.
+# ------------------------------------------------------------------------------
+teampack_confirm() {
+    echo ""
+    echo "IMPORTANT: This script must only be used against systems you own or are authorized to test."
+    read -p "I confirm I will only run this against my team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+
+# Run TeamPack confirmation
+teampack_confirm
+
 # --- ASCII Banner ---
 echo -e "\033[1;32m"
 cat << "EOF"
@@ -131,11 +151,17 @@ validate_ip() {
 test_connectivity() {
     local ip=$1
     local port=$2
-    local protocol=$3
+    local protocol=${3:-tcp}
+    local proto_lc=$(echo "$protocol" | tr '[:upper:]' '[:lower:]')
 
     log_info "Testing connectivity to $ip:$port ($protocol)..."
 
-    if nc -z -w3 $ip $port 2>/dev/null; then
+    local nc_args=(-z -w3)
+    if [[ "$proto_lc" == "tftp" || "$proto_lc" == "udp" ]]; then
+        nc_args=(-u "${nc_args[@]}")
+    fi
+
+    if nc "${nc_args[@]}" "$ip" "$port" 2>/dev/null; then
         log_info "✅ $protocol server is reachable"
         return 0
     else

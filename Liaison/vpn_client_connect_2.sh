@@ -1,8 +1,27 @@
 #!/bin/bash
 
-# Test comment added by agent mode for vpn_client_connect_2.sh
-
 set -euo pipefail
+
+# ------------------------------------------------------------------------------
+# TeamPack Compliance Notice
+# This script is intended for use only against systems that you own or
+# are explicitly authorized to test (your team lab / competition VMs).
+# By continuing you confirm you will NOT use this tool to connect to or test
+# other teams, public infrastructure, or systems you do not control.
+# Refer to the MWCCDC Team Pack rules for permitted activity.
+# ------------------------------------------------------------------------------
+teampack_confirm() {
+    echo ""
+    echo "IMPORTANT: This script must only be used against systems you own or are authorized to test."
+    read -p "I confirm I will only run this against my team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+
+# Run TeamPack confirmation
+teampack_confirm
 
 # ==============================================================================
 # File: vpn_client_connect_2.sh
@@ -78,8 +97,10 @@ install_nc() {
         log_info "Installing netcat..."
         if [[ "$PKG_MANAGER" == "apt" ]]; then
             $INSTALL_CMD netcat-openbsd >> "$LOG_FILE" 2>&1 || log_warn "nc install failed."
-        else  # dnf
-            $INSTALL_CMD nc >> "$LOG_FILE" 2>&1 || log_warn "nc install failed."
+        else  # dnf-based
+            if ! $INSTALL_CMD nmap-ncat >> "$LOG_FILE" 2>&1; then
+                $INSTALL_CMD nc >> "$LOG_FILE" 2>&1 || log_warn "nc install failed."
+            fi
         fi
         command -v nc >/dev/null 2>&1 || log_warn "nc still unavailable; UDP tests limited."
     fi

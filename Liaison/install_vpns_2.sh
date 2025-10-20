@@ -2,6 +2,27 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------------------------
+# TeamPack Compliance Notice
+# This script is intended for use only against systems that you own or
+# are explicitly authorized to test (your team lab / competition VMs).
+# By continuing you confirm you will NOT use this tool to attack or scan
+# other teams, public infrastructure, or systems you do not control.
+# Refer to the MWCCDC Team Pack rules for permitted activity.
+# ------------------------------------------------------------------------------
+teampack_confirm() {
+    echo ""
+    echo "IMPORTANT: This script must only be used against systems you own or are authorized to test."
+    read -p "I confirm I will only run this against my team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+
+# Run TeamPack confirmation
+teampack_confirm
+
 # ==============================================================================
 # File: install_vpns_2.sh
 # Description: Installs and configures multiple VPN solutions (OpenVPN, WireGuard, SoftEther) on Linux.
@@ -42,7 +63,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 LOG_FILE="/var/log/vpn_install.log"
 QUICK_MODE=false
-declare -a VPN_FLAGS  # Explicitly declare as array for older bash compatibility
+declare -a VPN_FLAGS=()  # Explicitly declare and initialize as array for older bash compatibility
 
 # --- Helper Functions ---
 log_info() { echo -e "${GREEN}[INFO] $1${NC}" | tee -a "$LOG_FILE"; }
@@ -132,12 +153,18 @@ install_dependencies() {
         $INSTALL_CMD curl wget git build-essential libssl-dev libreadline-dev zlib1g-dev libncurses5-dev netcat-openbsd ipcalc easy-rsa >/dev/null 2>&1 || \
         log_warn "Some dependencies failed to install, continuing..."
     else  # dnf
-        $INSTALL_CMD curl wget git @development-tools openssl-devel readline-devel zlib-devel ncurses-devel nc ipcalc easy-rsa >/dev/null 2>&1 || \
+        $INSTALL_CMD curl wget git @development-tools openssl-devel readline-devel zlib-devel ncurses-devel nmap-ncat ipcalc easy-rsa >/dev/null 2>&1 || \
         log_warn "Some dependencies failed to install, continuing..."
     fi
-    # Verify critical
-    command -v git >/dev/null 2>&1 || command -v curl >/dev/null 2>&1 || command -v nc >/dev/null 2>&1 || command -v ipcalc >/dev/null 2>&1 || \
-    log_error "Critical dependencies not available. Install manually."
+    local missing=()
+    for cmd in git curl nc ipcalc; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+    if [ ${#missing[@]} -ne 0 ]; then
+        log_error "Critical dependencies not available: ${missing[*]}. Install manually and rerun."
+    fi
 }
 
 # Backup configs (PBF Core)
@@ -278,14 +305,21 @@ install_openvpn() {
     printf "Installing... "
     local err_file=$(mktemp)
     ( $INSTALL_CMD openvpn easy-rsa >/dev/null 2>"$err_file" || exit 1
-      make-cadir /etc/openvpn/easy-rsa >/dev/null 2>>"$err_file" || exit 1
+      if command -v make-cadir >/dev/null 2>&1; then
+          make-cadir /etc/openvpn/easy-rsa >/dev/null 2>>"$err_file" || exit 1
+      else
+          mkdir -p /etc/openvpn >/dev/null 2>>"$err_file" || exit 1
+          cp -r /usr/share/easy-rsa /etc/openvpn/easy-rsa >/dev/null 2>>"$err_file" || exit 1
+      fi
       cd /etc/openvpn/easy-rsa >/dev/null 2>>"$err_file" || exit 1
+      export EASYRSA_BATCH=1
+      export EASYRSA_REQ_CN="MWCCDC-CA"
       ./easyrsa init-pki >/dev/null 2>>"$err_file" || exit 1
       ./easyrsa build-ca nopass >/dev/null 2>>"$err_file" || exit 1
       
       local dh_size=2048
       $QUICK_MODE && dh_size=1024 && log_warn "Quick mode: Using 1024-bit DH (less secure)."
-      ./easyrsa gen-dh $dh_size >/dev/null 2>>"$err_file" || exit 1
+      EASYRSA_DH_KEY_SIZE=$dh_size ./easyrsa gen-dh >/dev/null 2>>"$err_file" || exit 1
       
       ./easyrsa build-server-full server nopass >/dev/null 2>>"$err_file" || exit 1
       openvpn --genkey --secret /etc/openvpn/ta.key >/dev/null 2>>"$err_file" || exit 1
@@ -321,8 +355,8 @@ EOF
     [ $exit_status -ne 0 ] && log_error "OpenVPN failed."
     
     # Generate client cert
-    cd /etc/openvpn/easy-rsa
-    ./easyrsa build-client-full client nopass
+    cd /etc/openvpn/easy-rsa || log_error "Easy-RSA directory missing after installation."
+    EASYRSA_BATCH=1 ./easyrsa build-client-full client nopass >/dev/null 2>>"$LOG_FILE" || log_error "OpenVPN client certificate generation failed."
     log_info "Client cert generated: /etc/openvpn/easy-rsa/pki/issued/client.crt"
     echo "Export client files via: scp root@server:/etc/openvpn/easy-rsa/pki/{ca.crt,client.crt,client.key,issued/client.crt} /local/path"
     
@@ -439,7 +473,13 @@ uninstall_softether() {
 }
 
 show_softether_instructions() {
-    log_info "SoftEther Instructions: Use SoftEther client GUI with host:IP, port:443, hub:SEHUB, user/pass from server."
+    log_info "SoftEther Instructions:"
+    log_info "- Download SoftEther VPN Client Manager from softether.org"
+    log_info "- Server: <your-server-ip>:443 (or 992 for TCP)"
+    log_info "- Hub: DEFAULT"
+    log_info "- Auth: Use vpncmd to create users: vpncmd /SERVER localhost:5555 /PASSWORD <serverpass> /HUB:DEFAULT /CMD UserCreate user1 /REALNAME:user1 /CMD UserPasswordSet user1 /PASSWORD:pass123"
+    log_info "- Enable L2TP/IPsec or OpenVPN in SoftEther for compatibility."
+    log_info "Default port for management: 5555, but use client for connections."
 }
 
 # Network Config
@@ -524,7 +564,7 @@ show_integration_help() {
 
 # Security warnings enhanced
 check_security_warnings() {
-    log_info "🔒 SECURITY AUDIT..."
+    log_info "SECURITY AUDIT..."
     # Enhanced: Prompt for changes
     if is_softether_installed; then
         read -p "Change SoftEther password? (y/n): " change_pw
@@ -552,4 +592,3 @@ main() {
 }
 
 main "$@"
-```

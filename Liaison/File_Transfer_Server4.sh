@@ -1,5 +1,5 @@
 # ==============================================================================
-# File: FileTransferServer3.sh
+# File: FileTransferServer4.sh
 # Description: Installs/uninstalls and configures FTP (vsftpd), SFTP (via OpenSSH), or TFTP (tftpd-hpa/tftp-server) servers.
 #              Prompts the user to select install or uninstall, then one service per run. Checks if the service is already installed/available;
 #              if so, notifies and skips/exits as appropriate. If all services are installed at the start (for install mode), alerts and exits.
@@ -9,7 +9,7 @@
 #              On install of FTP/SFTP, prompts for and creates credentials, saves them to /etc/fts_credentials.conf, and displays in view mode.
 #
 # Dependencies: None beyond standard package managers.
-# Usage: sudo ./FileTransferServer3.sh
+# Usage: sudo ./FileTransferServer4.sh
 #        Follow on-screen prompts to select install/uninstall, then service.
 # Notes: 
 # - Run as root.
@@ -23,6 +23,25 @@
 #!/bin/bash
 
 set -euo pipefail
+
+# ------------------------------------------------------------------------------
+# TeamPack Compliance Notice
+# Server installation scripts must be run only in authorized lab/team environments.
+# Running server installers on networks or systems you do not control may violate
+# competition rules and acceptable use policies. Confirm you are authorized.
+# ------------------------------------------------------------------------------
+teampack_confirm() {
+    echo ""
+    echo "IMPORTANT: This script configures server services. Only run on authorized team/lab systems."
+    read -p "I confirm I will only run this on my team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+
+# Run TeamPack confirmation
+teampack_confirm
 
 # --- ASCII Banner ---
 echo -e "\033[1;32m"
@@ -53,6 +72,22 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 CRED_FILE="/etc/fts_credentials.conf"
+LAST_CREATED_USERNAME=""
+LAST_CREATED_PASSWORD=""
+NOLOGIN_SHELL=""
+
+detect_nologin_shell() {
+    NOLOGIN_SHELL=$(command -v nologin 2>/dev/null || true)
+    if [ -z "$NOLOGIN_SHELL" ]; then
+        if [ -x /usr/sbin/nologin ]; then
+            NOLOGIN_SHELL=/usr/sbin/nologin
+        elif [ -x /sbin/nologin ]; then
+            NOLOGIN_SHELL=/sbin/nologin
+        else
+            NOLOGIN_SHELL=/bin/false
+        fi
+    fi
+}
 
 # --- Helper Functions ---
 log_info() { echo -e "${GREEN}[INFO] $1${NC}"; }
@@ -97,7 +132,7 @@ detect_pkg_manager() {
         REMOVE_CMD="dnf remove -y"
     else
         log_error "Unsupported package manager. Only apt (Debian/Ubuntu) and dnf (Fedora/CentOS) are supported."
-    fi
+            cat > /etc/vsftpd.conf << 'EOF'
     log_info "Detected package manager: $PKG_MANAGER"
 }
 
@@ -121,8 +156,8 @@ is_ftp_installed() {
 
 is_sftp_installed() {
     if [ "$PKG_MANAGER" = "apt" ]; then
-        $QUERY_CMD openssh-server &> /dev/null
-    else
+            user_sub_token=\$USER
+            local_root=/srv/ftp/\$USER
         $QUERY_CMD openssh-server &> /dev/null
     fi
 }
@@ -196,38 +231,8 @@ create_credentials() {
         echo ""
     done
 
-    # Create restricted user (no home, no shell for security)
-    # Delete user if exists to ensure fresh credentials
-    userdel "$username" 2>/dev/null || true
-    useradd -M -s /bin/false "$username"
-    log_info "User $username created."
-
-    # Set password
-    echo "$username:$password" | chpasswd
-    if ! passwd --status "$username" | grep -q "P"; then
-        log_error "Failed to set password for user $username."
-    fi
-
-    # Save credentials
-    save_credentials "$service" "$username" "$password"
-
-    # For SFTP, create home dir and set ownership (required for chroot if configured)
-    if [ "$service" = "SFTP" ]; then
-        local home_dir="/home/$username"
-        mkdir -p "$home_dir"
-        chown "$username:$username" "$home_dir"
-        chmod 755 "$home_dir"
-        log_info "SFTP home directory created for $username."
-    fi
-
-    # For FTP, create user dir in /srv/ftp
-    if [ "$service" = "FTP" ]; then
-        local ftp_dir="/srv/ftp/$username"
-        mkdir -p "$ftp_dir"
-        chown "$username:$username" "$ftp_dir"
-        chmod 755 "$ftp_dir"
-        log_info "FTP directory created for $username."
-    fi
+    LAST_CREATED_USERNAME="$username"
+    LAST_CREATED_PASSWORD="$password"
 }
 
 # --- Install FTP ---
@@ -239,11 +244,29 @@ install_ftp() {
 
     log_info "Installing FTP (vsftpd)..."
     $UPDATE_CMD >/dev/null 2>&1
+
+    create_credentials "FTP"
+    local username="$LAST_CREATED_USERNAME"
+    local password="$LAST_CREATED_PASSWORD"
+
+    userdel -r "$username" 2>/dev/null || true
+    mkdir -p /srv/ftp
+    chown root:root /srv/ftp
+    chmod 755 /srv/ftp
+    useradd -d "/srv/ftp/$username" -s "$NOLOGIN_SHELL" -M "$username"
+    echo "$username:$password" | chpasswd
+    if ! passwd --status "$username" | grep -q "P"; then
+        log_error "Failed to set password for user $username."
+    fi
+    mkdir -p "/srv/ftp/$username"
+    chown "$username:$username" "/srv/ftp/$username"
+    chmod 750 "/srv/ftp/$username"
+    save_credentials "FTP" "$username" "$password"
     $INSTALL_CMD vsftpd >/dev/null 2>&1 &
     spinner $!
 
     # Basic config: disable anonymous, local users only
-    cat > /etc/vsftpd.conf << EOF
+    cat > /etc/vsftpd.conf << 'EOF'
 listen=YES
 anonymous_enable=NO
 local_enable=YES
@@ -264,14 +287,15 @@ rsa_private_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
 ssl_enable=NO
 allow_email_from=NO
 chroot_local_user=YES
+allow_writeable_chroot=YES
 chroot_list_enable=NO
 chroot_list_file=/etc/vsftpd.chroot_list
+user_sub_token=$USER
+local_root=/srv/ftp/$USER
 EOF
 
     systemctl enable --now vsftpd >/dev/null 2>&1
     log_info "FTP installed and configured."
-
-    create_credentials "FTP"
     return 0
 }
 
@@ -287,14 +311,53 @@ install_sftp() {
     $INSTALL_CMD openssh-server >/dev/null 2>&1 &
     spinner $!
 
-    # Basic config: disable password auth if desired, but keep for simplicity
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-
-    systemctl enable --now ssh >/dev/null 2>&1
-    log_info "SFTP installed and configured."
-
     create_credentials "SFTP"
+    local username="$LAST_CREATED_USERNAME"
+    local password="$LAST_CREATED_PASSWORD"
+
+    userdel -r "$username" 2>/dev/null || true
+    useradd -m -s "$NOLOGIN_SHELL" "$username"
+    echo "$username:$password" | chpasswd
+    if ! passwd --status "$username" | grep -q "P"; then
+        log_error "Failed to set password for user $username."
+    fi
+    save_credentials "SFTP" "$username" "$password"
+
+    local home_dir="/home/$username"
+    mkdir -p "$home_dir/upload"
+    chown root:root "$home_dir"
+    chmod 755 "$home_dir"
+    chown "$username:$username" "$home_dir/upload"
+    chmod 750 "$home_dir/upload"
+
+    if ! getent group sftpusers >/dev/null; then
+        groupadd sftpusers
+    fi
+    usermod -aG sftpusers "$username"
+
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+
+    if grep -q '^#*Subsystem\s\+sftp' /etc/ssh/sshd_config; then
+        sed -i 's/^#\?Subsystem\s\+sftp.*/Subsystem sftp \/usr\/lib\/openssh\/sftp-server/' /etc/ssh/sshd_config
+    else
+        echo "Subsystem sftp /usr/lib/openssh/sftp-server" >> /etc/ssh/sshd_config
+    fi
+
+    if ! grep -q '^Match Group sftpusers' /etc/ssh/sshd_config; then
+cat << 'EOF' >> /etc/ssh/sshd_config
+
+Match Group sftpusers
+    ChrootDirectory /home/%u
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    X11Forwarding no
+EOF
+    fi
+
+    systemctl restart ssh
+    systemctl enable --now ssh >/dev/null 2>&1
+    log_info "SFTP installed and configured for group sftpusers."
     return 0
 }
 
@@ -346,7 +409,7 @@ uninstall_ftp() {
         local creds=$(get_credentials "FTP")
         if [ -n "$creds" ] && [ "$creds" != "No credentials found." ]; then
             local username=$(echo "$creds" | cut -d':' -f1)
-            userdel "$username" 2>/dev/null || true
+            userdel -r "$username" 2>/dev/null || true
             log_info "Deleted user $username for clean uninstall."
         fi
     fi
@@ -379,7 +442,7 @@ uninstall_sftp() {
         local creds=$(get_credentials "SFTP")
         if [ -n "$creds" ] && [ "$creds" != "No credentials found." ]; then
             local username=$(echo "$creds" | cut -d':' -f1)
-            userdel "$username" 2>/dev/null || true
+            userdel -r "$username" 2>/dev/null || true
             log_info "Deleted user $username for clean uninstall."
         fi
     fi
@@ -573,7 +636,7 @@ prompt_choice() {
     if [ $? -eq 0 ]; then
         log_info "Service ${action}ed successfully."
     else
-        log_warn "Selected service could not be ${action}ed (e.g., already/not in state)."
+        log_warn "Selected service could not be ${action}ed (e.g., already in state for some services)."
     fi
 }
 
@@ -581,6 +644,7 @@ prompt_choice() {
 main() {
     check_root
     detect_pkg_manager
+    detect_nologin_shell
     prompt_mode
     log_info "${GREEN}--- Script Complete ---${NC}"
     log_info "Remember to configure firewall rules (e.g., via Palo Alto) and harden services for CCDC security."
