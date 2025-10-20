@@ -1,25 +1,35 @@
-# ==============================================================================
+#!/bin/bash
+
+# ============================================================================== 
 # File: docker_manager.sh
 # Description: Manages Docker Engine on Linux: Install or Uninstall.
 #              Follows official repository-based method.
 #              Detects OS (Debian/Ubuntu, Fedora/CentOS/RHEL).
 #              Adds current user to 'docker' group on install.
-#              Verifies install with 'hello-world' container.
+#              Verifies install without pulling remote images.
 #              Checks for existing install/uninstall to skip as needed.
 #              Optimized for MWCCDC VMs; no auto-service containerization.
 #
 # Dependencies: apt (Debian/Ubuntu) or dnf/yum (Fedora/CentOS/RHEL).
 # Usage: sudo ./docker_manager.sh
 #        Follow prompts for Install/Uninstall/Quit.
-# Notes: 
+# Notes:
 # - Run as root.
 # - In CCDC, ensure Docker doesn't break service scoring (e.g., expose ports manually).
 # - For services (e.g., FTP from FileTransferServer2.sh), containerize manually post-install.
-# ==============================================================================
-
-#!/bin/bash
+# ============================================================================== 
 
 set -euo pipefail
+
+# TeamPack compliance: confirm authorized environment
+teampack_confirm() {
+    read -p "Confirm you will run this only on your authorized team/lab systems (type YES to continue): " _confirm
+    if [[ "$_confirm" != "YES" ]]; then
+        echo "Confirmation not received. Exiting."
+        exit 1
+    fi
+}
+teampack_confirm
 
 # --- ASCII Banner ---
 echo -e "\033[1;32m"
@@ -79,20 +89,50 @@ detect_pkg_manager() {
         QUERY_CMD="dpkg -s"
         REMOVE_CMD="apt-get purge -y"
         REMOVE_EXTRA="apt-get autoremove -y"
+        if [ -r /etc/os-release ]; then
+            . /etc/os-release
+            APT_REPO_ID=${ID:-ubuntu}
+            APT_REPO_CODENAME=${VERSION_CODENAME:-${UBUNTU_CODENAME:-${VERSION_ID:-}}}
+            case "$APT_REPO_ID" in
+                ubuntu|debian) ;;
+                pop|elementary|linuxmint)
+                    APT_REPO_ID="ubuntu"
+                    APT_REPO_CODENAME=${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}
+                    ;;
+                *)
+                    APT_REPO_ID="ubuntu"
+                    ;;
+            esac
+        else
+            APT_REPO_ID="ubuntu"
+            APT_REPO_CODENAME="$(lsb_release -sc 2>/dev/null || echo focal)"
+        fi
     elif command -v dnf &> /dev/null; then
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf check-update"
+        UPDATE_CMD="dnf makecache -y"
         QUERY_CMD="rpm -q"
         REMOVE_CMD="dnf remove -y"
         REMOVE_EXTRA="dnf autoremove -y"
+        if [ -r /etc/os-release ]; then
+            . /etc/os-release
+            RPM_REPO_ID=${ID:-centos}
+        else
+            RPM_REPO_ID="centos"
+        fi
     elif command -v yum &> /dev/null; then
         PKG_MANAGER="yum"
         INSTALL_CMD="yum install -y"
-        UPDATE_CMD="yum check-update"
+        UPDATE_CMD="yum makecache -y"
         QUERY_CMD="rpm -q"
         REMOVE_CMD="yum remove -y"
         REMOVE_EXTRA="yum autoremove -y"
+        if [ -r /etc/os-release ]; then
+            . /etc/os-release
+            RPM_REPO_ID=${ID:-centos}
+        else
+            RPM_REPO_ID="centos"
+        fi
     else
         log_error "Unsupported package manager. Only apt (Debian/Ubuntu) and dnf/yum (Fedora/CentOS/RHEL) are supported."
     fi
@@ -141,9 +181,12 @@ install_docker() {
     fi
     log_info "Installing Docker..."
 
+    # Trap for cleanup
+    trap 'rm -f /tmp/docker_err_* 2>/dev/null || true' EXIT
+
     # Uninstall old versions with spinner and error capture
     printf "Removing any old Docker packages... "
-    local err_file=$(mktemp)
+    local err_file=$(mktemp /tmp/docker_err_XXXXXX)
     ( $REMOVE_CMD docker docker-engine docker.io containerd runc >/dev/null 2>"$err_file" || true
       $REMOVE_EXTRA >/dev/null 2>>"$err_file" || true ) &
     local pid=$!
@@ -162,27 +205,31 @@ install_docker() {
 
     # Main installation with spinner and error capture
     printf "Installing Docker... "
-    local err_file=$(mktemp)
-    if [ "$PKG_MANAGER" = "apt" ]; then
-        ( $UPDATE_CMD >/dev/null 2>"$err_file"
-          $INSTALL_CMD ca-certificates curl gnupg >/dev/null 2>>"$err_file"
-          install -m 0755 -d /etc/apt/keyrings >/dev/null 2>>"$err_file"
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>>"$err_file"
-          chmod a+r /etc/apt/keyrings/docker.gpg >/dev/null 2>>"$err_file"
-          echo \
-            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-            tee /etc/apt/sources.list.d/docker.list >/dev/null 2>>"$err_file"
+    local err_file=$(mktemp /tmp/docker_err_XXXXXX)
+    local distro_version
+        if [ "$PKG_MANAGER" = "apt" ]; then
+                ( $UPDATE_CMD >/dev/null 2>"$err_file"
+                    $INSTALL_CMD ca-certificates curl gnupg >/dev/null 2>>"$err_file"
+                    install -m 0755 -d /etc/apt/keyrings >/dev/null 2>>"$err_file"
+                    curl -fsSL "https://download.docker.com/linux/${APT_REPO_ID}/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>>"$err_file"
+                    chmod a+r /etc/apt/keyrings/docker.gpg >/dev/null 2>>"$err_file"
+                    cat <<EOF >/etc/apt/sources.list.d/docker.list
+deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${APT_REPO_ID} ${APT_REPO_CODENAME} stable
+EOF
           $UPDATE_CMD >/dev/null 2>>"$err_file"
           $INSTALL_CMD docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>>"$err_file" ) &
     elif [ "$PKG_MANAGER" = "dnf" ] || [ "$PKG_MANAGER" = "yum" ]; then
-        if [ "$PKG_MANAGER" = "dnf" ]; then
-            ( $INSTALL_CMD dnf-plugins-core >/dev/null 2>"$err_file"
-              dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo >/dev/null 2>>"$err_file"
-              $INSTALL_CMD docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>>"$err_file" ) &
+                local docker_repo_url="https://download.docker.com/linux/centos/docker-ce.repo"
+                if [ "${RPM_REPO_ID}" = "fedora" ]; then
+                        docker_repo_url="https://download.docker.com/linux/fedora/docker-ce.repo"
+                fi
+                if [ "$PKG_MANAGER" = "dnf" ]; then
+                        ( $INSTALL_CMD dnf-plugins-core >/dev/null 2>"$err_file"
+                            dnf config-manager --add-repo "$docker_repo_url" >/dev/null 2>>"$err_file"
+                            $INSTALL_CMD docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>>"$err_file" ) &
         else
-            ( $INSTALL_CMD yum-utils >/dev/null 2>"$err_file"
-              yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo >/dev/null 2>>"$err_file"
+                        ( $INSTALL_CMD yum-utils >/dev/null 2>"$err_file"
+                            yum-config-manager --add-repo "$docker_repo_url" >/dev/null 2>>"$err_file"
               $INSTALL_CMD docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>>"$err_file" ) &
         fi
     else
@@ -204,16 +251,22 @@ install_docker() {
 
     # Post-install with spinner and error capture
     printf "Configuring Docker service... "
-    local err_file=$(mktemp)
-    ( systemctl start docker >/dev/null 2>"$err_file"
-      systemctl enable docker >/dev/null 2>>"$err_file"
-      usermod -aG docker "${SUDO_USER:-$(whoami)}" >/dev/null 2>>"$err_file" || true ) &
+    local err_file=$(mktemp /tmp/docker_err_XXXXXX)
+        local docker_group_user="${SUDO_USER:-}"
+        ( systemctl start docker >/dev/null 2>"$err_file"
+          systemctl enable docker >/dev/null 2>>"$err_file"
+          if [ -n "$docker_group_user" ]; then
+              usermod -aG docker "$docker_group_user" >/dev/null 2>>"$err_file" || true
+          fi ) &
     local pid=$!
     spinner $pid
     wait $pid
     local exit_status=$?
     local err_content=$(cat "$err_file")
     rm -f "$err_file"
+    if [ -z "$docker_group_user" ]; then
+        log_warn "Skipped adding a non-root user to the docker group (run 'sudo usermod -aG docker <user>' as needed)."
+    fi
     if [ $exit_status -ne 0 ]; then
         echo ""  # Newline after spinner
         echo -e "${RED}Error during Docker configuration:${NC}"
@@ -224,8 +277,8 @@ install_docker() {
 
     # Verify with spinner and error capture
     printf "Verifying Docker installation... "
-    local err_file=$(mktemp)
-    ( docker run hello-world >/dev/null 2>"$err_file" ) &
+    local err_file=$(mktemp /tmp/docker_err_XXXXXX)
+    ( systemctl is-active --quiet docker && docker --version >/dev/null 2>>"$err_file" && docker info >/dev/null 2>>"$err_file" ) &
     local pid=$!
     spinner $pid
     wait $pid
@@ -255,9 +308,12 @@ uninstall_docker() {
     fi
     log_info "Uninstalling Docker..."
 
+    # Trap for cleanup
+    trap 'rm -f /tmp/docker_err_* 2>/dev/null || true' EXIT
+
     # Uninstall with spinner and error capture
     printf "Uninstalling Docker... "
-    local err_file=$(mktemp)
+    local err_file=$(mktemp /tmp/docker_err_XXXXXX)
     ( # Stop and disable service
       systemctl stop docker >/dev/null 2>"$err_file" || true
       systemctl disable docker >/dev/null 2>>"$err_file" || true
