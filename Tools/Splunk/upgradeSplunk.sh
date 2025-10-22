@@ -9,7 +9,7 @@
 
 #Set the variables for the download URL
 SPLUNK_VERSION="10.0.1"
-SPLUNK_BUILD="ea5bfadeac3a"
+SPLUNK_BUILD="c486717c322b"
 SPLUNK_PACKAGE_RPM="splunk-${SPLUNK_VERSION}-${SPLUNK_BUILD}.x86_64.rpm"
 SPLUNK_DOWNLOAD_URL="https://download.splunk.com/products/splunk/releases/${SPLUNK_VERSION}/linux/${SPLUNK_PACKAGE_RPM}"
 
@@ -39,17 +39,19 @@ cp -rp "$SPLUNK_HOME/etc" "$BACKUP_DIR/"
 cp -rp "$SPLUNK_HOME/var/log" "$BACKUP_DIR/"
 
 #No --pre disabled the prechecks. Going from an old version of Splunk to 10.0.1 is a little buggy with the checks
-if ! rpm -Uhv --nopre splunk-*.rpm; then
+if ! rpm -Uhv --nopre splunk-upgrade.rpm; then
     echo "Upgrade installation failed"
     exit 1
 fi
 
-# Initialize upgrade
-"$SPLUNK_HOME/bin/splunk" _internal restart
+# workaround for the buggy "splunk start" precheck - we love buggy upgrades so much
+# this is a known bug where the check fails if this default path doesn't exist.
+echo "Applying workaround for KVStore precheck bug..."
+mkdir -p /opt/splunk/var/lib/splunk/kvstore/mongo
 
-# Start Splunk
-echo "Starting Splunk..."
+# Start splunk. The precheck should pass.
+echo "Starting Splunk and triggering migration..."
 "$SPLUNK_HOME/bin/splunk" start --accept-license --answer-yes
 
 # Clean up downloaded package
-rm -f splunk-*.rpm
+rm -f splunk-upgrade.rpm
