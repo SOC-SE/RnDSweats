@@ -1,17 +1,26 @@
 #!/bin/bash
 #
-#  A script to automate upgrading Splunk during competition.
-#  Not super complicated. Much nicer than most of my other Splunk scripts, this one doesn't need to be so flexible.
+#  A script to automate a stepped Splunk upgrade during competition.
+#  This path (9.1.x -> 9.4.x -> 10.0.x) is supported.
+#   Don't ask me how bloody long it took to find the documentation on this. So. Much. Time. Wasted.
 #
-#  As of three competitions, it works well!
 #
-#  Samuel Brucker 2024-2025
+#  Samuel Brucker 2024-2026
+#
 
-#Set the variables for the download URL
-SPLUNK_VERSION="10.0.1"
-SPLUNK_BUILD="c486717c322b"
-SPLUNK_PACKAGE_RPM="splunk-${SPLUNK_VERSION}-${SPLUNK_BUILD}.x86_64.rpm"
-SPLUNK_DOWNLOAD_URL="https://download.splunk.com/products/splunk/releases/${SPLUNK_VERSION}/linux/${SPLUNK_PACKAGE_RPM}"
+# --- Version 1 (Intermediate) ---
+# We must first upgrade to a 9.x version. We'll use 9.4.1.
+SPLUNK_V9_VER="9.4.1"
+SPLUNK_V9_BUILD="de415b3b9b32"
+SPLUNK_V9_RPM="splunk-${SPLUNK_V9_VER}-${SPLUNK_V9_BUILD}.x86_64.rpm"
+SPLUNK_V9_URL="https://download.splunk.com/products/splunk/releases/${SPLUNK_V9_VER}/linux/${SPLUNK_V9_RPM}"
+
+# --- Version 2 (Final) ---
+SPLUNK_V10_VER="10.0.1"
+SPLUNK_V10_BUILD="ea5bfadeac3a"
+SPLUNK_V10_RPM="splunk-${SPLUNK_V10_VER}-${SPLUNK_V10_BUILD}.x86_64.rpm"
+SPLUNK_V10_URL="https://download.splunk.com/products/splunk/releases/${SPLUNK_V10_VER}/linux/${SPLUNK_V10_RPM}"
+
 
 # Check if running as root/sudo
 if [ "$EUID" -ne 0 ]; then
@@ -19,39 +28,83 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Set Splunk home path - adjust if your Splunk installation is elsewhere
+# Set Splunk home path
 SPLUNK_HOME=/opt/splunk
-
-# Download latest Enterprise version (adjust URL based on your needs)
-if ! wget -q --show-progress "$SPLUNK_DOWNLOAD_URL" -O splunk-upgrade.rpm; then
-    echo "Splunk's upgrade failed to download"
-    exit 1
-fi
 
 # Stop Splunk first
 echo "Stopping Splunk..."
 "$SPLUNK_HOME/bin/splunk" stop
 
-# Backup current installation
+# Backup current installation (config ONLY)
+echo "Backing up Splunk /etc configuration..."
 BACKUP_DIR="/tmp/splunk_backup_pre-update_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 cp -rp "$SPLUNK_HOME/etc" "$BACKUP_DIR/"
-cp -rp "$SPLUNK_HOME/var/log" "$BACKUP_DIR/"
 
-#No --pre disabled the prechecks. Going from an old version of Splunk to 10.0.1 is a little buggy with the checks
-if ! rpm -Uhv --nopre splunk-upgrade.rpm; then
-    echo "Upgrade installation failed"
+
+# -----------------------------------------------------------------
+#  STEP 1: UPGRADE TO 9.4.1
+# -----------------------------------------------------------------
+echo ""
+echo "--- Starting Step 1: Upgrading to ${SPLUNK_V9_VER} ---"
+
+# Download 9.4.1
+if ! wget -q --show-progress "$SPLUNK_V9_URL" -O "$SPLUNK_V9_RPM"; then
+    echo "Splunk ${SPLUNK_V9_VER} failed to download"
     exit 1
 fi
 
-# workaround for the buggy "splunk start" precheck - we love buggy upgrades so much
-# this is a known bug where the check fails if this default path doesn't exist.
-echo "Applying workaround for KVStore precheck bug..."
-mkdir -p /opt/splunk/var/lib/splunk/kvstore/mongo
+# Install 9.4.1
+if ! rpm -Uhv "$SPLUNK_V9_RPM"; then
+    echo "Upgrade to ${SPLUNK_V9_VER} failed"
+    exit 1
+fi
 
-# Start splunk. The precheck should pass.
-echo "Starting Splunk and triggering migration..."
+# Start Splunk to allow it to migrate to 9.4.1
+echo "Starting Splunk to migrate to ${SPLUNK_V9_VER}..."
 "$SPLUNK_HOME/bin/splunk" start --accept-license --answer-yes
 
-# Clean up downloaded package
-rm -f splunk-upgrade.rpm
+echo "Migration to ${SPLUNK_V9_VER} complete. Stopping Splunk for next step."
+"$SPLUNK_HOME/bin/splunk" stop
+rm -f "$SPLUNK_V9_RPM"
+echo "--- Step 1 Complete ---"
+
+
+# -----------------------------------------------------------------
+#  STEP 2: UPGRADE TO 10.0.1
+# -----------------------------------------------------------------
+echo ""
+echo "--- Starting Step 2: Upgrading to ${SPLUNK_V10_VER} ---"
+
+# Download 10.0.1
+if ! wget -q --show-progress "$SPLUNK_V10_URL" -O "$SPLUNK_V10_RPM"; then
+    echo "Splunk ${SPLUNK_V10_VER} failed to download"
+    exit 1
+fi
+
+# Install 10.0.1 (using --nopre to skip package precheck)
+if ! rpm -Uhv --nopre "$SPLUNK_V10_RPM"; then
+    echo "Upgrade to ${SPLUNK_V10_VER} failed"
+    exit 1
+fi
+
+# --- Apply KV Store Workaround ---
+# Manually create the version file to trick the 'splunk start' precheck
+echo "Applying workaround: Manually creating KVStore version file..."
+VERSION_DIR="$SPLUNK_HOME/var/run/splunk/kvstore_upgrade"
+VERSION_FILE="$VERSION_DIR/versionFile42"
+mkdir -p "$VERSION_DIR"
+touch "$VERSION_FILE"
+# Ensure the new files are owned by the splunk user, not root
+chown -R $(stat -c '%U:%G' "$SPLUNK_HOME") "$VERSION_DIR"
+echo "Workaround file created."
+
+# Final Start
+echo "Starting Splunk to complete migration to ${SPLUNK_V10_VER}..."
+"$SPLUNK_HOME/bin/splunk" start --accept-license --answer-yes
+
+# Clean up final package
+rm -f "$SPLUNK_V10_RPM"
+
+echo ""
+echo "--- Stepped upgrade to ${SPLUNK_V10_VER} complete! ---"
