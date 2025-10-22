@@ -38,7 +38,8 @@ mkdir -p "$BACKUP_DIR"
 cp -rp "$SPLUNK_HOME/etc" "$BACKUP_DIR/"
 cp -rp "$SPLUNK_HOME/var/log" "$BACKUP_DIR/"
 
-if ! rpm -Uhv splunk-*.rpm; then
+#No --pre disabled the prechecks. Going from an old version of Splunk to 10.0.1 is a little buggy with the checks
+if ! rpm -Uhv --nopre splunk-*.rpm; then
     echo "Upgrade installation failed"
     exit 1
 fi
