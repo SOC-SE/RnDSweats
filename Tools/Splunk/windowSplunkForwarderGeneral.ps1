@@ -1,55 +1,45 @@
 <#
 .SYNOPSIS
     Automates the installation of the Splunk Universal Forwarder on Windows.
-    This script downloads the MSI, installs it silently, sets the admin password,
-    configures monitors, and sets up forwarding to an indexer.
+    This script downloads the MSI and installs it, pointing it at an indexer.
     
 .DESCRIPTION
-    This script is a PowerShell conversion of a Linux bash installer.
-    It's designed to be run as Administrator.
-    It prioritizes speed and efficiency, suitable for competition environments.
-    Monitors included:
-    - Standard Windows Event Logs (App, Sec, Sys)
-    - Windows Defender & Sysmon Event Logs
-    - Suricata (eve.json & fast.log) file monitor
-    - Yara (scan log) file monitor
+    This script is a combination of two different install logics.
+    It uses the robust checks and monitors from the newer script,
+    but the simpler MSI-based configuration from the older script.
 
 .PARAMETER IndexerIp
     The IP address of the Splunk Indexer to forward logs to.
     Default is '172.20.241.20'.
 
-.PARAMETER AdminUsername
-    The Splunk admin username. The MSI installer defaults this to 'admin',
-    but the script uses this parameter for the 'add forward-server' command.
-    Default is 'admin'.
-
-.PARAMETER AdminPassword
-    The password for the Splunk admin user. This will be set during installation.
-    Default is 'Changeme1!'.
+.PARAMETER SplunkHostName
+    The custom hostname Splunk will use for this machine.
+    Default is the machine's actual $env:COMPUTERNAME.
 
 .EXAMPLE
     .\splunkForwarderWindowsGeneral.ps1
     
-    Runs the script with all default values.
+    Runs the script with default values.
 
 .EXAMPLE
-    .\splunkForwarderWindowsGeneral.ps1 -IndexerIp 10.1.1.5 -AdminPassword "s3cur3p@ss!"
+    .\splunkForwarderWindowsGeneral.ps1 -IndexerIp 10.1.1.5 -SplunkHostName "AD-SERVER-01"
     
-    Runs the script, forwarding to 10.1.1.5 and setting a custom admin password.
+    Runs the script, forwarding to 10.1.1.5 and setting a custom hostname.
 #>
 param(
     [string]$IndexerIp = "172.20.241.20",
-    [string]$AdminUsername = "admin",
-    [string]$AdminPassword = "Changeme1!"
+    [string]$SplunkHostName = $env:COMPUTERNAME
 )
 
 # --- Define Splunk Forwarder Variables ---
+# Using the 9.1.1 version from your old script for compatibility with v9.1.0 indexer
 $SplunkVersion = "10.0.1"
-$SplunkBuild = "8fb2a6c586a5"
+$SplunkBuild = "c486717c322b"
 $SplunkPackageMsi = "splunkforwarder-${SplunkVersion}-${SplunkBuild}-windows-x64.msi"
 $SplunkDownloadUrl = "https://download.splunk.com/products/universalforwarder/releases/${SplunkVersion}/windows/${SplunkPackageMsi}"
 $InstallDir = "$env:ProgramFiles\SplunkUniversalForwarder"
 $SplunkBin = Join-Path $InstallDir "bin\splunk.exe"
+
 
 # --- Function Definitions ---
 
@@ -71,24 +61,24 @@ function Check-Dependencies {
     }
 }
 
-# Function to install the Splunk Forwarder MSI
+# Function to install the Splunk Forwarder MSI (using old script's logic)
 function Install-Splunk {
     param(
         [string]$MsiPath,
-        [string]$MsiPassword
+        [string]$TargetIndexer,
+        [string]$TargetPort = "9997"
     )
 
     Write-Host "Installing Splunk Universal Forwarder..." -ForegroundColor Magenta
     
     # MSI arguments for a silent install
-    # We set the admin password and agree to the license.
-    # We also log the install, which is good practice.
+    # Using RECEIVING_INDEXER argument from your old script
     $MsiArgs = @(
         "/i", "`"$MsiPath`"",
         "/quiet",
         "/L*v", "`"$env:TEMP\splunk_install.log`"",
         "AGREETOLICENSE=Yes",
-        "PASSWORD=""$MsiPassword""",
+        "RECEIVING_INDEXER=""$TargetIndexer:$TargetPort""",
         "LAUNCH_SPLUNK=1" # Start Splunk service after install
     )
 
@@ -180,33 +170,25 @@ sourcetype = test
     }
 }
 
-# Function to configure the forwarder to send logs to the Splunk indexer
-function Configure-Forwarder {
+# Function to set a custom hostname (from old script's logic)
+function Set-CustomHostname {
     param(
-        [string]$TargetIndexer,
-        [string]$User,
-        [string]$Pass
+        [string]$HostName
     )
+    Write-Host "Setting custom Splunk hostname to '$HostName'..." -ForegroundColor Magenta
+    $ServerConfig = Join-Path $InstallDir "etc\system\local\server.conf"
     
-    Write-Host "Configuring Splunk Universal Forwarder to send logs to $TargetIndexer:9997..." -ForegroundColor Magenta
-    
-    # Check if the splunk.exe exists before trying to run it
-    if (-not (Test-Path $SplunkBin)) {
-        Write-Host "Error: splunk.exe not found at $SplunkBin. Installation may have failed." -ForegroundColor Red
-        Exit 1
-    }
-
-    $CmdArgs = @(
-        "add", "forward-server", "$TargetIndexer:9997",
-        "-auth", "$($User):$($Pass)"
-    )
-    
-    $process = Start-Process $SplunkBin -ArgumentList $CmdArgs -Wait -NoNewWindow -PassThru
-
-    if ($process.ExitCode -ne 0) {
-        Write-Host "Failed to configure forward-server. Exit code: $($process.ExitCode)" -ForegroundColor Red
-    } else {
-        Write-Host "Forward-server configuration complete." -ForegroundColor Green
+    # This will create the file or append to it if it already exists
+    $ConfigContent = @"
+[general]
+serverName = $HostName
+"@
+    try {
+        $ConfigContent | Out-File -FilePath $ServerConfig -Encoding ASCII -Append -ErrorAction Stop
+        Write-Host "Custom hostname set in server.conf." -ForegroundColor Green
+    } catch {
+        Write-Host "Failed to write $ServerConfig." -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
     }
 }
 
@@ -230,10 +212,8 @@ Check-Admin
 Write-Host "--- Splunk Forwarder Configuration ---" -ForegroundColor Magenta
 Write-Host "Indexer IP:      " -ForegroundColor Green -NoNewline
 Write-Host $IndexerIp
-Write-Host "Admin Username:  " -ForegroundColor Green -NoNewline
-Write-Host $AdminUsername
-Write-Host "Admin Password:  " -ForegroundColor Green -NoNewline
-Write-Host "(hidden)"
+Write-Host "Splunk Hostname: " -ForegroundColor Green -NoNewline
+Write-Host $SplunkHostName
 Write-Host "------------------------------------" -ForegroundColor Magenta
 
 # IDEMPOTENCY CHECK: Exit if Splunk is already installed
@@ -244,6 +224,7 @@ if (Test-Path $InstallDir) {
 
 # Set path for the downloaded MSI
 $LocalMsiPath = Join-Path $env:TEMP $SplunkPackageMsi
+
 
 # Download the installer
 try {
@@ -259,14 +240,14 @@ try {
 
 # --- Main Installation Logic ---
 
-# 1. Install Splunk
-Install-Splunk -MsiPath $LocalMsiPath -MsiPassword $AdminPassword
+# 1. Install Splunk (pass in Indexer IP)
+Install-Splunk -MsiPath $LocalMsiPath -TargetIndexer $IndexerIp
 
 # 2. Add monitors
 Set-WindowsMonitors
 
-# 3. Configure the forwarder
-Configure-Forwarder -TargetIndexer $IndexerIp -User $AdminUsername -Pass $AdminPassword
+# 3. Set custom hostname
+Set-CustomHostname -HostName $SplunkHostName
 
 # 4. Restart Splunk to apply settings
 Restart-Splunk
