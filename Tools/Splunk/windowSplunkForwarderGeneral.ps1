@@ -45,7 +45,7 @@ param(
 
 # --- Define Splunk Forwarder Variables ---
 $SplunkVersion = "10.0.1"
-$SplunkBuild = "c486717c322b"
+$SplunkBuild = "8fb2a6c586a5"
 $SplunkPackageMsi = "splunkforwarder-${SplunkVersion}-${SplunkBuild}-windows-x64.msi"
 $SplunkDownloadUrl = "https://download.splunk.com/products/universalforwarder/releases/${SplunkVersion}/windows/${SplunkPackageMsi}"
 $InstallDir = "$env:ProgramFiles\SplunkUniversalForwarder"
@@ -198,7 +198,7 @@ function Configure-Forwarder {
 
     $CmdArgs = @(
         "add", "forward-server", "$TargetIndexer:9997",
-        "-auth", "$User:$Pass"
+        "-auth", "$($User):$($Pass)"
     )
     
     $process = Start-Process $SplunkBin -ArgumentList $CmdArgs -Wait -NoNewWindow -PassThru
