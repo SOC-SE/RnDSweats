@@ -11,7 +11,7 @@
     Monitors included:
     - Standard Windows Event Logs (App, Sec, Sys)
     - Windows Defender & Sysmon Event Logs
-    - Suricata (eve.json) file monitor
+    - Suricata (eve.json & fast.log) file monitor
     - Yara (scan log) file monitor
 
 .PARAMETER IndexerIp
@@ -78,7 +78,7 @@ function Install-Splunk {
         [string]$MsiPassword
     )
 
-    Write-Host "Installing Splunk Universal Forwarder..." -ForegroundColor Blue
+    Write-Host "Installing Splunk Universal Forwarder..." -ForegroundColor Magenta
     
     # MSI arguments for a silent install
     # We set the admin password and agree to the license.
@@ -105,7 +105,7 @@ function Install-Splunk {
 
 # Function to set up a consolidated set of monitors
 function Set-WindowsMonitors {
-    Write-Host "Setting up consolidated monitors..." -ForegroundColor Blue
+    Write-Host "Setting up consolidated monitors..." -ForegroundColor Magenta
     $MonitorConfig = Join-Path $InstallDir "etc\system\local\inputs.conf"
 
     # Define the monitor stanzas
@@ -150,7 +150,7 @@ disabled = 0
 index = main
 sourcetype = suricata:eve
 
-[monitor://C\Program Files\Suricata\log\fast.log]
+[monitor://C:\Program Files\Suricata\log\fast.log]
 disabled = 0
 index = main
 sourcetype = suricata:fast
@@ -188,7 +188,7 @@ function Configure-Forwarder {
         [string]$Pass
     )
     
-    Write-Host "Configuring Splunk Universal Forwarder to send logs to $TargetIndexer:9997..." -ForegroundColor Blue
+    Write-Host "Configuring Splunk Universal Forwarder to send logs to $TargetIndexer:9997..." -ForegroundColor Magenta
     
     # Check if the splunk.exe exists before trying to run it
     if (-not (Test-Path $SplunkBin)) {
@@ -212,7 +212,7 @@ function Configure-Forwarder {
 
 # Function to restart the Splunk service
 function Restart-Splunk {
-    Write-Host "Restarting Splunk Forwarder service..." -ForegroundColor Blue
+    Write-Host "Restarting Splunk Forwarder service..." -ForegroundColor Magenta
     try {
         Restart-Service SplunkForwarder -ErrorAction Stop
         Write-Host "Splunk Forwarder service successfully restarted." -ForegroundColor Green
@@ -227,14 +227,14 @@ Check-Dependencies
 Check-Admin
 
 # Announce the configuration
-Write-Host "--- Splunk Forwarder Configuration ---" -ForegroundColor Blue
+Write-Host "--- Splunk Forwarder Configuration ---" -ForegroundColor Magenta
 Write-Host "Indexer IP:      " -ForegroundColor Green -NoNewline
 Write-Host $IndexerIp
 Write-Host "Admin Username:  " -ForegroundColor Green -NoNewline
 Write-Host $AdminUsername
 Write-Host "Admin Password:  " -ForegroundColor Green -NoNewline
 Write-Host "(hidden)"
-Write-Host "------------------------------------" -ForegroundColor Blue
+Write-Host "------------------------------------" -ForegroundColor Magenta
 
 # IDEMPOTENCY CHECK: Exit if Splunk is already installed
 if (Test-Path $InstallDir) {
@@ -252,7 +252,7 @@ Write-Host "Disabling TLS/SSL certificate validation for download." -ForegroundC
 
 # Download the installer
 try {
-    Write-Host "Downloading Splunk Forwarder MSI from $SplunkDownloadUrl..." -ForegroundColor Blue
+    Write-Host "Downloading Splunk Forwarder MSI from $SplunkDownloadUrl..." -ForegroundColor Magenta
     Invoke-WebRequest -Uri $SplunkDownloadUrl -OutFile $LocalMsiPath -ErrorAction Stop
     Write-Host "Download complete." -ForegroundColor Green
 } catch {
@@ -276,7 +276,7 @@ Configure-Forwarder -TargetIndexer $IndexerIp -User $AdminUsername -Pass $AdminP
 Restart-Splunk
 
 # 5. Create test log
-Write-Host "Creating test log..." -ForegroundColor Blue
+Write-Host "Creating test log..." -ForegroundColor Magenta
 $TestLogDir = "C:\tmp"
 $TestLogFile = Join-Path $TestLogDir "test.log"
 if (-not (Test-Path $TestLogDir)) {
@@ -289,7 +289,7 @@ Remove-Item $LocalMsiPath -ErrorAction SilentlyContinue
 
 # 7. Verify installation
 if (Test-Path $SplunkBin) {
-    Write-Host "Verifying installation..." -ForegroundColor Blue
+    Write-Host "Verifying installation..." -ForegroundColor Magenta
     & $SplunkBin version
     Write-Host "Splunk Universal Forwarder v$SplunkVersion installation complete!" -ForegroundColor Yellow
 } else {
