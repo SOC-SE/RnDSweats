@@ -41,11 +41,10 @@ param(
     [string]$IndexerIp = "172.20.241.20",
     [string]$AdminUsername = "admin",
     [string]$AdminPassword = "Changeme1!"
-)
 
 # --- Define Splunk Forwarder Variables ---
-$SplunkVersion = "9.1.1"
-$SplunkBuild = "64e843ea36b1"
+$SplunkVersion = "10.0.0"
+$SplunkBuild = "ea5bfadeac3a"
 $SplunkPackageMsi = "splunkforwarder-${SplunkVersion}-${SplunkBuild}-x64-release.msi"
 $SplunkDownloadUrl = "https://download.splunk.com/products/universalforwarder/releases/${SplunkVersion}/windows/${SplunkPackageMsi}"
 $InstallDir = "$env:ProgramFiles\SplunkUniversalForwarder"

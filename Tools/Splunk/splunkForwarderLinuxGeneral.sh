@@ -8,8 +8,8 @@
 # Samuel Brucker 2024-2025
 
 # Define Splunk Forwarder variables
-SPLUNK_VERSION="9.1.1"
-SPLUNK_BUILD="64e843ea36b1"
+SPLUNK_VERSION="10.0.0"
+SPLUNK_BUILD="ea5bfadeac3a"
 SPLUNK_PACKAGE_TGZ="splunkforwarder-${SPLUNK_VERSION}-${SPLUNK_BUILD}-Linux-x86_64.tgz"
 SPLUNK_DOWNLOAD_URL="https://download.splunk.com/products/universalforwarder/releases/${SPLUNK_VERSION}/linux/${SPLUNK_PACKAGE_TGZ}"
 INSTALL_DIR="/opt/splunkforwarder"
@@ -234,9 +234,14 @@ index = main
 sourcetype = firewalld
 crcSalt = <SOURCE>
 
+[monitor:///var/log/suricata/fast.log]
+index = main
+sourcetype = suricata:fast
+crcSalt = <SOURCE>
+
 [monitor:///var/log/suricata/eve.json]
 index = main
-sourcetype = suricata:eve
+sourcetype = suricacata:eve
 crcSalt = <SOURCE>
 
 # For cron-driven YARA scans. The path may need to be adjusted.
