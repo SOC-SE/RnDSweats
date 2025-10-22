@@ -198,7 +198,7 @@ function Configure-Forwarder {
 
     $CmdArgs = @(
         "add", "forward-server", "$TargetIndexer:9997",
-        "-auth", "$User`:$Pass"
+        "-auth", "$User:$Pass"
     )
     
     $process = Start-Process $SplunkBin -ArgumentList $CmdArgs -Wait -NoNewWindow -PassThru
