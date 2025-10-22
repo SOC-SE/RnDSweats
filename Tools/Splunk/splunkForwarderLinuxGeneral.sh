@@ -8,11 +8,12 @@
 # Samuel Brucker 2024-2025
 
 # Define Splunk Forwarder variables
-SPLUNK_VERSION="10.0.0"
-SPLUNK_BUILD="ea5bfadeac3a"
-SPLUNK_PACKAGE_TGZ="splunkforwarder-${SPLUNK_VERSION}-${SPLUNK_BUILD}-Linux-x86_64.tgz"
+SPLUNK_VERSION="10.0.1"
+SPLUNK_BUILD="c486717c322b"
+SPLUNK_PACKAGE_TGZ="splunkforwarder-${SPLUNK_VERSION}-${SPLUNK_BUILD}-linux-amd64.tgz"
 SPLUNK_DOWNLOAD_URL="https://download.splunk.com/products/universalforwarder/releases/${SPLUNK_VERSION}/linux/${SPLUNK_PACKAGE_TGZ}"
 INSTALL_DIR="/opt/splunkforwarder"
+
 
 # Set defaults for configuration
 DEFAULT_INDEXER_IP="172.20.241.20"

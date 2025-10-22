@@ -7,7 +7,7 @@
 #
 #  Samuel Brucker 2024-2025
 
-#Set the variable for the download URL
+#Set the variables for the download URL
 SPLUNK_VERSION="10.0.1"
 SPLUNK_BUILD="ea5bfadeac3a"
 SPLUNK_PACKAGE_RPM="splunk-${SPLUNK_VERSION}-${SPLUNK_BUILD}.x86_64.rpm"
