@@ -247,8 +247,8 @@ $LocalMsiPath = Join-Path $env:TEMP $SplunkPackageMsi
 
 # CCDC-style: "quick and dirty" SSL/TLS validation bypass for Invoke-WebRequest
 # This is common in competition environments where certs might be self-signed.
-Write-Host "Disabling TLS/SSL certificate validation for download." -ForegroundColor Yellow
-[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+#Write-Host "Disabling TLS/SSL certificate validation for download." -ForegroundColor Yellow
+#[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
 # Download the installer
 try {
