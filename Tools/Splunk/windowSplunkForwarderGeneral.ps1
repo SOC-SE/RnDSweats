@@ -41,6 +41,7 @@ param(
     [string]$IndexerIp = "172.20.241.20",
     [string]$AdminUsername = "admin",
     [string]$AdminPassword = "Changeme1!"
+)
 
 # --- Define Splunk Forwarder Variables ---
 $SplunkVersion = "10.0.1"
