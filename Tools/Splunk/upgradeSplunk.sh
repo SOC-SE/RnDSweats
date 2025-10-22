@@ -7,7 +7,7 @@
 
 # --- Version 1 (Intermediate) ---
 SPLUNK_V9_VER="9.4.1"
-SPLUNK_V9_BUILD="de415b3b9b32"
+SPLUNK_V9_BUILD="e3bdab203ac8"
 SPLUNK_V9_RPM="splunk-${SPLUNK_V9_VER}-${SPLUNK_V9_BUILD}.x86_64.rpm"
 SPLUNK_V9_URL="https://download.splunk.com/products/splunk/releases/${SPLUNK_V9_VER}/linux/${SPLUNK_V9_RPM}"
 
