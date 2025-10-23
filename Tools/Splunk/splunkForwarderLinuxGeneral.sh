@@ -209,7 +209,7 @@ crcSalt = <SOURCE>
 
 
 # -----------------------------------------------------------------------------
-# Security Services (Audit, Firewall, IDS, etc.)
+# Misc Security Services (Audit, Firewall, IDS, etc.)
 # -----------------------------------------------------------------------------
 
 [monitor:///var/log/audit/audit.log]
@@ -251,12 +251,34 @@ index = main
 sourcetype = yara
 crcSalt = <SOURCE>
 
-# Firejail events are typically found in the auditd logs (linux:audit)
-# or syslog and do not require a separate monitor.
 
-# Velociraptor integration is best handled by configuring the Velociraptor
-# server to forward events to Splunk via its own Syslog output.
+# -----------------------------------------------------------------------------
+# # LMD (Linux Malware Detect). Combines ClamAV, Yara, and additional AV functionality.
+# -----------------------------------------------------------------------------
 
+#General logs
+[monitor:///usr/local/maldetect/logs/event_log]
+index = main
+sourcetype = linux_av:events
+crcSalt = <SOURCE>
+
+#scan summaries
+[monitor:///usr/local/maldetect/logs/scan_log]
+index = main
+sourcetype = linux_av:scan_summaries
+crcSalt = <SOURCE>
+
+#errors
+[monitor:///usr/local/maldetect/logs/error_log]
+index = main
+sourcetype = linux_av:errors
+crcSalt = <SOURCE>
+
+#full detailed reports
+[monitor:///usr/local/maldetect/sess/*]
+index = main
+sourcetype = linux_av:full_reports
+crcSalt = <SOURCE>
 
 # -----------------------------------------------------------------------------
 # Wazuh SIEM
