@@ -101,6 +101,8 @@ build_master_rule_file() {
         "gen_susp_base64_pe.yar"
         "apt_screenconnect_feb24.yar"
         "mal_vcruntime_sideloading_aug23.yar"
+        # --- Added from new syntax error log ---
+        "mal_poisonivy.yar"
     )
     
     # Create the regex string for grep: (file1|file2|file3)
@@ -111,9 +113,14 @@ build_master_rule_file() {
 
     # STAGE 1: Find all files, pipe the list to grep to filter out bad ones,
     # then pipe the clean list to xargs to concatenate them.
-    find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | \
-        grep -vEz "(${exclude_regex})" | \
-        xargs -0 cat > "$MASTER_RULES_FILE_TMP"
+    #
+    # FIX: Removed -print0, -z, and -0. We will use newlines, which is
+    # the default for find, grep, and xargs. This makes the grep filter
+    # on filenames work correctly.
+    #
+    find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) | \
+        grep -vE "(${exclude_regex})" | \
+        xargs cat > "$MASTER_RULES_FILE_TMP"
 
     log "Filtering master file for incompatible lines..."
     # STAGE 2: Now, use sed to find and comment out any *remaining* line
