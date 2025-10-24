@@ -120,7 +120,10 @@ install_dependencies() {
 }
 
 # --- SCRIPT EXECUTION STARTS HERE ---
-check_dependencies
+
+# Install any missing dependencies
+install_dependencies
+
 
 # Announce the configuration that will be used
 echo "${BLUE}--- Splunk Forwarder Configuration ---${NC}"
@@ -537,9 +540,6 @@ restart_splunk() {
 }
 
 # --- Main Installation Logic ---
-
-# Install any missing dependencies
-install_dependencies
 
 # Perform installation
 install_splunk
