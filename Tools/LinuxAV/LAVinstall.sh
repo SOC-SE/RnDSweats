@@ -8,11 +8,11 @@
 # It performs the following steps:
 # 1. Checks for root privileges.
 # 2. Detects the Linux distribution (Debian/RHEL based).
-# 3. Prompts for a directory path to monitor.
+# 3. Defines a static list of high-risk directories to monitor.
 # 4. Installs and configures ClamAV, including the daemon for performance.
 # 5. Downloads and installs the latest version of LMD.
 # 6. Configures LMD to use the ClamAV engine and enables quarantine.
-# 7. Starts LMD's real-time monitoring service on the specified path.
+# 7. Starts LMD's real-time monitoring service on the specified paths.
 #
 #  Samuel Brucker 2025-2026
 #
@@ -61,16 +61,44 @@ else
 fi
 
 
-# --- User Input ---
+# --- Directory Configuration ---
 
-# 3. Prompt for the directory to monitor
-read -p "Please enter the full path of the directory to monitor (e.g., /var/www or /home): " MONITOR_PATH
+# 3. Define directories for real-time monitoring
+echo -e "${YELLOW}Defining directories for real-time monitoring...${NC}"
+# List of directories you specified
+MONITOR_LIST_ARRAY=("/tmp" "/var/tmp" "/dev/shm" "/var/www" "/home" "/etc/systemd/system" "/lib/systemd/system" "/root")
 
-if [ ! -d "$MONITOR_PATH" ]; then
-    echo -e "${RED}Error: The directory '$MONITOR_PATH' does not exist.${NC}"
+FINAL_MONITOR_PATHS_ARRAY=()
+MISSING_PATHS=()
+
+# Check that the specified directories exist before adding them to the list
+for path in "${MONITOR_LIST_ARRAY[@]}"; do
+    if [ -d "$path" ]; then
+        FINAL_MONITOR_PATHS_ARRAY+=("$path")
+    else
+        MISSING_PATHS+=("$path")
+    fi
+done
+
+# Create the final comma-separated string for maldet
+MONITOR_PATH=$(IFS=,; echo "${FINAL_MONITOR_PATHS_ARRAY[*]}")
+
+if [ -z "$MONITOR_PATH" ]; then
+    echo -e "${RED}Error: No valid directories found to monitor from the predefined list. Exiting.${NC}"
     exit 1
 fi
-echo -e "${GREEN}The directory '$MONITOR_PATH' will be monitored.${NC}"
+
+echo -e "${GREEN}The following paths will be monitored:${NC}"
+# Print as a multi-line list for clarity
+echo -e "${YELLOW}${MONITOR_PATH//,/\n}${NC}"
+
+# Inform the user if any requested directories were skipped
+if [ ${#MISSING_PATHS[@]} -gt 0 ]; then
+    echo -e "\n${YELLOW}Note: The following paths were not found and will be skipped:${NC}"
+    for path in "${MISSING_PATHS[@]}"; do
+        echo -e "${YELLOW}- $path${NC}"
+    done
+fi
 
 
 # --- Installation & Configuration ---
@@ -80,6 +108,9 @@ echo -e "\n${YELLOW}--- Installing and Configuring ClamAV ---${NC}"
 if [ "$DISTRO" == "redhat" ]; then
     echo "Installing EPEL repository..."
     $PACKAGE_MANAGER install -y $EPEL_PACKAGE
+    FRESHCLAM_SERVICE="clamav-freshclam" # RHEL service name
+elif [ "$DISTRO" == "debian" ]; then
+    FRESHCLAM_SERVICE="clamav-freshclam" # Debian service name
 fi
 
 echo "Updating package lists..."
@@ -91,7 +122,7 @@ $PACKAGE_MANAGER install -y $CLAMAV_PACKAGES
 echo "Stopping ClamAV services to download definitions..."
 # Stop services to avoid conflicts during initial definition download
 systemctl stop "$CLAMAV_DAEMON_SERVICE" 2>/dev/null || true
-systemctl stop clamav-freshclam 2>/dev/null || true
+systemctl stop "$FRESHCLAM_SERVICE" 2>/dev/null || true
 
 
 echo -e "${YELLOW}Downloading latest ClamAV virus definitions... (This may take several minutes)${NC}"
@@ -101,6 +132,14 @@ echo "Enabling and starting the ClamAV daemon for high-performance scanning..."
 # The daemon keeps definitions in memory, preventing massive resource spikes
 systemctl enable "$CLAMAV_DAEMON_SERVICE"
 systemctl start "$CLAMAV_DAEMON_SERVICE"
+
+echo "Enabling and starting the ClamAV definition update service..."
+# --- THIS IS THE FIX ---
+# Re-enable and start the freshclam service so definitions stay up-to-date
+systemctl enable "$FRESHCLAM_SERVICE"
+systemctl start "$FRESHCLAM_SERVICE"
+# --- END OF FIX ---
+
 echo -e "${GREEN}ClamAV installation and daemon setup complete.${NC}"
 
 
@@ -137,14 +176,15 @@ echo -e "\n${YELLOW}--- Configuring LMD for Real-Time Monitoring ---${NC}"
 CONFIG_FILE="/usr/local/maldetect/conf.maldet"
 
 # Use sed to modify the configuration file
-sed -i 's/^email_alert = "0"/email_alert = "1"/' "$CONFIG_FILE"
-sed -i 's/^email_addr = "you@domain.com"/email_addr = "root@localhost"/' "$CONFIG_FILE"
+sed -i 's/^email_alert = .*/email_alert = "0"/' "$CONFIG_FILE"
+# email_addr line is not needed since alerts are off
 sed -i 's/^quarantine_hits = "0"/quarantine_hits = "1"/' "$CONFIG_FILE"
 sed -i 's/^scan_clamscan = "0"/scan_clamscan = "1"/' "$CONFIG_FILE"
-sed -i 's/^scan_ignore_root = "1"/scan_ignore_root = "0"/' "$CONFIG_EXAMPLE"
+# This setting is required to scan root-owned paths like /root and /etc
+sed -i 's/^scan_ignore_root = "1"/scan_ignore_root = "0"/' "$CONFIG_FILE"
 
 echo "LMD configuration updated:"
-echo "- Email alerts enabled (sent to root@localhost)"
+echo "- Email alerts disabled."
 echo "- Automatic quarantine of malware hits enabled."
 echo "- Integration with ClamAV scan engine enabled."
 echo "- Scanning of root-owned files enabled."
@@ -158,14 +198,15 @@ maldet -u > /dev/null 2>&1
 echo "Checking for new LMD version..."
 maldet -d > /dev/null 2>&1
 
-echo "Starting real-time monitoring on '$MONITOR_PATH'..."
+echo "Starting real-time monitoring on all configured paths..."
 # This command starts the inotify monitor process in the background
 maldet --monitor "$MONITOR_PATH"
 
 echo -e "\n${GREEN}--- Setup Complete! ---${NC}"
-echo -e "LMD is now actively monitoring ${YELLOW}${MONITOR_PATH}${NC} for file changes."
-echo -e "Detected malware will be automatically quarantined."
-echo -e "You can view the real-time event log with the command:"
+# --- THIS IS THE FIX ---
+echo -e "LMD is now actively monitoring for file changes in:"
+# --- END OF FIX ---
+echo -e "${YELLOW}${MONITOR_PATH//,/\n}${NC}"
+echo -e "\nYou can view the real-time event log with the command:"
 echo -e "${YELLOW}tail -f /usr/local/maldetect/logs/event_log${NC}"
 echo -e "Scan reports can be found in: ${YELLOW}/usr/local/maldetect/sess/${NC}"
-
