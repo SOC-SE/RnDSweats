@@ -66,9 +66,13 @@ build_master_rule_file() {
         "${CLONE_DIR}/yara/"
     )
     
-    # List of problematic filenames to exclude.
-    # We will pipe the 'find' output through 'grep -vE' to remove these.
-    # This is more robust than using 'find -not -path'.
+    # This is a comprehensive exclusion list combining the maintainer's recommendations
+    # and files found to have persistent syntax errors.
+    
+    # This fix sucks. I hate to exclude so many of these, only a chunk of them are recommended to be remove by the creator of the yara rules
+    # repo. Hopefully I can fix this in the future, but I'm too fucking tired right now. FML, this feels disgusting, but some coverage is
+    # better than no coverage. - Sam 2025
+    
     local exclude_list=(
         "apt_barracuda_esg_unc4841_jun23.yar"
         "apt_cobaltstrike.yar"
@@ -92,7 +96,7 @@ build_master_rule_file() {
         "vuln_paloalto_cve_2024_3400_apr24.yar"
         "yara-rules_vuln_drivers_strict_renamed.yar"
         "yara_mixed_ext_vars.yar"
-        # --- Added from user's latest error log ---
+        # --- List of files that cause external variable errors ---
         "apt_3cx_regtrans_anomaly_apr23.yar"
         "gen_susp_base64_pe.yar"
         "apt_screenconnect_feb24.yar"
@@ -105,11 +109,17 @@ build_master_rule_file() {
 
     log "Excluding rules based on regex: $exclude_regex"
 
-    # Find all files, pipe the list to grep to filter out bad ones,
+    # STAGE 1: Find all files, pipe the list to grep to filter out bad ones,
     # then pipe the clean list to xargs to concatenate them.
     find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | \
         grep -vEz "(${exclude_regex})" | \
         xargs -0 cat > "$MASTER_RULES_FILE_TMP"
+
+    log "Filtering master file for incompatible lines..."
+    # STAGE 2: Now, use sed to find and comment out any *remaining* line
+    # that uses the undefined external variables.
+    sed -i -E 's/.*\b(filename|filepath|extension|filetype)\b.*/\/\* & \*\//g' "$MASTER_RULES_FILE_TMP"
+    
 
     if [[ ! -s "$MASTER_RULES_FILE_TMP" ]]; then
         log "ERROR: The master rules file ('$MASTER_RULES_FILE_TMP') is empty."
@@ -118,7 +128,7 @@ build_master_rule_file() {
         exit 1
     fi
 
-    log "Master rule file (plain text) created successfully at ${MASTER_RULES_FILE_TMP}."
+    log "Master rule file (plain text) created and filtered successfully at ${MASTER_RULES_FILE_TMP}."
 }
 
 # Function to deploy the compiled rules
