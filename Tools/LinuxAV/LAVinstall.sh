@@ -40,7 +40,7 @@ echo -e "${YELLOW}Detecting Linux distribution...${NC}"
 if [ -f /etc/debian_version ]; then
     DISTRO="debian"
     PACKAGE_MANAGER="apt-get"
-    CLAMAV_PACKAGES="clamav clamav-daemon"
+    CLAMAV_PACKAGES="clamav clamav-daemon inotify-tools"
     CLAMAV_DAEMON_SERVICE="clamav-daemon"
     echo -e "${GREEN}Debian-based system detected.${NC}"
 elif [ -f /etc/redhat-release ]; then
@@ -52,7 +52,7 @@ elif [ -f /etc/redhat-release ]; then
     fi
     # EPEL (Extra Packages for Enterprise Linux) is required for ClamAV
     EPEL_PACKAGE="epel-release"
-    CLAMAV_PACKAGES="clamav-server clamav-data clamav-update"
+    CLAMAV_PACKAGES="clamav-server clamav-data clamav-update inotify-tools"
     CLAMAV_DAEMON_SERVICE="clamd@scan" # Service name for modern RHEL/CentOS
     echo -e "${GREEN}Red Hat-based system detected.${NC}"
 else
@@ -126,7 +126,11 @@ systemctl stop "$FRESHCLAM_SERVICE" 2>/dev/null || true
 
 
 echo -e "${YELLOW}Downloading latest ClamAV virus definitions... (This may take several minutes)${NC}"
-freshclam
+# --- THIS IS THE FIX for Error 1 ---
+# We add '|| true' to this command. If freshclam fails (e.g., due to a 429 rate limit),
+# this will prevent 'set -e' from exiting the script. The setup will continue
+# with the existing (or slightly older) definitions.
+freshclam || echo -e "${YELLOW}Warning: freshclam update failed (likely due to rate limiting). Continuing installation...${NC}"
 
 echo "Enabling and starting the ClamAV daemon for high-performance scanning..."
 # The daemon keeps definitions in memory, preventing massive resource spikes
