@@ -9,8 +9,8 @@
 # 1. Checks for root privileges.
 # 2. Detects the Linux distribution (Debian/RHEL based).
 # 3. Defines a static list of high-risk directories to monitor.
-# 4. Installs LMD dependencies, then downloads and installs ClamAV
-#    from the official .deb/.rpm binaries.
+# 4. Installs LMD dependencies and ClamAV from the system's package manager
+#    using the user-verified installation and service start order.
 # 5. Downloads and installs the latest version of LMD.
 # 6. Configures LMD to use the ClamAV engine and enables quarantine.
 # 7. Starts LMD's real-time monitoring service on the specified paths.
@@ -41,6 +41,10 @@ echo -e "${YELLOW}Detecting Linux distribution...${NC}"
 if [ -f /etc/debian_version ]; then
     DISTRO="debian"
     PACKAGE_MANAGER="apt-get"
+    # Service names for Ubuntu/Debian packages
+    FRESHCLAM_SERVICE="clamav-freshclam"
+    CLAMAV_DAEMON_SERVICE="clamav-daemon"
+    CLAMAV_PACKAGES="clamav clamav-daemon inotify-tools"
     echo -e "${GREEN}Debian-based system detected.${NC}"
 elif [ -f /etc/redhat-release ]; then
     DISTRO="redhat"
@@ -49,6 +53,11 @@ elif [ -f /etc/redhat-release ]; then
     else
         PACKAGE_MANAGER="yum"
     fi
+    # Service name for modern RHEL/CentOS
+    FRESHCLAM_SERVICE="clamav-freshclam"
+    CLAMAV_DAEMON_SERVICE="clamd@scan"
+    EPEL_PACKAGE="epel-release"
+    CLAMAV_PACKAGES="clamav-server clamav-data clamav-update inotify-tools"
     echo -e "${GREEN}Red Hat-based system detected.${NC}"
 else
     echo -e "${RED}Unsupported Linux distribution. This script supports Debian/Ubuntu and RHEL/CentOS/Fedora.${NC}"
@@ -84,8 +93,10 @@ if [ -z "$MONITOR_PATH" ]; then
 fi
 
 echo -e "${GREEN}The following paths will be monitored:${NC}"
-# Print as a multi-line list for clarity
-echo -e "${YELLOW}${MONITOR_PATH//,/\n}${NC}"
+# Use printf for a more reliable multi-line list
+echo "${YELLOW}"
+printf "  %s\n" "${FINAL_MONITOR_PATHS_ARRAY[@]}"
+echo "${NC}"
 
 # Inform the user if any requested directories were skipped
 if [ ${#MISSING_PATHS[@]} -gt 0 ]; then
@@ -98,72 +109,58 @@ fi
 
 # --- Installation & Configuration ---
 
-# 4. Install ClamAV and its daemon (from Official Binaries)
-echo -e "\n${YELLOW}--- Installing and Configuring ClamAV (from Official Binary) ---${NC}"
-
-# Installer URLs
-DEB_URL="https://www.clamav.net/downloads/production/clamav-1.5.1.linux.x86_64.deb"
-RPM_URL="https://www.clamav.net/downloads/production/clamav-1.5.1.linux.x86_64.rpm"
-
-# These new installers use standardized service names
-FRESHCLAM_SERVICE="clamav-freshclam"
-CLAMAV_DAEMON_SERVICE="clamav-clamd"
-
-cd /tmp
+# 4. Install ClamAV and its daemon (from Package Manager)
+echo -e "\n${YELLOW}--- Installing and Configuring ClamAV (from Package Manager) ---${NC}"
 
 if [ "$DISTRO" == "redhat" ]; then
-    echo "Installing LMD dependencies (inotify-tools) and wget..."
-    $PACKAGE_MANAGER install -y inotify-tools wget
+    echo "Installing EPEL repository..."
+    $PACKAGE_MANAGER install -y $EPEL_PACKAGE
     
-    echo "Downloading official ClamAV RPM..."
-    wget -q -O clamav.rpm "$RPM_URL"
+    echo "Updating package lists..."
+    $PACKAGE_MANAGER update -y
     
-    echo "Installing ClamAV from RPM... (This will also pull dependencies)"
-    # dnf/yum can install local RPMs and resolve repo dependencies
-    $PACKAGE_MANAGER install -y ./clamav.rpm
-    rm -f ./clamav.rpm
+    echo "Installing ClamAV & LMD dependencies: $CLAMAV_PACKAGES"
+    $PACKAGE_MANAGER install -y $CLAMAV_PACKAGES
+    
+    # --- RHEL-based Service Configuration ---
+    # Apply Ubuntu 18 config fix logic to RHEL-based systems
+    # This ensures the config is valid before starting services
+    sed -i 's/^Example/#Example/' /etc/clamd.d/scan.conf 2>/dev/null || true
+    sed -i 's/^Example/#Example/' /etc/freshclam.conf 2>/dev/null || true
+
+    echo "Stopping $FRESHCLAM_SERVICE to run manual update..."
+    systemctl stop "$FRESHCLAM_SERVICE" 2>/dev/null || true
+    
+    echo -e "${YELLOW}Downloading latest ClamAV virus definitions...${NC}"
+    freshclam || echo -e "${YELLOW}Warning: freshclam update failed (likely due to rate limiting). Continuing...${NC}"
+    
+    echo "Enabling and starting ClamAV services..."
+    systemctl enable --now "$FRESHCLAM_SERVICE"
+    systemctl enable --now "$CLAMAV_DAEMON_SERVICE"
 
 elif [ "$DISTRO" == "debian" ]; then
     echo "Updating package lists..."
     $PACKAGE_MANAGER update -y
     
-    echo "Installing LMD dependencies (inotify-tools) and wget..."
-    # 'wget' is needed to download, 'inotify-tools' is for LMD's monitor
-    $PACKAGE_MANAGER install -y inotify-tools wget
-    
-    echo "Downloading official ClamAV DEB..."
-    wget -q -O clamav.deb "$DEB_URL"
-    
-    echo "Installing ClamAV from DEB..."
-    dpkg -i ./clamav.deb || true # Install, ignore errors for now
-    
-    echo "Fixing any missing dependencies..."
-    # This is the critical step after dpkg to pull in dependencies
-    $PACKAGE_MANAGER -f install -y
-    rm -f ./clamav.deb
+    echo "Installing ClamAV & LMD dependencies: $CLAMAV_PACKAGES"
+    $PACKAGE_MANAGER install -y $CLAMAV_PACKAGES
+
+    # --- Debian-based Service Configuration (Your tested procedure) ---
+    echo "Applying configuration fixes for Debian-based system (Ubuntu 18)..."
+    sed -i 's/^Example/#Example/' /etc/clamav/clamd.conf 2>/dev/null || true
+    sed -i 's/^Example/#Example/' /etc/clamav/freshclam.conf 2>/dev/null || true
+    sed -i 's~^#LocalSocket /var/run/clamav/clamd.sock~LocalSocket /var/run/clamav/clamd.sock~' /etc/clamav/clamd.conf 2>/dev/null || true
+
+    echo "Stopping $FRESHCLAM_SERVICE to run manual update..."
+    systemctl stop "$FRESHCLAM_SERVICE" 2>/dev/null || true
+
+    echo -e "${YELLOW}Downloading latest ClamAV virus definitions...${NC}"
+    freshclam || echo -e "${YELLOW}Warning: freshclam update failed (likely due to rate limiting). Continuing...${NC}"
+
+    echo "Enabling and starting ClamAV services..."
+    systemctl enable --now "$FRESHCLAM_SERVICE"
+    systemctl enable --now "$CLAMAV_DAEMON_SERVICE"
 fi
-
-echo "Stopping ClamAV services to download definitions..."
-# Stop services to avoid conflicts during initial definition download
-systemctl stop "$CLAMAV_DAEMON_SERVICE" 2>/dev/null || true
-systemctl stop "$FRESHCLAM_SERVICE" 2>/dev/null || true
-
-
-echo -e "${YELLOW}Downloading latest ClamAV virus definitions... (This may take several minutes)${NC}"
-# The freshclam binary will be in the path after the install
-# We add '|| true' to this command. If freshclam fails (e.g., due to a 429 rate limit),
-# this will prevent 'set -e' from exiting the script.
-freshclam || echo -e "${YELLOW}Warning: freshclam update failed (likely due to rate limiting). Continuing installation...${NC}"
-
-echo "Enabling and starting the ClamAV daemon for high-performance scanning..."
-# The daemon keeps definitions in memory, preventing massive resource spikes
-systemctl enable "$CLAMAV_DAEMON_SERVICE"
-systemctl start "$CLAMAV_DAEMON_SERVICE"
-
-echo "Enabling and starting the ClamAV definition update service..."
-# Re-enable and start the freshclam service so definitions stay up-to-date
-systemctl enable "$FRESHCLAM_SERVICE"
-systemctl start "$FRESHCLAM_SERVICE"
 
 # Give the services a moment to start and create the socket
 echo "Waiting 5 seconds for services to initialize..."
@@ -212,10 +209,8 @@ sed -i 's/^scan_clamscan = "0"/scan_clamscan = "1"/' "$CONFIG_FILE"
 # This setting is required to scan root-owned paths like /root and /etc
 sed -i 's/^scan_ignore_root = "1"/scan_ignore_root = "0"/' "$CONFIG_FILE"
 
-# --- NEW FIX ---
-# Tell LMD where to find the clamd socket, as the new binary may
-# place it in a non-standard location that LMD doesn't auto-detect.
-# /var/run/clamav/clamd.sock is the most common default.
+# Tell LMD where to find the clamd socket.
+# /var/run/clamav/clamd.sock is the default for the Ubuntu package.
 sed -i 's~^#scan_clamd_socket = ""~scan_clamd_socket = "/var/run/clamav/clamd.sock"~' "$CONFIG_FILE"
 
 echo "LMD configuration updated:"
