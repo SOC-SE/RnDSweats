@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# CCDC Development - Centralized Yara Rules Compiler
+# CCDC Development - LMD Yara Rules Updater
 # This script downloads the signature-base Yara rules, removes problematic ones,
-# and compiles them into a centralized location (/opt/yara-rules).
-# This allows Wazuh and other tools to use the same compiled ruleset.
+# and combines them into a single master rule file for use with LMD.
 # Run as root or with sudo.
  
 set -e
@@ -12,12 +11,11 @@ set -o pipefail
 # --- Variables ---
 REPO_URL="https://github.com/neo23x0/signature-base.git"
 CLONE_DIR="/tmp/signature-base"
-# Centralized location for storing compiled Yara rules
-RULES_STORAGE_DIR="/opt/yara-rules"
-COMPILED_RULES_FILE="compiled_community_rules.yarac"
-LOG_FILE="/var/log/yara_rules_compiler.log"
-MASTER_RULES_FILE_TMP="${CLONE_DIR}/master.yar"
-EXCLUDED_RULES_LOG="${CLONE_DIR}/excluded_rules.log"
+# LMD's file for all custom user Yara rules
+LMD_USER_RULES_FILE="/usr/local/maldetect/sigs/compiled.yara"
+LOG_FILE="/var/log/lmd_yara_updater.log"
+MASTER_RULES_FILE_TMP="${CLONE_DIR}/master_plain.yar"
+
 
 # --- Functions ---
 
@@ -38,7 +36,8 @@ check_root() {
 # Function to check for dependencies
 check_deps() {
     local missing_deps=0
-    for cmd in git yarac awk grep sed; do
+    # We just need common shell tools and git
+    for cmd in git find awk grep sed xargs tee; do
         if ! command -v "$cmd" &> /dev/null; then
             log "ERROR: Dependency '$cmd' not found."
             missing_deps=1
@@ -46,7 +45,6 @@ check_deps() {
     done
     if [[ $missing_deps -eq 1 ]]; then
         log "Please install the missing dependencies and run the script again."
-        log "Hint: 'yarac' is part of the Yara package. You may need to compile it from source."
         exit 1
     fi
     log "All dependencies are satisfied."
@@ -61,8 +59,8 @@ download_rules() {
 }
 
 # Function to assemble and filter the rules
-process_rules() {
-    log "Creating a master index file with include statements..."
+build_master_rule_file() {
+    log "Finding and concatenating all .yar files..."
 
     # Define directories to scan for rules.
     declare -a directories_to_include=(
@@ -98,7 +96,7 @@ process_rules() {
         -not -path "*/vuln_paloalto_cve_2024_3400_apr24.yar" \
         -not -path "*/yara-rules_vuln_drivers_strict_renamed.yar" \
         -not -path "*/yara_mixed_ext_vars.yar" \
-        -print | sed 's/^/include "/; s/$/"/' > "$MASTER_RULES_FILE_TMP"
+        -print0 | xargs -0 cat > "$MASTER_RULES_FILE_TMP"
 
 
     if [[ ! -s "$MASTER_RULES_FILE_TMP" ]]; then
@@ -108,38 +106,22 @@ process_rules() {
         exit 1
     fi
 
-    log "Master index file created successfully at ${MASTER_RULES_FILE_TMP}."
-}
-
-# Function to compile the rules
-compile_rules() {
-    log "Compiling the final ruleset..."
-    # The -w flag disables common warnings.
-    # The -d flag defines external variables that many rules in this repo expect.
-    # This allows us to compile rules that would otherwise fail, without having to exclude them.
-    yarac -w \
-    -d filename="dummy" \
-    -d filepath="dummy" \
-    -d extension="dummy" \
-    -d filetype="dummy" \
-    -d filesize=0 \
-    "$MASTER_RULES_FILE_TMP" "${CLONE_DIR}/${COMPILED_RULES_FILE}"
-    
-    log "Rules compiled successfully."
+    log "Master rule file (plain text) created successfully at ${MASTER_RULES_FILE_TMP}."
 }
 
 # Function to deploy the compiled rules
-deploy_rules() {
-    log "Deploying compiled rules to ${RULES_STORAGE_DIR}..."
-    mkdir -p "$RULES_STORAGE_DIR"
-    mv "${CLONE_DIR}/${COMPILED_RULES_FILE}" "${RULES_STORAGE_DIR}/${COMPILED_RULES_FILE}"
+deploy_master_rule_file() {
+    log "Deploying master rule file to ${LMD_USER_RULES_FILE}..."
+    mkdir -p "$(dirname "$LMD_USER_RULES_FILE")"
     
-    # Set appropriate permissions for Wazuh (user: wazuh) to read the files
-    # Modern Wazuh runs as the 'wazuh' user/group.
-    chmod 750 "$RULES_STORAGE_DIR"
-    chmod 640 "${RULES_STORAGE_DIR}/${COMPILED_RULES_FILE}"
+    # Move the new file into place, overwriting the old one.
+    # This prevents rules from being duplicated on subsequent runs.
+    mv "$MASTER_RULES_FILE_TMP" "$LMD_USER_RULES_FILE"
     
-    log "Deployment complete."
+    # Set standard permissions
+    chmod 644 "$LMD_USER_RULES_FILE"
+    
+    log "Deployment complete. LMD will use these rules on its next scan."
 }
 
 # Function to cleanup temporary files
@@ -152,17 +134,40 @@ cleanup() {
 # --- Main Execution ---
 main() {
     # Initialize log file for this run
-    echo "--- Yara Rules Compiler Log ---" > "$LOG_FILE"
+    echo "--- LMD Yara Rules Updater Log ---" > "$LOG_FILE"
+
+    # Install Dependencies (Yara)
+    echo "--------------------------------------------------"
+    echo "STEP 1: Installing Yara..."
+    echo "--------------------------------------------------"
+    if command -v apt-get &> /dev/null; then
+        echo "Debian/Ubuntu based system detected. Using apt-get..."
+        apt-get update -y > /dev/null 2>&1
+        apt-get install yara -y
+        
+    elif command -v dnf &> /dev/null; then
+        echo "RHEL/Fedora based system detected. Using dnf..."
+        dnf install yara -y
+        
+    elif command -v yum &> /dev/null; then
+        echo "RHEL/CentOS based system detected. Using yum..."
+        yum install yara -y
+        
+    else
+        echo "Unsupported package manager. Please install Yara manually."
+        exit 1
+    fi
+    echo "Yara installed successfully."
+
     
     check_root
     check_deps
     download_rules
-    process_rules
-    compile_rules
-    deploy_rules
+    build_master_rule_file
+    deploy_master_rule_file
     cleanup
 
-    log "--- Yara Rules Update Complete ---"
+    log "--- LMD Yara Rules Update Complete ---"
 }
 
 main "$@"
