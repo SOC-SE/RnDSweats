@@ -21,8 +21,6 @@
 #
 
 # --- Configuration ---
-BOOTSTRAP_URL="https://bootstrap.saltstack.com"
-BOOTSTRAP_SCRIPT="install_salt.sh"
 SALT_API_PORT=8001
 API_CONFIG_FILE="/etc/salt/master.d/api.conf"
 
@@ -73,7 +71,7 @@ install_dependencies() {
         
         if ! command -v node &> /dev/null; then
             log "Installing Node.js (LTS) from NodeSource for Debian..."
-            curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - > /dev/null
+            curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo bash - > /dev/null
             apt-get install -y nodejs
         else
             log "Node.js already installed."
@@ -85,7 +83,7 @@ install_dependencies() {
         
         if ! command -v node &> /dev/null; then
             log "Installing Node.js (LTS) from NodeSource for RHEL (dnf)..."
-            curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - > /dev/null
+            curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash - > /dev/null
             dnf install -y nodejs
         else
             log "Node.js already installed."
@@ -97,7 +95,7 @@ install_dependencies() {
         
         if ! command -v node &> /dev/null; then
             log "Installing Node.js (LTS) from NodeSource for RHEL (yum)..."
-            curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - > /dev/null
+            curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash - > /dev/null
             yum install -y nodejs
         else
             log "Node.js already installed."
@@ -109,15 +107,12 @@ install_dependencies() {
 }
 
 run_bootstrap() {
-    log "Downloading the Salt bootstrap script from $BOOTSTRAP_URL..."
-    curl -o $BOOTSTRAP_SCRIPT -L $BOOTSTRAP_URL
-
-    if [ ! -f $BOOTSTRAP_SCRIPT ]; then
-        error "Failed to download the bootstrap script."
-    fi
-
-    log "Running bootstrap script to install salt-master, salt-api, and salt-minion..."
-    sh $BOOTSTRAP_SCRIPT -M -A
+    log "Downloading and executing the Salt bootstrap script..."
+    # This command downloads the script and pipes it to sudo sh.
+    # -s: Tells 'sh' to read from standard input.
+    # --: A POSIX-compliant way to stop option-processing and pass
+    #     the following arguments (-M -A) to the script itself.
+    curl -L https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh | sudo sh -s -- -M -A
 }
 
 configure_api() {
@@ -245,10 +240,6 @@ configure_api
 manage_salt_services
 install_and_configure_gui
 run_gui_background
-
-# 7. Cleanup
-log "Cleaning up installer script..."
-rm $BOOTSTRAP_SCRIPT
 
 log "---"
 log "SaltStack master, API, minion, and GUI installation complete!"
