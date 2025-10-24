@@ -57,12 +57,10 @@ download_rules() {
     log "Rules downloaded successfully to ${CLONE_DIR}."
 }
 
-# Function to remove problematic rules at the source
+# Function to remove problematic rules at the source (Robust Version)
 remove_problematic_rules() {
     log "Removing problematic rule files *before* combining..."
 
-    # This list contains wildcards for files that cause syntax errors
-    # or rely on external variables LMD does not support.
     local rules_to_delete=(
         # --- Problematic files from our debugging ---
         "*3cx*"             # Caused "SUSP APT 3CX" error
@@ -96,17 +94,27 @@ remove_problematic_rules() {
         "*yara_mixed_ext_vars.yar*"
     )
 
-    local deleted_count=0
+    local total_deleted_count=0
     for pattern in "${rules_to_delete[@]}"; do
-        # Find files matching the pattern and delete them.
-        # This is safer than rm as it handles "no match" gracefully.
-        find "$YARA_RULES_SRC_DIR" -type f -name "$pattern" -print -delete | while read -r file; do
-            log "  - Removed: $(basename "$file")"
-            ((deleted_count++))
-        done
+        log "  - Searching for pattern: $pattern"
+        
+        # Create a list of files to delete. This avoids pipes.
+        local files_to_delete=()
+        while IFS= read -r -d $'\0' file; do
+            files_to_delete+=("$file")
+        done < <(find "$YARA_RULES_SRC_DIR" -type f -name "$pattern" -print0)
+
+        # Now, loop over the array and delete the files
+        if [ ${#files_to_delete[@]} -gt 0 ]; then
+            for file in "${files_to_delete[@]}"; do
+                rm -f "$file"
+                log "    - Removed: $(basename "$file")"
+                ((total_deleted_count++))
+            done
+        fi
     done
 
-    log "Removed ${deleted_count} problematic rule files."
+    log "Removed a total of ${total_deleted_count} problematic rule files."
 }
 
 # Function to build the master rule file
