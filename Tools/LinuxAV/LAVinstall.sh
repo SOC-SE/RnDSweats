@@ -70,7 +70,7 @@ fi
 # 3. Define directories for real-time monitoring
 echo -e "${YELLOW}Defining directories for real-time monitoring...${NC}"
 # List of directories you specified
-MONITOR_LIST_ARRAY=("/tmp" "/var/tmp" "/dev/shm" "/var/www" "/home" "/etc/systemd/system" "/lib/systemd/system" "/root")
+MONITOR_LIST_ARRAY=("/tmp" "/var/tmp" "/dev/shm" "/var/www" "/home" "/etc/systemd/system" "/lib/systemd/system" "/root" "/var/fcgi_ipc")
 
 FINAL_MONITOR_PATHS_ARRAY=()
 MISSING_PATHS=()

@@ -12,7 +12,7 @@ set -o pipefail
 REPO_URL="https://github.com/neo23x0/signature-base.git"
 CLONE_DIR="/tmp/signature-base"
 # LMD's file for all custom user Yara rules
-LMD_USER_RULES_FILE="/usr/local/maldetect/sigs/compiled.yara"
+LMD_USER_RULES_FILE="/usr/local/maldetect/sigs/user.yara"
 LOG_FILE="/var/log/lmd_yara_updater.log"
 MASTER_RULES_FILE_TMP="${CLONE_DIR}/master_plain.yar"
 
@@ -73,6 +73,9 @@ build_master_rule_file() {
     # This fix sucks. I hate to exclude so many of these, only a chunk of them are recommended to be remove by the creator of the yara rules
     # repo. Hopefully I can fix this in the future, but I'm too fucking tired right now. FML, this feels disgusting, but some coverage is
     # better than no coverage. - Sam 2025
+    
+    # We find all .yar/.yara files, then use `-not -path` to remove the ones
+    # that we know cause syntax errors by referencing undefined external variables.
     find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) \
         -not -path "*/apt_barracuda_esg_unc4841_jun23.yar" \
         -not -path "*/apt_cobaltstrike.yar" \
@@ -96,6 +99,12 @@ build_master_rule_file() {
         -not -path "*/vuln_paloalto_cve_2024_3400_apr24.yar" \
         -not -path "*/yara-rules_vuln_drivers_strict_renamed.yar" \
         -not -path "*/yara_mixed_ext_vars.yar" \
+        \
+        -not -path "*/apt_3cx_regtrans_anomaly_apr23.yar" \
+        -not -path "*/gen_susp_base64_pe.yar" \
+        -not -path "*/apt_screenconnect_feb24.yar" \
+        -not -path "*/mal_vcruntime_sideloading_aug23.yar" \
+        \
         -print0 | xargs -0 cat > "$MASTER_RULES_FILE_TMP"
 
 
@@ -171,3 +180,4 @@ main() {
 }
 
 main "$@"
+
