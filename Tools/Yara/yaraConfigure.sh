@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # CCDC Development - LMD Yara Rules Updater
-# This script downloads the signature-base Yara rules, validates each one
-# using the 'yara' CLI, and combines the *valid* rules into a master file for LMD.
+# This script downloads the signature-base Yara rules, removes problematic files
+# at the source using find -delete, and combines the rest into a single master rule file for LMD.
 # Run as root or with sudo.
  
 # Removing set -e and -o pipefail to ensure the script runs completely
@@ -16,7 +16,6 @@ YARA_RULES_SRC_DIR="${CLONE_DIR}/yara"
 # LMD's file for all custom user Yara rules
 LMD_USER_RULES_FILE="/usr/local/maldetect/sigs/user.yara"
 LOG_FILE="/var/log/lmd_yara_updater.log"
-BAD_RULE_LOG_FILE="/var/log/lmd_yara_bad_rules.log"
 
 # --- Functions ---
 
@@ -37,8 +36,8 @@ check_root() {
 # Function to check for dependencies
 check_deps() {
     local missing_deps=0
-    # We now explicitly need 'yara'
-    for cmd in git find xargs cat yara; do
+    # We don't need yarac, just git, find, xargs, and cat
+    for cmd in git find xargs cat; do
         if ! command -v "$cmd" &> /dev/null; then
             log "ERROR: Dependency '$cmd' not found."
             missing_deps=1
@@ -53,7 +52,7 @@ check_deps() {
 
 # Function to install dependencies
 install_deps() {
-    log "Installing Yara (needed by LMD and this script)..."
+    log "Installing Yara (needed by LMD to use the rules)..."
     if command -v apt-get &> /dev/null; then
         apt-get update -y > /dev/null 2>&1
         apt-get install yara -y
@@ -79,66 +78,83 @@ download_rules() {
     log "Rules downloaded successfully to ${CLONE_DIR}."
 }
 
-# Function to build the master rule file by validating each rule
-build_and_validate_rules() {
-    log "Starting rule-by-rule validation... This may take a few minutes."
-    
-    # Clear old files
-    rm -f "$LMD_USER_RULES_FILE"
-    rm -f "$BAD_RULE_LOG_FILE"
-    touch "$LMD_USER_RULES_FILE"
-    
-    local total_files=0
-    local total_added=0
-    local total_skipped=0
+# Function to remove problematic rules at the source (Using find -delete)
+remove_problematic_rules() {
+    log "Removing problematic rule files *before* combining..."
 
-    # Find all rule files
-    local all_rule_files=()
-    mapfile -t all_rule_files < <(find "$YARA_RULES_SRC_DIR" -type f \( -name "*.yar" -o -name "*.yara" \))
+    local rules_to_delete=(
+        # --- Problematic files from our debugging ---
+        "*3cx*"             # Caused "SUSP APT 3CX" error
+        "*screenconnect*"   # Caused "SUSP ScreenConnect" errors
+        "*vcruntime*"       # Caused "SUSP VCRuntime" error
+        "*base64_pe*"       # Caused "SUSP Double Base64" error
+        "*poisonivy*"       # Caused "PoisonIvy Sample 6" error
+        "*Linux_Sudops*"    # Found later, causes issues
 
-    # Loop through each file
-    for rule_file in "${all_rule_files[@]}"; do
-        ((total_files++))
+        # --- Your original list ---
+        "*apt_barracuda_esg_unc4841_jun23.yar*"
+        "*apt_cobaltstrike.yar*"
+        "*apt_tetris.yar*"
+        "*configured_vulns_ext_vars.yar*"
+        "*expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar*"
+        "*expl_cleo_dec24.yar*"
+        "*expl_commvault_cve_2025_57791.yar*"
+        "*expl_outlook_cve_2023_23397.yar*"
+        "*gen_fake_amsi_dll.yar*"
+        "*gen_gcti_cobaltstrike.yar*"
+        "*gen_susp_js_obfuscatorio.yar*"
+        "*gen_susp_xor.yar*"
+        "*gen_webshells_ext_vars.yar*"
+        "*gen_xor_hunting.yar*"
+        "*general_cloaking.yar*"
+        "*generic_anomalies.yar*"
+        "*mal_lockbit_lnx_macos_apr23.yar*"
+        "*thor-hacktools.yar*"
+        "*thor_inverse_matches.yar*"
+        "*vuln_paloalto_cve_2024_3400_apr24.yar*"
+        "*yara-rules_vuln_drivers_strict_renamed.yar*"
+        "*yara_mixed_ext_vars.yar*"
+    )
+
+    local total_deleted_count=0
+    for pattern in "${rules_to_delete[@]}"; do
+        log "  - Searching for pattern: $pattern"
         
-        # This is the test. We run the 'yara' command-line tool, providing
-        # the dummy variables that were causing our syntax errors.
-        if yara -w \
-            -d filename="dummy" \
-            -d filepath="dummy" \
-            -d extension="dummy" \
-            -d filetype="dummy" \
-            -d filesize=0 \
-            "$rule_file" /dev/null &> /dev/null; then
-            
-            # --- SUCCESS ---
-            # The rule is valid, append it to the master file
-            cat "$rule_file" >> "$LMD_USER_RULES_FILE"
-            # Add a newline for safety
-            echo -e "\n" >> "$LMD_USER_RULES_FILE"
-            ((total_added++))
-        else
-            # --- FAILURE ---
-            # The rule is invalid, log it and skip
-            local rule_name=$(basename "$rule_file")
-            log "  - SKIPPED: $rule_name (syntax error)"
-            echo "SKIPPED: $rule_name" >> "$BAD_RULE_LOG_FILE"
-            ((total_skipped++))
-        fi
+        # Use find -delete -print to remove and log files.
+        # || true prevents the script from exiting if no files match.
+        local deleted_files
+        deleted_files=$(find "$YARA_RULES_SRC_DIR" -type f -name "$pattern" -delete -print 2>/dev/null || true)
         
-        # Print progress
-        if ! ((total_files % 100)); then
-            log "  ... processed $total_files files"
+        if [ -n "$deleted_files" ]; then
+            while IFS= read -r file; do
+                log "    - Removed: $(basename "$file")"
+                ((total_deleted_count++))
+            done <<< "$deleted_files"
         fi
     done
 
-    log "--- Validation Complete ---"
-    log "Total Files Found:   $total_files"
-    log "Total Rules ADDED:   $total_added"
-    log "Total Rules SKIPPED: $total_skipped"
-    log "-----------------------------"
+    log "Removed a total of ${total_deleted_count} problematic rule files."
+}
+
+
+# Function to build the master rule file
+build_master_rule_file() {
+    log "Finding and concatenating all remaining .yar/.yara files..."
+    
+    # Clear the old file before appending
+    rm -f "$LMD_USER_RULES_FILE"
+    touch "$LMD_USER_RULES_FILE"
+
+    # Find all remaining rule files and append them
+    find "${YARA_RULES_SRC_DIR}" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | while IFS= read -r -d $'\0' file; do
+        cat "$file" >> "$LMD_USER_RULES_FILE"
+        # Add a newline between files for safety
+        echo -e "\n" >> "$LMD_USER_RULES_FILE"
+    done
 
     if [[ ! -s "$LMD_USER_RULES_FILE" ]]; then
-        log "ERROR: The master rules file is empty. All rules may have failed."
+        log "ERROR: The master rules file ('$LMD_USER_RULES_FILE') is empty."
+        log "This usually means that the git clone failed or no rules were found after filtering."
         exit 1
     fi
 
@@ -146,7 +162,6 @@ build_and_validate_rules() {
     chmod 644 "$LMD_USER_RULES_FILE"
 
     log "Master rule file created successfully at ${LMD_USER_RULES_FILE}."
-    log "A log of skipped bad rules is at ${BAD_RULE_LOG_FILE}."
 }
 
 # Function to cleanup temporary files
@@ -165,7 +180,8 @@ main() {
     install_deps
     check_deps
     download_rules
-    build_and_validate_rules  # <-- This is the new, robust function
+    remove_problematic_rules
+    build_master_rule_file
     cleanup
 
     log "--- LMD Yara Rules Update Complete ---"
