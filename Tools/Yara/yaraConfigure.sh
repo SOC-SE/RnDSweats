@@ -15,6 +15,7 @@ CLONE_DIR="/tmp/signature-base"
 LMD_USER_RULES_FILE="/usr/local/maldetect/sigs/user.yara"
 LOG_FILE="/var/log/lmd_yara_updater.log"
 MASTER_RULES_FILE_TMP="${CLONE_DIR}/master_plain.yar"
+FILTERED_RULES_FILE_TMP="${CLONE_DIR}/master_filtered.yar"
 
 
 # --- Functions ---
@@ -60,19 +61,14 @@ download_rules() {
 
 # Function to assemble and filter the rules
 build_master_rule_file() {
-    log "Finding and concatenating all .yar files..."
+    log "Finding and concatenating all .yar/.yara files..."
 
     declare -a directories_to_include=(
         "${CLONE_DIR}/yara/"
     )
     
-    # This is a comprehensive exclusion list combining the maintainer's recommendations
-    # and files found to have persistent syntax errors.
-    
-    # This fix sucks. I hate to exclude so many of these, only a chunk of them are recommended to be remove by the creator of the yara rules
-    # repo. Hopefully I can fix this in the future, but I'm too fucking tired right now. FML, this feels disgusting, but some coverage is
-    # better than no coverage. - Sam 2025
-    
+    # This is the explicit exclude list you provided.
+    # We will remove any file whose name matches this list.
     local exclude_list=(
         "apt_barracuda_esg_unc4841_jun23.yar"
         "apt_cobaltstrike.yar"
@@ -96,13 +92,6 @@ build_master_rule_file() {
         "vuln_paloalto_cve_2024_3400_apr24.yar"
         "yara-rules_vuln_drivers_strict_renamed.yar"
         "yara_mixed_ext_vars.yar"
-        # --- List of files that cause external variable errors ---
-        "apt_3cx_regtrans_anomaly_apr23.yar"
-        "gen_susp_base64_pe.yar"
-        "apt_screenconnect_feb24.yar"
-        "mal_vcruntime_sideloading_aug23.yar"
-        # --- Added from new syntax error log ---
-        "mal_poisonivy.yar"
     )
     
     # Create the regex string for grep: (file1|file2|file3)
@@ -111,31 +100,68 @@ build_master_rule_file() {
 
     log "Excluding rules based on regex: $exclude_regex"
 
+    
     # STAGE 1: Find all files, pipe the list to grep to filter out bad ones,
     # then pipe the clean list to xargs to concatenate them.
-    #
-    # FIX: Removed -print0, -z, and -0. We will use newlines, which is
-    # the default for find, grep, and xargs. This makes the grep filter
-    # on filenames work correctly.
-    #
     find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) | \
         grep -vE "(${exclude_regex})" | \
         xargs cat > "$MASTER_RULES_FILE_TMP"
 
-    log "Filtering master file for incompatible lines..."
-    # STAGE 2: Now, use sed to find and comment out any *remaining* line
-    # that uses the undefined external variables.
-    sed -i -E 's/.*\b(filename|filepath|extension|filetype)\b.*/\/\* & \*\//g' "$MASTER_RULES_FILE_TMP"
+    log "Filtering master file for incompatible rules..."
     
+    # STAGE 2: Use a more intelligent awk script to filter the rules.
+    # This script reads the file rule-by-rule.
+    # If it finds a problematic variable (filename, filepath, etc.)
+    # it will comment out the *entire* rule block, from "rule" to "}".
+    # This avoids creating new syntax errors from partial commenting.
+    awk '
+    # Start of a rule
+    /^[ \t]*rule[ \t]+[^{]+{/ {
+        in_rule=1
+        has_error=0
+        rule_buffer = $0
+        next
+    }
 
-    if [[ ! -s "$MASTER_RULES_FILE_TMP" ]]; then
-        log "ERROR: The master rules file ('$MASTER_RULES_FILE_TMP') is empty."
-        log "This usually means that the git clone failed or that the repository structure has changed."
+    # End of a rule
+    /^[ \t]*}$/ && in_rule {
+        in_rule=0
+        rule_buffer = rule_buffer "\n" $0
+        if (has_error) {
+            # Comment out the whole buffer as one block
+            print "/*"
+            print rule_buffer
+            print "*/"
+        } else {
+            print rule_buffer
+        }
+        next
+    }
+
+    # Inside a rule
+    in_rule {
+        if (/\b(filename|filepath|extension|filetype)\b/) {
+            has_error=1
+        }
+        rule_buffer = rule_buffer "\n" $0
+        next
+    }
+
+    # Outside a rule (imports, global comments)
+    !in_rule {
+        print $0
+    }
+    ' "$MASTER_RULES_FILE_TMP" > "$FILTERED_RULES_FILE_TMP"
+
+
+    if [[ ! -s "$FILTERED_RULES_FILE_TMP" ]]; then
+        log "ERROR: The filtered rules file ('$FILTERED_RULES_FILE_TMP') is empty."
+        log "This usually means that the git clone failed or the awk script failed."
         log "Please check the clone directory ('$CLONE_DIR') to investigate."
         exit 1
     fi
 
-    log "Master rule file (plain text) created and filtered successfully at ${MASTER_RULES_FILE_TMP}."
+    log "Master rule file (plain text) created and filtered successfully."
 }
 
 # Function to deploy the compiled rules
@@ -145,7 +171,7 @@ deploy_master_rule_file() {
     
     # Move the new file into place, overwriting the old one.
     # This prevents rules from being duplicated on subsequent runs.
-    mv "$MASTER_RULES_FILE_TMP" "$LMD_USER_RULES_FILE"
+    mv "$FILTERED_RULES_FILE_TMP" "$LMD_USER_RULES_FILE"
     
     # Set standard permissions
     chmod 644 "$LMD_USER_RULES_FILE"
@@ -179,7 +205,7 @@ main() {
         dnf install yara -y
         
     elif command -v yum &> /dev/null; then
-        echo "RHEL/CentOS based system detected. Using yum..."
+        echo "RHEL/CentOS based system-detected. Using yum..."
         yum install yara -y
         
     else
