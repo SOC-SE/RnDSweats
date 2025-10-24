@@ -69,7 +69,6 @@ install_dependencies() {
     
     if command -v apt &> /dev/null; then
         log "Detected Debian-based system (apt found)."
-        apt-get update -y > /dev/null
         apt-get install -y curl git
         
         if ! command -v node &> /dev/null; then
