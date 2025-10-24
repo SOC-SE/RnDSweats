@@ -1,10 +1,11 @@
 #!/bin/bash
 
-# CCDC Development - LMD Yara Rules Updater
-# This script downloads the signature-base Yara rules, removes problematic files
-# at the source using find -delete, and combines the rest into a single master rule file for LMD.
+# CCDC Development - Community Yara Rules Builder & Installer
+# This script installs Yara and jq, downloads the signature-base Yara rules,
+# removes problematic files at the source using find -delete, and combines
+# the rest into a single master rule file saved in the current directory.
 # Run as root or with sudo.
- 
+
 # Removing set -e and -o pipefail to ensure the script runs completely
 # set -e
 # set -o pipefail
@@ -13,9 +14,9 @@
 REPO_URL="https://github.com/neo23x0/signature-base.git"
 CLONE_DIR="/tmp/signature-base"
 YARA_RULES_SRC_DIR="${CLONE_DIR}/yara"
-# LMD's file for all custom user Yara rules
-LMD_USER_RULES_FILE="/usr/local/maldetect/sigs/user.yara"
-LOG_FILE="/var/log/lmd_yara_updater.log"
+# Output file in the current directory
+MASTER_RULES_FILE="./master_community_rules.yar"
+LOG_FILE="/var/log/community_yara_builder.log"
 
 # --- Functions ---
 
@@ -36,38 +37,46 @@ check_root() {
 # Function to check for dependencies
 check_deps() {
     local missing_deps=0
-    # We don't need yarac, just git, find, xargs, and cat
-    for cmd in git find xargs cat; do
+    # Dependencies needed: git, find, xargs, cat, yara, jq
+    for cmd in git find xargs cat yara jq; do
         if ! command -v "$cmd" &> /dev/null; then
             log "ERROR: Dependency '$cmd' not found."
             missing_deps=1
         fi
     done
     if [[ $missing_deps -eq 1 ]]; then
-        log "Please install the missing dependencies and run the script again."
+        log "Please install the missing dependencies (git, findutils, coreutils, yara, jq) and run the script again."
         exit 1
     fi
     log "All dependencies are satisfied."
 }
 
-# Function to install dependencies
+# Function to install dependencies (Yara & jq)
 install_deps() {
-    log "Installing Yara (needed by LMD to use the rules)..."
+    log "Installing dependencies (Yara & jq)..."
     if command -v apt-get &> /dev/null; then
+        echo "Debian/Ubuntu based system detected. Using apt-get..."
         apt-get update -y > /dev/null 2>&1
-        apt-get install yara -y
+        apt-get install yara jq -y
         
     elif command -v dnf &> /dev/null; then
-        dnf install yara -y
+        echo "RHEL/Fedora based system detected. Using dnf..."
+        dnf install yara jq -y
         
     elif command -v yum &> /dev/null; then
-        yum install yara -y
+        echo "RHEL/CentOS based system detected. Using yum..."
+        # JQ might be in EPEL repository for older CentOS
+        if ! rpm -q epel-release > /dev/null 2>&1; then
+            log "  - Installing EPEL repository for JQ..."
+            yum install epel-release -y
+        fi
+        yum install yara jq -y
         
     else
-        echo "Unsupported package manager. Please install Yara manually."
+        log "Unsupported package manager. Please install Yara and JQ manually."
         exit 1
     fi
-    echo "Yara installed successfully."
+    log "Dependencies installed successfully."
 }
 
 # Function to download the Yara rules
@@ -143,26 +152,26 @@ build_master_rule_file() {
     log "Finding and concatenating all remaining .yar/.yara files..."
     
     # Clear the old file before appending
-    rm -f "$LMD_USER_RULES_FILE"
-    touch "$LMD_USER_RULES_FILE"
+    rm -f "$MASTER_RULES_FILE"
+    touch "$MASTER_RULES_FILE"
 
     # Find all remaining rule files and append them
     find "${YARA_RULES_SRC_DIR}" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | while IFS= read -r -d $'\0' file; do
-        cat "$file" >> "$LMD_USER_RULES_FILE"
+        cat "$file" >> "$MASTER_RULES_FILE"
         # Add a newline between files for safety
-        echo -e "\n" >> "$LMD_USER_RULES_FILE"
+        echo -e "\n" >> "$MASTER_RULES_FILE"
     done
 
-    if [[ ! -s "$LMD_USER_RULES_FILE" ]]; then
-        log "ERROR: The master rules file ('$LMD_USER_RULES_FILE') is empty."
+    if [[ ! -s "$MASTER_RULES_FILE" ]]; then
+        log "ERROR: The master rules file ('$MASTER_RULES_FILE') is empty."
         log "This usually means that the git clone failed or no rules were found after filtering."
         exit 1
     fi
 
     # Set standard permissions
-    chmod 644 "$LMD_USER_RULES_FILE"
+    chmod 644 "$MASTER_RULES_FILE"
 
-    log "Master rule file created successfully at ${LMD_USER_RULES_FILE}."
+    log "Master rule file created successfully at ${MASTER_RULES_FILE}."
 }
 
 # Function to cleanup temporary files
@@ -175,17 +184,17 @@ cleanup() {
 # --- Main Execution ---
 main() {
     # Initialize log file for this run
-    echo "--- LMD Yara Rules Updater Log ---" > "$LOG_FILE"
+    echo "--- Community Yara Rules Builder Log ---" > "$LOG_FILE"
     
     check_root
-    install_deps
-    check_deps
+    install_deps # Added back
+    check_deps   # Added yara and jq check
     download_rules
     remove_problematic_rules
     build_master_rule_file
     cleanup
 
-    log "--- LMD Yara Rules Update Complete ---"
+    log "--- Community Yara Rules Build Complete ---"
 }
 
 main "$@"
