@@ -7,8 +7,8 @@ fi
 
 apt install curl -y
 
-curl -sO https://packages.wazuh.com/4.13/wazuh-install.sh
-curl -so wazuh-passwords-tool.sh https://packages.wazuh.com/4.13/wazuh-passwords-tool.sh
+curl -sO https://packages.wazuh.com/4.14/wazuh-install.sh
+curl -so wazuh-passwords-tool.sh https://packages.wazuh.com/4.14/wazuh-passwords-tool.sh
 
 bash wazuh-install.sh -a
 
