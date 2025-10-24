@@ -53,14 +53,6 @@ install_dependencies() {
 
   echo "${GREEN}Using package manager: $PKG_MANAGER${NC}"
 
-  # Update package manager cache (important for apt)
-  if [ "$PKG_MANAGER" == "apt-get" ]; then
-    echo "${BLUE}Updating apt cache...${NC}"
-    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get update -y > /dev/null 2>&1; then
-        echo "${YELLOW}Warning: 'apt-get update' failed. Will try to install packages anyway.${NC}"
-    fi
-  fi
-
   local all_deps_installed=true
   
   # List of commands to check
