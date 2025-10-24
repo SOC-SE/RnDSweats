@@ -34,19 +34,89 @@ BLUE=$'\e[0;34m'
 NC=$'\e[0m'  #No Color - resets the color back to default
 
 # Function to check for required command dependencies
-check_dependencies() {
-  local missing_deps=()
-  for cmd in wget tar setfacl; do
+install_dependencies() {
+  echo "${BLUE}Checking for required dependencies...${NC}"
+  
+  # Detect Package Manager
+  local PKG_MANAGER=""
+  
+  if command -v apt-get &> /dev/null; then
+    PKG_MANAGER="apt-get"
+  elif command -v dnf &> /dev/null; then
+    PKG_MANAGER="dnf"
+  elif command -v yum &> /dev/null; then
+    PKG_MANAGER="yum"
+  else
+    echo "${RED}Error: No supported package manager (apt-get, dnf, yum) found. Aborting.${NC}"
+    exit 1
+  fi
+
+  echo "${GREEN}Using package manager: $PKG_MANAGER${NC}"
+
+  # Update package manager cache (important for apt)
+  if [ "$PKG_MANAGER" == "apt-get" ]; then
+    echo "${BLUE}Updating apt cache...${NC}"
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt-get update -y > /dev/null 2>&1; then
+        echo "${YELLOW}Warning: 'apt-get update' failed. Will try to install packages anyway.${NC}"
+    fi
+  fi
+
+  local all_deps_installed=true
+  
+  # List of commands to check
+  local required_cmds=("wget" "tar" "setfacl")
+  
+  for cmd in "${required_cmds[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
-      missing_deps+=("$cmd")
+      echo "${YELLOW}Dependency '$cmd' is missing. Attempting installation...${NC}"
+      
+      local package_name=""
+      case "$cmd" in
+        wget)
+          package_name="wget"
+          ;;
+        tar)
+          package_name="tar"
+          ;;
+        setfacl)
+          package_name="acl"
+          ;;
+      esac
+
+      if [ -n "$package_name" ]; then
+        # Run install non-interactively
+        if [ "$PKG_MANAGER" == "apt-get" ]; then
+            sudo DEBIAN_FRONTEND=noninteractive $PKG_MANAGER install -y "$package_name"
+        else
+            sudo $PKG_MANAGER install -y "$package_name"
+        fi
+
+        if [ $? -ne 0 ]; then
+            echo "${RED}Failed to install package '$package_name' for command '$cmd'.${NC}"
+            all_deps_installed=false
+        fi
+      else
+         echo "${RED}Don't know which package provides '$cmd' for this system.${NC}"
+         all_deps_installed=false
+      fi
+
+      # Re-check
+      if ! command -v "$cmd" &> /dev/null; then
+         echo "${RED}Error: Command '$cmd' is still not found after installation attempt.${NC}"
+         all_deps_installed=false
+      fi
+    
+    else
+      echo "${GREEN}Dependency '$cmd' is already installed.${NC}"
     fi
   done
 
-  if [ ${#missing_deps[@]} -gt 0 ]; then
-    echo "${RED}Error: Missing required dependencies: ${missing_deps[*]}.${NC}"
-    echo "${YELLOW}Please install them and run the script again.${NC}"
+  if [ "$all_deps_installed" = false ]; then
+    echo "${RED}One or more required dependencies could not be installed. Please install them manually and run the script again.${NC}"
     exit 1
   fi
+  
+  echo "${GREEN}All dependencies are satisfied.${NC}"
 }
 
 # --- SCRIPT EXECUTION STARTS HERE ---
@@ -468,6 +538,9 @@ restart_splunk() {
 
 # --- Main Installation Logic ---
 
+# Install any missing dependencies
+install_dependencies
+
 # Perform installation
 install_splunk
 
@@ -505,58 +578,3 @@ sudo setfacl -m u:splunk:r /tmp/test.log
 sudo $INSTALL_DIR/bin/splunk version
 
 echo "${YELLOW}Splunk Universal Forwarder v$SPLUNK_VERSION installation complete with monitors and forwarder configuration!${NC}"
-
-# CentOS-specific fix using a systemd drop-in file
-if [[ "$ID" == "centos" || "$ID_LIKE" == *"centos"* ]]; then
-  echo "${RED}Applying CentOS-specific fix using systemd drop-in...${NC}"
-  
-  # Define the path for the drop-in file
-  DROP_IN_DIR="/etc/systemd/system/SplunkForwarder.service.d"
-  DROP_IN_FILE="$DROP_IN_DIR/override.conf"
-  
-  # Create the directory
-  sudo mkdir -p "$DROP_IN_DIR"
-  
-  # Create the drop-in file to nullify AmbientCapabilities
-  sudo bash -c "cat > $DROP_IN_FILE" <<EOL
-[Service]
-AmbientCapabilities=
-EOL
-
-  echo "${GREEN}Drop-in file created at $DROP_IN_FILE${NC}"
-  
-  # Reload systemd to apply the changes and restart Splunk
-  echo "${BLUE}Reloading systemd daemon and restarting Splunk...${NC}"
-  sudo systemctl daemon-reload
-  sudo systemctl restart SplunkForwarder
-  
-  echo "${YELLOW}CentOS fix applied and Splunk restarted.${NC}}"
-fi
-
-
-# IMPROVED: Fedora specific fix.
-#if [[ "$ID" == "fedora" ]]; then
-#  echo "${YELLOW}Fedora system detected. Reloading systemd and restarting service to ensure stability...${NC}"
-#  sudo systemctl daemon-reload
-#  sudo systemctl restart SplunkForwarder
-#fi
-
-# --- OLD FEDORA FIX (COMMENTED OUT FOR POSTERITY) ---
-#
-# # Fedora specific fix. The forwarder doesn't like to work when you install it. For some reason, rebooting just solves this so nicely
-# # I've looked for logs, tried starting it manually, etc. I couldn't figure it out and am running out of time. Therefore, this beautiful addition.
-# # This will reboot the machine after a 10 second timer.
- if [[ "$ID" == "fedora" ]]; then
-   echo "${RED}Fedora system detected, a reboot is required. System will reboot in 10 seconds.${NC}"
-   sleep 10;
- 
-   # Reboot with 10 second delay
-   if ! sudo shutdown -r +0 "${GREEN}First reboot attempt failed. System will reattempt in 5 seconds${NC}" & sleep 5; then
-     echo "${RED}Warning: Graceful reboot failed, attempting forced reboot${NC}"
-     if ! sudo reboot -f; then
-       echo "${RED}Error: Unable to initiate reboot. Manual reboot required.${NC}"
-       exit 1
-     fi
-   fi
-   exit 0
- fi
