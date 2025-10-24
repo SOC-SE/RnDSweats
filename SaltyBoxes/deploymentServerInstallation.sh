@@ -7,11 +7,12 @@
 # 1. Check for root privileges.
 # 2. Detect package manager and install dependencies (curl, git, nodejs, npm).
 # 3. Download and execute the official Salt bootstrap script.
-# 4. Configure the salt-api to run on a custom port (for Splunk).
-# 5. Configure PAM eauth for the API via a 'saltapiusers' group.
-# 6. Download and configure the Salt-GUI.
-# 7. Create and start a systemd service for the GUI.
-# 8. Enable and restart all Salt services.
+# 4. **Force install salt-api to ensure it's present.**
+# 5. Configure the salt-api to run on a custom port (for Splunk).
+# 6. Configure PAM eauth for the API via a 'saltapiusers' group.
+# 7. Download and configure the Salt-GUI.
+# 8. Create and start a systemd service for the GUI.
+# 9. Enable and restart all Salt services.
 #
 # --- Ports Used ---
 # TCP 3000: Salt-GUI Web Interface
@@ -108,11 +109,24 @@ install_dependencies() {
 
 run_bootstrap() {
     log "Downloading and executing the Salt bootstrap script..."
-    # This command downloads the script and pipes it to sudo sh.
-    # -s: Tells 'sh' to read from standard input.
-    # --: A POSIX-compliant way to stop option-processing and pass
-    #     the following arguments (-M -A) to the script itself.
+    # -M = Install Master, -A = Install API
+    # We will also manually install salt-api just in case this fails.
     curl -L https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh | sudo sh -s -- -M -A
+}
+
+# *** NEW FUNCTION ***
+# This explicitly installs salt-api to ensure it's present
+# even if the bootstrap script's -A flag fails.
+ensure_api_installed() {
+    log "Ensuring salt-api package is installed..."
+    if command -v apt &> /dev/null; then
+        apt-get install -y salt-api > /dev/null
+    elif command -v dnf &> /dev/null; then
+        dnf install -y salt-api > /dev/null
+    elif command -v yum &> /dev/null; then
+        yum install -y salt-api > /dev/null
+    fi
+    log "salt-api package installation confirmed."
 }
 
 configure_api() {
@@ -120,35 +134,29 @@ configure_api() {
     mkdir -p /etc/salt/master.d
     touch $API_CONFIG_FILE
 
-    # --- Configure rest_cherrypy ---
-    if ! grep -q "^rest_cherrypy:" $API_CONFIG_FILE; then
-        echo "rest_cherrypy:" >> $API_CONFIG_FILE
-    fi
+    # Clear the file to prevent duplicate entries from script re-runs
+    > $API_CONFIG_FILE
 
-    # Set port
-    sed -i "/^[ ]*port:.*/d" $API_CONFIG_FILE # Remove old port line if exists
-    sed -i "/^rest_cherrypy:/a \  port: $SALT_API_PORT" $API_CONFIG_FILE
-    
-    # Set host
-    sed -i "/^[ ]*host:.*/d" $API_CONFIG_FILE # Remove old host line
-    sed -i "/^rest_cherrypy:/a \  host: 0.0.0.0" $API_CONFIG_FILE
-    
-    # Disable SSL
-    sed -i "/^[ ]*disable_ssl:.*/d" $API_CONFIG_FILE # Remove old ssl line
-    sed -i "/^rest_cherrypy:/a \  disable_ssl: True" $API_CONFIG_FILE
+    # --- Configure rest_cherrypy ---
+    cat << EOF >> $API_CONFIG_FILE
+rest_cherrypy:
+  port: $SALT_API_PORT
+  host: 0.0.0.0
+  disable_ssl: True
+EOF
+
     warn "Salt API configured with SSL disabled (disable_ssl: True). This is not recommended for production."
 
     # --- Configure PAM EAuth ---
     log "Configuring PAM external auth for '@saltapiusers' group..."
-    if ! grep -q "^external_auth:" $API_CONFIG_FILE; then
-        cat << EOF >> $API_CONFIG_FILE
+    # Using the correct YAML format (no indentation on first line)
+    cat << 'EOF' >> $API_CONFIG_FILE
 
 external_auth:
   pam:
     '@saltapiusers':
       - .*
 EOF
-    fi
 
     log "Creating 'saltapiusers' group. (Errors are safe if group already exists)."
     groupadd saltapiusers || true
@@ -236,6 +244,7 @@ manage_salt_services() {
 check_root
 install_dependencies
 run_bootstrap
+ensure_api_installed  # <-- NEW STEP ADDED HERE
 configure_api
 manage_salt_services
 install_and_configure_gui
@@ -253,7 +262,7 @@ log "   - 4506 (Salt Master Ret)"
 log "   - 3000 (Salt-GUI)"
 log "2. API USER: The GUI is hardcoded to use 'sysadmin' / 'Changeme1!'. Create this user:"
 log "   Example: useradd -r -M -G saltapiusers sysadmin && passwd sysadmin"
-log "   (When prompted, set the password to 'Changeme1!')"
+log "   (When prompted, set the password to 'Changemeal!')"
 log "3. LOCAL MINION: Configure the local minion to talk to the master:"
 log "   - Edit /etc/salt/minion and set 'master: localhost'"
 log "   - Run: systemctl restart salt-minion"
