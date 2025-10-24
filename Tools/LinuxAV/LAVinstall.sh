@@ -9,7 +9,8 @@
 # 1. Checks for root privileges.
 # 2. Detects the Linux distribution (Debian/RHEL based).
 # 3. Defines a static list of high-risk directories to monitor.
-# 4. Installs and configures ClamAV, including the daemon for performance.
+# 4. Installs LMD dependencies, then downloads and installs ClamAV
+#    from the official .deb/.rpm binaries.
 # 5. Downloads and installs the latest version of LMD.
 # 6. Configures LMD to use the ClamAV engine and enables quarantine.
 # 7. Starts LMD's real-time monitoring service on the specified paths.
@@ -40,8 +41,6 @@ echo -e "${YELLOW}Detecting Linux distribution...${NC}"
 if [ -f /etc/debian_version ]; then
     DISTRO="debian"
     PACKAGE_MANAGER="apt-get"
-    CLAMAV_PACKAGES="clamav clamav-daemon inotify-tools"
-    CLAMAV_DAEMON_SERVICE="clamav-daemon"
     echo -e "${GREEN}Debian-based system detected.${NC}"
 elif [ -f /etc/redhat-release ]; then
     DISTRO="redhat"
@@ -50,10 +49,6 @@ elif [ -f /etc/redhat-release ]; then
     else
         PACKAGE_MANAGER="yum"
     fi
-    # EPEL (Extra Packages for Enterprise Linux) is required for ClamAV
-    EPEL_PACKAGE="epel-release"
-    CLAMAV_PACKAGES="clamav-server clamav-data clamav-update inotify-tools"
-    CLAMAV_DAEMON_SERVICE="clamd@scan" # Service name for modern RHEL/CentOS
     echo -e "${GREEN}Red Hat-based system detected.${NC}"
 else
     echo -e "${RED}Unsupported Linux distribution. This script supports Debian/Ubuntu and RHEL/CentOS/Fedora.${NC}"
@@ -103,21 +98,50 @@ fi
 
 # --- Installation & Configuration ---
 
-# 4. Install ClamAV and its daemon
-echo -e "\n${YELLOW}--- Installing and Configuring ClamAV ---${NC}"
+# 4. Install ClamAV and its daemon (from Official Binaries)
+echo -e "\n${YELLOW}--- Installing and Configuring ClamAV (from Official Binary) ---${NC}"
+
+# Installer URLs
+DEB_URL="https://www.clamav.net/downloads/production/clamav-1.5.1.linux.x86_64.deb"
+RPM_URL="https://www.clamav.net/downloads/production/clamav-1.5.1.linux.x86_64.rpm"
+
+# These new installers use standardized service names
+FRESHCLAM_SERVICE="clamav-freshclam"
+CLAMAV_DAEMON_SERVICE="clamav-clamd"
+
+cd /tmp
+
 if [ "$DISTRO" == "redhat" ]; then
-    echo "Installing EPEL repository..."
-    $PACKAGE_MANAGER install -y $EPEL_PACKAGE
-    FRESHCLAM_SERVICE="clamav-freshclam" # RHEL service name
+    echo "Installing LMD dependencies (inotify-tools) and wget..."
+    $PACKAGE_MANAGER install -y inotify-tools wget
+    
+    echo "Downloading official ClamAV RPM..."
+    wget -q -O clamav.rpm "$RPM_URL"
+    
+    echo "Installing ClamAV from RPM... (This will also pull dependencies)"
+    # dnf/yum can install local RPMs and resolve repo dependencies
+    $PACKAGE_MANAGER install -y ./clamav.rpm
+    rm -f ./clamav.rpm
+
 elif [ "$DISTRO" == "debian" ]; then
-    FRESHCLAM_SERVICE="clamav-freshclam" # Debian service name
+    echo "Updating package lists..."
+    $PACKAGE_MANAGER update -y
+    
+    echo "Installing LMD dependencies (inotify-tools) and wget..."
+    # 'wget' is needed to download, 'inotify-tools' is for LMD's monitor
+    $PACKAGE_MANAGER install -y inotify-tools wget
+    
+    echo "Downloading official ClamAV DEB..."
+    wget -q -O clamav.deb "$DEB_URL"
+    
+    echo "Installing ClamAV from DEB..."
+    dpkg -i ./clamav.deb || true # Install, ignore errors for now
+    
+    echo "Fixing any missing dependencies..."
+    # This is the critical step after dpkg to pull in dependencies
+    $PACKAGE_MANAGER -f install -y
+    rm -f ./clamav.deb
 fi
-
-echo "Updating package lists..."
-$PACKAGE_MANAGER update -y
-
-echo "Installing ClamAV packages: $CLAMAV_PACKAGES"
-$PACKAGE_MANAGER install -y $CLAMAV_PACKAGES
 
 echo "Stopping ClamAV services to download definitions..."
 # Stop services to avoid conflicts during initial definition download
@@ -126,10 +150,9 @@ systemctl stop "$FRESHCLAM_SERVICE" 2>/dev/null || true
 
 
 echo -e "${YELLOW}Downloading latest ClamAV virus definitions... (This may take several minutes)${NC}"
-# --- THIS IS THE FIX for Error 1 ---
+# The freshclam binary will be in the path after the install
 # We add '|| true' to this command. If freshclam fails (e.g., due to a 429 rate limit),
-# this will prevent 'set -e' from exiting the script. The setup will continue
-# with the existing (or slightly older) definitions.
+# this will prevent 'set -e' from exiting the script.
 freshclam || echo -e "${YELLOW}Warning: freshclam update failed (likely due to rate limiting). Continuing installation...${NC}"
 
 echo "Enabling and starting the ClamAV daemon for high-performance scanning..."
@@ -138,11 +161,13 @@ systemctl enable "$CLAMAV_DAEMON_SERVICE"
 systemctl start "$CLAMAV_DAEMON_SERVICE"
 
 echo "Enabling and starting the ClamAV definition update service..."
-# --- THIS IS THE FIX ---
 # Re-enable and start the freshclam service so definitions stay up-to-date
 systemctl enable "$FRESHCLAM_SERVICE"
 systemctl start "$FRESHCLAM_SERVICE"
-# --- END OF FIX ---
+
+# Give the services a moment to start and create the socket
+echo "Waiting 5 seconds for services to initialize..."
+sleep 5
 
 echo -e "${GREEN}ClamAV installation and daemon setup complete.${NC}"
 
@@ -187,11 +212,18 @@ sed -i 's/^scan_clamscan = "0"/scan_clamscan = "1"/' "$CONFIG_FILE"
 # This setting is required to scan root-owned paths like /root and /etc
 sed -i 's/^scan_ignore_root = "1"/scan_ignore_root = "0"/' "$CONFIG_FILE"
 
+# --- NEW FIX ---
+# Tell LMD where to find the clamd socket, as the new binary may
+# place it in a non-standard location that LMD doesn't auto-detect.
+# /var/run/clamav/clamd.sock is the most common default.
+sed -i 's~^#scan_clamd_socket = ""~scan_clamd_socket = "/var/run/clamav/clamd.sock"~' "$CONFIG_FILE"
+
 echo "LMD configuration updated:"
 echo "- Email alerts disabled."
 echo "- Automatic quarantine of malware hits enabled."
 echo "- Integration with ClamAV scan engine enabled."
 echo "- Scanning of root-owned files enabled."
+echo "- Explicitly set clamd socket path for reliability."
 
 
 # 7. Start Real-Time Monitoring
@@ -207,10 +239,12 @@ echo "Starting real-time monitoring on all configured paths..."
 maldet --monitor "$MONITOR_PATH"
 
 echo -e "\n${GREEN}--- Setup Complete! ---${NC}"
-# --- THIS IS THE FIX ---
 echo -e "LMD is now actively monitoring for file changes in:"
-# --- END OF FIX ---
-echo -e "${YELLOW}${MONITOR_PATH//,/\n}${NC}"
+# Use printf for a more reliable multi-line list
+echo "${YELLOW}"
+printf "  %s\n" "${FINAL_MONITOR_PATHS_ARRAY[@]}"
+echo "${NC}"
 echo -e "\nYou can view the real-time event log with the command:"
 echo -e "${YELLOW}tail -f /usr/local/maldetect/logs/event_log${NC}"
 echo -e "Scan reports can be found in: ${YELLOW}/usr/local/maldetect/sess/${NC}"
+
