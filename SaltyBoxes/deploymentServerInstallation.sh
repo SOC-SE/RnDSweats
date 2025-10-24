@@ -7,7 +7,7 @@
 # 1. Check for root privileges.
 # 2. Detect package manager and install dependencies (curl, git, nodejs, npm).
 # 3. Download and execute the official Salt bootstrap script.
-# 4. **Force install salt-api to ensure it's present.**
+# 4. Force install salt-api to ensure it's present.
 # 5. Configure the salt-api to run on a custom port (for Splunk).
 # 6. Configure PAM eauth for the API via a 'saltapiusers' group.
 # 7. Download and configure the Salt-GUI.
@@ -114,9 +114,6 @@ run_bootstrap() {
     curl -L https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh | sudo sh -s -- -M -A
 }
 
-# *** NEW FUNCTION ***
-# This explicitly installs salt-api to ensure it's present
-# even if the bootstrap script's -A flag fails.
 ensure_api_installed() {
     log "Ensuring salt-api package is installed..."
     if command -v apt &> /dev/null; then
@@ -176,13 +173,22 @@ install_and_configure_gui() {
     npm install --loglevel=error
 
     log "Configuring GUI to connect to local Salt API (http://127.0.0.1:$SALT_API_PORT)..."
-    # Use 127.0.0.1 to avoid DNS resolution issues and connect locally
-    # This replaces the hardcoded URL in the server.js file
-    sed -i "s|const saltApiUrl = 'https://salt80.soc-se.org/salt-api';|const saltApiUrl = 'http://127.0.0.1:$SALT_API_PORT';|" $GUI_SERVER_JS
+    
+    #
+    # *** FIX IS HERE ***
+    # This command now searches for the line STARTING WITH the saltApiUrl string
+    # and replaces the ENTIRE line, which avoids issues with comments.
+    #
+    local find_string="^const saltApiUrl = 'https://salt80.soc-se.org/salt-api'.*"
+    local replace_string="const saltApiUrl = 'http://127.0.0.1:$SALT_API_PORT';"
+    
+    if ! sed -i "s|$find_string|$replace_string|" $GUI_SERVER_JS; then
+        error "sed command failed to update $GUI_SERVER_JS"
+    fi
     
     # Check if sed worked
     if ! grep -q "http://127.0.0.1:$SALT_API_PORT" $GUI_SERVER_JS; then
-        error "Failed to configure $GUI_SERVER_JS. The hardcoded URL 'https://salt80.soc-se.org/salt-api' may have changed in the repo."
+        error "Failed to configure $GUI_SERVER_JS. The replacement string was not found after sed."
     fi
     
     warn "The Salt-GUI server.js file has hardcoded credentials: (username: 'sysadmin', password: 'Changeme1!')."
@@ -244,7 +250,7 @@ manage_salt_services() {
 check_root
 install_dependencies
 run_bootstrap
-ensure_api_installed  # <-- NEW STEP ADDED HERE
+ensure_api_installed
 configure_api
 manage_salt_services
 install_and_configure_gui
@@ -262,7 +268,7 @@ log "   - 4506 (Salt Master Ret)"
 log "   - 3000 (Salt-GUI)"
 log "2. API USER: The GUI is hardcoded to use 'sysadmin' / 'Changeme1!'. Create this user:"
 log "   Example: useradd -r -M -G saltapiusers sysadmin && passwd sysadmin"
-log "   (When prompted, set the password to 'Changemeal!')"
+log "   (When prompted, set the password to 'Changeme1!')"
 log "3. LOCAL MINION: Configure the local minion to talk to the master:"
 log "   - Edit /etc/salt/minion and set 'master: localhost'"
 log "   - Run: systemctl restart salt-minion"
