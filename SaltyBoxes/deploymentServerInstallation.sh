@@ -27,7 +27,7 @@ API_CONFIG_FILE="/etc/salt/master.d/api.conf"
 
 GUI_REPO_URL="https://github.com/kyschwartz/salt-gui.git"
 GUI_INSTALL_DIR="/opt/salt-gui"
-GUI_SERVER_DIR="$GUI_INSTALL_DIR/Salt-GUI-master"
+GUI_SERVER_DIR="$GUI_INSTALL_DIR/"
 GUI_SERVER_JS="$GUI_SERVER_DIR/server.js"
 GUI_SERVICE_FILE="/etc/systemd/system/salt-gui.service"
 GUI_USER="saltgui"
@@ -165,7 +165,7 @@ install_and_configure_gui() {
         log "GUI directory $GUI_INSTALL_DIR already exists. Skipping clone."
     else
         log "Cloning Salt-GUI from $GUI_REPO_URL..."
-        git clone $GUI_REPO_URL $GUI_INSTALL_DIR
+        git clone $GUI_REPO_URL --branch=master $GUI_INSTALL_DIR
     fi
 
     log "Installing Node.js dependencies for GUI..."
