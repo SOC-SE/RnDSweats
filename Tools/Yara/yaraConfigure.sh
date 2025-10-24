@@ -90,6 +90,7 @@ remove_problematic_rules() {
         "*base64_pe*"       # Caused "SUSP Double Base64" error
         "*poisonivy*"       # Caused "PoisonIvy Sample 6" error
         "*Linux_Sudops*"    # Found later, causes issues
+        "*gen_susp_obfuscation.yar*" # Contains SUSP_Reversed_Base64_Encoded_EXE
 
         # --- Your original list ---
         "*apt_barracuda_esg_unc4841_jun23.yar*"
