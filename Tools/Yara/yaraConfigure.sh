@@ -92,7 +92,7 @@ remove_problematic_rules() {
     log "Removing problematic rule files *before* combining..."
 
     local rules_to_delete=(
-        # --- Problematic files from our debugging ---
+        # --- Problematic files found from debugging. These rules break the compilation.
         "*3cx*"             # Caused "SUSP APT 3CX" error
         "*screenconnect*"   # Caused "SUSP ScreenConnect" errors
         "*vcruntime*"       # Caused "SUSP VCRuntime" error
@@ -101,7 +101,7 @@ remove_problematic_rules() {
         "*Linux_Sudops*"    # Found later, causes issues
         "*gen_susp_obfuscation.yar*" # Contains SUSP_Reversed_Base64_Encoded_EXE
 
-        # --- Your original list ---
+        # Recommended list of rules to remove
         "*apt_barracuda_esg_unc4841_jun23.yar*"
         "*apt_cobaltstrike.yar*"
         "*apt_tetris.yar*"
