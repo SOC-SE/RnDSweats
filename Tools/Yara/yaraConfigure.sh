@@ -62,51 +62,54 @@ download_rules() {
 build_master_rule_file() {
     log "Finding and concatenating all .yar files..."
 
-    # Define directories to scan for rules.
     declare -a directories_to_include=(
         "${CLONE_DIR}/yara/"
     )
-
-    # This is a comprehensive exclusion list combining the maintainer's recommendations
-    # and files found to have persistent syntax errors.
-
-    # This fix sucks. I hate to exclude so many of these, only a chunk of them are recommended to be remove by the creator of the yara rules
-    # repo. Hopefully I can fix this in the future, but I'm too fucking tired right now. FML, this feels disgusting, but some coverage is
-    # better than no coverage. - Sam 2025
     
-    # We find all .yar/.yara files, then use `-not -path` to remove the ones
-    # that we know cause syntax errors by referencing undefined external variables.
-    find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) \
-        -not -path "*/apt_barracuda_esg_unc4841_jun23.yar" \
-        -not -path "*/apt_cobaltstrike.yar" \
-        -not -path "*/apt_tetris.yar" \
-        -not -path "*/configured_vulns_ext_vars.yar" \
-        -not -path "*/expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar" \
-        -not -path "*/expl_cleo_dec24.yar" \
-        -not -path "*/expl_commvault_cve_2025_57791.yar" \
-        -not -path "*/expl_outlook_cve_2023_23397.yar" \
-        -not -path "*/gen_fake_amsi_dll.yar" \
-        -not -path "*/gen_gcti_cobaltstrike.yar" \
-        -not -path "*/gen_susp_js_obfuscatorio.yar" \
-        -not -path "*/gen_susp_xor.yar" \
-        -not -path "*/gen_webshells_ext_vars.yar" \
-        -not -path "*/gen_xor_hunting.yar" \
-        -not -path "*/general_cloaking.yar" \
-        -not -path "*/generic_anomalies.yar" \
-        -not -path "*/mal_lockbit_lnx_macos_apr23.yar" \
-        -not -path "*/thor-hacktools.yar" \
-        -not -path "*/thor_inverse_matches.yar" \
-        -not -path "*/vuln_paloalto_cve_2024_3400_apr24.yar" \
-        -not -path "*/yara-rules_vuln_drivers_strict_renamed.yar" \
-        -not -path "*/yara_mixed_ext_vars.yar" \
-        \
-        -not -path "*/apt_3cx_regtrans_anomaly_apr23.yar" \
-        -not -path "*/gen_susp_base64_pe.yar" \
-        -not -path "*/apt_screenconnect_feb24.yar" \
-        -not -path "*/mal_vcruntime_sideloading_aug23.yar" \
-        \
-        -print0 | xargs -0 cat > "$MASTER_RULES_FILE_TMP"
+    # List of problematic filenames to exclude.
+    # We will pipe the 'find' output through 'grep -vE' to remove these.
+    # This is more robust than using 'find -not -path'.
+    local exclude_list=(
+        "apt_barracuda_esg_unc4841_jun23.yar"
+        "apt_cobaltstrike.yar"
+        "apt_tetris.yar"
+        "configured_vulns_ext_vars.yar"
+        "expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar"
+        "expl_cleo_dec24.yar"
+        "expl_commvault_cve_2025_57791.yar"
+        "expl_outlook_cve_2023_23397.yar"
+        "gen_fake_amsi_dll.yar"
+        "gen_gcti_cobaltstrike.yar"
+        "gen_susp_js_obfuscatorio.yar"
+        "gen_susp_xor.yar"
+        "gen_webshells_ext_vars.yar"
+        "gen_xor_hunting.yar"
+        "general_cloaking.yar"
+        "generic_anomalies.yar"
+        "mal_lockbit_lnx_macos_apr23.yar"
+        "thor-hacktools.yar"
+        "thor_inverse_matches.yar"
+        "vuln_paloalto_cve_2024_3400_apr24.yar"
+        "yara-rules_vuln_drivers_strict_renamed.yar"
+        "yara_mixed_ext_vars.yar"
+        # --- Added from user's latest error log ---
+        "apt_3cx_regtrans_anomaly_apr23.yar"
+        "gen_susp_base64_pe.yar"
+        "apt_screenconnect_feb24.yar"
+        "mal_vcruntime_sideloading_aug23.yar"
+    )
+    
+    # Create the regex string for grep: (file1|file2|file3)
+    local exclude_regex
+    exclude_regex=$(IFS="|"; echo "${exclude_list[*]}")
 
+    log "Excluding rules based on regex: $exclude_regex"
+
+    # Find all files, pipe the list to grep to filter out bad ones,
+    # then pipe the clean list to xargs to concatenate them.
+    find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | \
+        grep -vEz "(${exclude_regex})" | \
+        xargs -0 cat > "$MASTER_RULES_FILE_TMP"
 
     if [[ ! -s "$MASTER_RULES_FILE_TMP" ]]; then
         log "ERROR: The master rules file ('$MASTER_RULES_FILE_TMP') is empty."
