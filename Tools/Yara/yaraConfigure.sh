@@ -5,8 +5,7 @@
 # at the source, and combines the rest into a single master rule file for LMD.
 # Run as root or with sudo.
  
-set -e
-set -o pipefail
+# set -e and set -o pipefail removed for debugging to see all errors.
 
 # --- Variables ---
 REPO_URL="https://github.com/neo23x0/signature-base.git"
@@ -57,7 +56,7 @@ download_rules() {
     log "Rules downloaded successfully to ${CLONE_DIR}."
 }
 
-# Function to remove problematic rules at the source (Robust Version)
+# Function to remove problematic rules at the source (Robust Version 3)
 remove_problematic_rules() {
     log "Removing problematic rule files *before* combining..."
 
@@ -98,24 +97,26 @@ remove_problematic_rules() {
     for pattern in "${rules_to_delete[@]}"; do
         log "  - Searching for pattern: $pattern"
         
-        # Create a list of files to delete. This avoids pipes.
+        # Use mapfile (readarray) to safely read find's output into an array
+        # This avoids pipes and subshells that can trigger 'set -e'
         local files_to_delete=()
-        while IFS= read -r -d $'\0' file; do
-            files_to_delete+=("$file")
-        done < <(find "$YARA_RULES_SRC_DIR" -type f -name "$pattern" -print0)
+        mapfile -t files_to_delete < <(find "$YARA_RULES_SRC_DIR" -type f -name "$pattern" 2>/dev/null || true)
 
         # Now, loop over the array and delete the files
         if [ ${#files_to_delete[@]} -gt 0 ]; then
             for file in "${files_to_delete[@]}"; do
-                rm -f "$file"
-                log "    - Removed: $(basename "$file")"
-                ((total_deleted_count++))
+                if [ -f "$file" ]; then # Double-check if file exists before rm
+                    rm -f "$file"
+                    log "    - Removed: $(basename "$file")"
+                    ((total_deleted_count++))
+                fi
             done
         fi
     done
 
     log "Removed a total of ${total_deleted_count} problematic rule files."
 }
+
 
 # Function to build the master rule file
 build_master_rule_file() {
