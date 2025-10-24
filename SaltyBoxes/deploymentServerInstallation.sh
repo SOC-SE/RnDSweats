@@ -168,17 +168,12 @@ install_and_configure_gui() {
         git clone $GUI_REPO_URL --branch=master $GUI_INSTALL_DIR
     fi
 
-    log "Installing Node.js dependencies for GUI..."
+    #log "Installing Node.js dependencies for GUI..."
     cd $GUI_SERVER_DIR
-    npm install --loglevel=error
+    #npm install --loglevel=error
 
     log "Configuring GUI to connect to local Salt API (http://127.0.0.1:$SALT_API_PORT)..."
     
-    #
-    # *** FIX IS HERE ***
-    # This command now searches for the line STARTING WITH the saltApiUrl string
-    # and replaces the ENTIRE line, which avoids issues with comments.
-    #
     local find_string="^const saltApiUrl = 'https://salt80.soc-se.org/salt-api'.*"
     local replace_string="const saltApiUrl = 'http://127.0.0.1:$SALT_API_PORT';"
     
