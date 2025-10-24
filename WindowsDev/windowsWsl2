@@ -1,0 +1,55 @@
+<#
+.SYNOPSIS
+    Installs and configures WSL2 + Ubuntu 22.04 on Windows Server 2019.
+.DESCRIPTION
+    Enables WSL, the Virtual Machine Platform, installs the WSL2 kernel,
+    and downloads Ubuntu 22.04 LTS manually for environments without the Microsoft Store.
+#>
+
+Write-Host "`n=== WSL2 + Ubuntu 22.04 Installer for Windows Server 2019 ===`n" -ForegroundColor Cyan
+
+# Step 1: Check admin privileges
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Host "❌ Please run this script as Administrator." -ForegroundColor Red
+    exit
+}
+
+# Step 2: Enable required features
+Write-Host "🔧 Enabling WSL and Virtual Machine Platform features..." -ForegroundColor Yellow
+dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart | Out-Null
+dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart | Out-Null
+Write-Host "✅ Required features enabled." -ForegroundColor Green
+
+# Step 3: Download and install WSL2 kernel
+Write-Host "⬇️ Downloading and installing WSL2 kernel update..." -ForegroundColor Yellow
+$ProgressPreference = 'SilentlyContinue'   # Speed up Invoke-WebRequest
+$kernelInstaller = "$env:TEMP\wsl_update_x64.msi"
+Invoke-WebRequest -Uri "https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi" -OutFile $kernelInstaller -UseBasicParsing
+Start-Process msiexec.exe -Wait -ArgumentList "/i `"$kernelInstaller`" /quiet /norestart"
+Write-Host "✅ WSL2 kernel installed." -ForegroundColor Green
+
+# Step 4: Set WSL2 as the default version
+Write-Host "⚙️ Setting WSL 2 as default..." -ForegroundColor Yellow
+wsl --set-default-version 2
+
+# Step 5: Download Ubuntu 22.04 manually (since Store is unavailable)
+Write-Host "⬇️ Downloading Ubuntu 22.04 LTS Appx package..." -ForegroundColor Yellow
+$ProgressPreference = 'SilentlyContinue'   # Speed up Invoke-WebRequest again
+$ubuntuAppx = "$env:TEMP\Ubuntu_22.04.appx"
+Invoke-WebRequest -Uri "https://aka.ms/wslubuntu2204" -OutFile $ubuntuAppx -UseBasicParsing
+
+Write-Host "📦 Installing Ubuntu 22.04 LTS..." -ForegroundColor Yellow
+Add-AppxPackage -Path $ubuntuAppx
+Write-Host "✅ Ubuntu 22.04 installed successfully." -ForegroundColor Green
+
+# Step 6: Show installed distributions
+Write-Host "`n📋 Installed WSL distributions:" -ForegroundColor Cyan
+wsl --list --online
+Write-Host "`nTo finish setup, run 'wsl' or 'wsl -d Ubuntu-22.04' to complete first-time initialization." -ForegroundColor Yellow
+
+# Step 7: Reboot recommendation
+Write-Host "`n🔁 A reboot is recommended for WSL2 to function correctly."
+$restart = Read-Host "Would you like to reboot now? (Y/N)"
+if ($restart -match "^[Yy]") {
+    Restart-Computer
+}
