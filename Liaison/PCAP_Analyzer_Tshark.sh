@@ -1,409 +1,511 @@
 #!/bin/bash
 
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
-# --- ASCII Banner ---
-echo -e "\033[1;32m"
-cat << "EOF"
-                     
-                                                                                 .::-=++**#####*                     
-                                             #####*+-.                  .:=+*##################=                     
-                                             .*#########+.        :=*###########*.:###########+                      
-                                               +###########*.-*##############################-                       
-                                                ###########################################*.                        
-                                                -##*#####################################*                           
-                                                 ::*###############.#######-..:= :-.- :-                             
-                                                =#############+**-#:######..-.... - =-.                              
-                                              =###############:#:*:*:*#####-:.---.-.                                 
-                                            :#################*.*-#*##########+-:..:.                                
-                                           +######################################*:                                 
-                                  .+*:    *#######################**###########*:                                    
-                      .****:        .- . *######################.+*########*.                                        
-                        .-**+.       .. +#*##########:.*######+.*#####+:.. ...                                       
-                            =*.     .....-###########=-#####*.:*+-.:-*#+ . .. .:-.                                   
-                              .   .+################=:#####:    .######:     :+-                                     
-                                     .*###########+::####-       .####+        :--.                                  
-                          -*=.         +#######+.  -##*:          :##+     .-+***:                                   
-                     ...    :- .**+:   -#####*.   :+:              *-    -+***+:                                     
-                     :****+=.    :+*+.  *###*.-=:             .=+.    .+****=.                                       
-                        .+****+:   .+*. :###:-**+-.      .   =**.   :****+.   .-+***+.                               
-                            :+****:      .##:-*-      :**. .+=.  .=****=    .++:.                                    
-                          .-.. .+****-.    =* ==    :***.     .:*****=       ...                                     
-                          -++*+.  =*****+-:.     .=*****:..:=*******+     :+*+=:                                     
-                               .  :**********************************+:   .                                          
-                             .+++******************************************++++++++++======.                      
-                           _____    ____  _                _      _____ _ _ _            
-                          |_   _|  / ___|| |__   __ _ _ __| | __ |  ___(_) | |_ ___ _ __ 
-                            | |____\___ \| '_ \ / _` | '__| |/ / | |_  | | | __/ _ \ '__|
-                            | |_____|__) | | | | (_| | |  |   <  |  _| | | | ||  __/ |   
-                            |_|    |____/|_| |_|\__,_|_|  |_|\_\ |_|   |_|_|\__\___|_|   
-EOF
-echo -e "\033[0m"
-echo "PCAP Analyzer with Tshark - For CCDC Log Filtering"
-echo "--------------------------------------------------"
-
-# --- Configuration & Colors ---
+# --- Styling ---------------------------------------------------------------
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m'
-LOG_DIR="/var/log/tshark_logs"
-mkdir -p "$LOG_DIR"
+BOLD='\033[1m'
+RESET='\033[0m'
 
-# --- Helper Functions ---
-log_info() { echo -e "${GREEN}[INFO] $1${NC}"; }
-log_warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
-log_error() { echo -e "${RED}[ERROR] $1${NC}" >&2; exit 1; }
+log_info()  { printf '%b[INFO]%b %s\n'  "${GREEN}" "${RESET}" "$1"; }
+log_warn()  { printf '%b[WARN]%b %s\n'  "${YELLOW}" "${RESET}" "$1"; }
+log_error() { printf '%b[ERROR]%b %s\n' "${RED}" "${RESET}" "$1" >&2; exit 1; }
 
-# --- Check if Tshark Installed ---
-check_tshark() {
-    if ! command -v tshark &> /dev/null; then
-        log_error "Tshark is not installed. Install Wireshark and try again (e.g., sudo apt install wireshark)."
-    fi
-    log_info "Tshark detected and ready."
+# --- Globals ----------------------------------------------------------------
+LOG_DIR="${TSHARK_LOG_DIR:-/var/log/tshark_logs}"
+METADATA_FILE="${LOG_DIR}/.latest_capture"
+LISTED_FILES=()
+LAST_FILE=""
+LAST_PCAP=""
+LAST_STAMP=""
+COLUMN_AVAILABLE=0
+LESS_AVAILABLE=0
+LINE_BAR='------------------------------------------------------------------'
+
+# --- Utility ----------------------------------------------------------------
+print_banner() {
+	cat <<'BANNER'
+====================================================================
+ PCAP Analyzer with Tshark  |  Companion to Network_Scanner_Tshark
+====================================================================
+BANNER
 }
 
-# --- Check Directory Access ---
-check_dir_access() {
-    if [ ! -r "$LOG_DIR" ]; then
-        log_error "Cannot read from $LOG_DIR. Run as root or fix permissions (e.g., sudo chown -R $(whoami) $LOG_DIR)."
-    fi
-    if [ ! -w "$LOG_DIR" ]; then
-        log_warn "Cannot write to $LOG_DIR. Some save operations may fail. Run as root or fix permissions."
-    fi
+require_cmd() {
+	local name=$1
+	command -v "$name" >/dev/null 2>&1 || log_error "Required dependency '$name' is missing."
 }
 
-    local logs=("$LOG_DIR"/*.log)
-    local all_files=()
-    if [ ${#pcaps[@]} -gt 0 ] || [ ${#logs[@]} -gt 0 ]; then
-        if [ ${#pcaps[@]} -gt 0 ]; then
-            all_files+=("${pcaps[@]}")
-        fi
-        if [ ${#logs[@]} -gt 0 ]; then
-            all_files+=("${logs[@]}")
-        fi
-    else
-        log_error "No PCAP or LOG files found in $LOG_DIR. Run Network_Scanner_Tshark.sh first."
-    fi
-    log_info "Available files:"
-    local i=1
-    for file in "${all_files[@]}"; do
-        if [[ "$file" == *.pcap ]]; then
-            echo "$i) [PCAP] $(basename "$file")"
-        else
-            echo "$i) [LOG] $(basename "$file")"
-        fi
-        ((i++))
-    done
-    echo "${#all_files[@]}"
+check_dependencies() {
+	require_cmd tshark
+	command -v column >/dev/null 2>&1 && COLUMN_AVAILABLE=1
+	command -v less   >/dev/null 2>&1 && LESS_AVAILABLE=1
 }
 
-# --- Get Selected File ---
-get_file() {
-    local num_files=$(list_files)
-    local choice
-    read -p "Select file number: " choice
-    local all_files=()
-    local pcaps=("$LOG_DIR"/*.pcap)
-    local logs=("$LOG_DIR"/*.log)
-    if [ ${#pcaps[@]} -gt 0 ]; then
-        all_files+=("${pcaps[@]}")
-    fi
-    if [ ${#logs[@]} -gt 0 ]; then
-        all_files+=("${logs[@]}")
-    fi
-    while ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#all_files[@]} ]; do
-        log_warn "Invalid selection."
-        read -p "Select file number: " choice
-    done
-    echo "${all_files[$choice-1]}"
+ensure_log_dir() {
+	if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+		log_warn "Unable to create $LOG_DIR (permission denied). Continuing anyway."
+	fi
+	[ -r "$LOG_DIR" ] || log_error "Cannot read from $LOG_DIR. Run as root or adjust permissions."
+	if [ ! -w "$LOG_DIR" ]; then
+		log_warn "Cannot write to $LOG_DIR. Saving filtered output may fail."
+	fi
 }
 
-# --- Run Tshark Filter and Display Table ---
+load_last_run_metadata() {
+	[ -f "$METADATA_FILE" ] || return
+	while IFS='=' read -r key value; do
+		case "$key" in
+			stamp) LAST_STAMP="$value" ;;
+			log)   LAST_FILE="$value" ;;
+			pcap)  LAST_PCAP="$value" ;;
+		esac
+	done < "$METADATA_FILE"
+}
+
+get_timestamp() {
+	local target=$1
+	local ts=""
+	ts=$(stat -c %Y "$target" 2>/dev/null || true)
+	if [ -z "$ts" ]; then
+		ts=$(stat -f %m "$target" 2>/dev/null || true)
+	fi
+	printf '%s' "${ts:-0}"
+}
+
+collect_files() {
+	LISTED_FILES=()
+	local -a entries=()
+	local path stamp tag label
+
+	shopt -s nullglob
+	for path in "$LOG_DIR"/*.pcap "$LOG_DIR"/*.log; do
+		[ -e "$path" ] || continue
+		stamp=$(get_timestamp "$path")
+		tag=""
+		if [ -n "$LAST_FILE" ] && [ "$path" = "$LAST_FILE" ]; then
+			tag=" [last-log]"
+		elif [ -n "$LAST_PCAP" ] && [ "$path" = "$LAST_PCAP" ]; then
+			tag=" [last-pcap]"
+		fi
+		label="$(basename "$path")${tag}"
+		entries+=("$stamp::$path::$label")
+	done
+	shopt -u nullglob
+
+	if [ ${#entries[@]} -eq 0 ]; then
+		log_error "No PCAP or log files found under $LOG_DIR. Run Network_Scanner_Tshark.sh first."
+	fi
+
+	IFS=$'\n' read -r -a entries <<< "$(printf '%s\n' "${entries[@]}" | sort -r)"
+
+	log_info "Available artifacts (newest first):"
+	local idx=1
+	local entry
+	for entry in "${entries[@]}"; do
+		path=${entry#*::}
+		path=${path%%::*}
+		label=${entry##*::}
+		printf '%2d) %s\n' "$idx" "$label"
+		LISTED_FILES+=("$path")
+		idx=$((idx+1))
+	done
+}
+
+select_file() {
+	collect_files
+	local total=${#LISTED_FILES[@]}
+	local default_index="" choice
+
+	if [ -n "$LAST_FILE" ]; then
+		local i
+		for i in "${!LISTED_FILES[@]}"; do
+			if [ "${LISTED_FILES[$i]}" = "$LAST_FILE" ]; then
+				default_index=$((i+1))
+				break
+			fi
+		done
+	fi
+
+	if [ -z "$default_index" ] && [ -n "$LAST_PCAP" ]; then
+		local i
+		for i in "${!LISTED_FILES[@]}"; do
+			if [ "${LISTED_FILES[$i]}" = "$LAST_PCAP" ]; then
+				default_index=$((i+1))
+				break
+			fi
+		done
+	fi
+
+	while true; do
+		local prompt="Select file number"
+		[ -n "$default_index" ] && prompt+=" [$default_index]"
+		prompt+=" (1-$total): "
+		read -r -p "$prompt" choice || exit 1
+		if [ -z "$choice" ] && [ -n "$default_index" ]; then
+			choice=$default_index
+		fi
+		if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$total" ]; then
+			printf '%s' "${LISTED_FILES[$((choice-1))]}"
+			return 0
+		fi
+		log_warn "Invalid selection."
+	done
+}
+
+update_last_selection() {
+	local file=$1
+	if [[ "$file" == *.pcap ]]; then
+		LAST_PCAP="$file"
+	else
+		LAST_FILE="$file"
+	fi
+}
+
+display_table() {
+	local headers=$1
+	local body=$2
+	printf '%b%s%b\n' "${BOLD}" "$headers" "${RESET}"
+	printf '%s\n' "$LINE_BAR"
+	if [ $COLUMN_AVAILABLE -eq 1 ]; then
+		printf '%s\n' "$body" | column -t -s $'\t'
+	else
+		printf '%s\n' "$body"
+	fi
+	printf '%s\n' "$LINE_BAR"
+}
+
+ask_to_save() {
+	local prefix=$1
+	local headers=$2
+	local body=$3
+	local answer
+
+	read -r -p "Save this output to $LOG_DIR? (y/N): " answer || return
+	if [[ ! $answer =~ ^[Yy]$ ]]; then
+		return
+	fi
+
+	if [ ! -w "$LOG_DIR" ]; then
+		log_warn "Cannot write to $LOG_DIR; skipping save."
+		return
+	fi
+
+	local file="$LOG_DIR/${prefix}_$(date +"%Y-%m-%d_%H-%M-%S").txt"
+	{
+		printf '%s\n' "$headers"
+		printf '%s\n' "$LINE_BAR"
+		printf '%s\n' "$body"
+	} > "$file"
+	log_info "Saved output to $file"
+}
+
 run_pcap_filter() {
-    local pcap=$1
-    local filter=$2
-    local fields=$3
-    local headers=$4
-    log_info "Applying filter on $(basename "$pcap"): $filter"
-    log_info "Generating table..."
-    local output=$(tshark -r "$pcap" -Y "$filter" -T fields $fields 2>/dev/null)
-    if [ -z "$output" ]; then
-        log_warn "No results found for this filter."
-        return
-    fi
-    # Display table using column
-    echo -e "$headers"
-    echo "------------------------------------------------------------"
-    echo "$output" | column -t -s $'\t'
-    echo "------------------------------------------------------------"
-    read -p "Save this table to file? (y/n): " save
-    if [[ $save =~ ^[Yy]$ ]]; then
-        local save_file="$LOG_DIR/filtered_$(date +"%Y-%m-%d_%H-%M-%S").txt"
-        echo -e "$headers\n------------------------------------------------------------\n$output" > "$save_file"
-        log_info "Table saved to $save_file"
-    fi
+	local pcap=$1
+	local filter=$2
+	local fields=${3:-}
+	local headers=$4
+	local output=""
+	local -a args=()
+
+	log_info "Applying filter '$filter' to $(basename "$pcap")"
+
+	if [ -n "$fields" ]; then
+		# shellcheck disable=SC2206
+		args=($fields)
+		output=$(tshark -r "$pcap" -Y "$filter" -T fields "${args[@]}" 2>/dev/null || true)
+	else
+		output=$(tshark -r "$pcap" -Y "$filter" 2>/dev/null || true)
+	fi
+
+	if [ -z "$output" ]; then
+		log_warn "No results for filter '$filter'."
+		return 1
+	fi
+
+	display_table "$headers" "$output"
+	ask_to_save "filtered_${filter//[^A-Za-z0-9]/_}" "$headers" "$output"
+	return 0
 }
 
-# --- Run LOG/Text Filter and Display ---
 run_log_filter() {
-    local log_file=$1
-    local pattern=$2
-    local headers=$3
-    log_info "Applying text filter on $(basename "$log_file"): grep-like for '$pattern'"
-    local output=$(grep -i "$pattern" "$log_file" 2>/dev/null || awk -v pat="$pattern" '/'"$pattern"'/ {print}' "$log_file")
-    if [ -z "$output" ]; then
-        log_warn "No results found for this filter."
-        return
-    fi
-    echo -e "$headers"
-    echo "------------------------------------------------------------"
-    echo "$output"
-    echo "------------------------------------------------------------"
-    read -p "Save this output to file? (y/n): " save
-    if [[ $save =~ ^[Yy]$ ]]; then
-        local save_file="$LOG_DIR/filtered_log_$(date +"%Y-%m-%d_%H-%M-%S").txt"
-        echo -e "$headers\n------------------------------------------------------------\n$output" > "$save_file"
-        log_info "Output saved to $save_file"
-    fi
+	local log_file=$1
+	local pattern=$2
+	local headers=$3
+	local use_regex=${4:-0}
+	local output=""
+
+	log_info "Searching $(basename "$log_file") with pattern '$pattern'"
+
+	if [ "$use_regex" -eq 1 ]; then
+		output=$(grep -Ei "$pattern" "$log_file" 2>/dev/null || true)
+	else
+		output=$(grep -iF -- "$pattern" "$log_file" 2>/dev/null || true)
+	fi
+
+	if [ -z "$output" ]; then
+		output=$(awk -v pat="$pattern" -v use_regex="$use_regex" 'BEGIN{IGNORECASE=1}
+			{
+				if (use_regex==1) {
+					if ($0 ~ pat) print $0;
+				} else {
+					if (index($0, pat) > 0) print $0;
+				}
+			}' "$log_file" 2>/dev/null || true)
+	fi
+
+	if [ -z "$output" ]; then
+		log_warn "No results for pattern '$pattern'."
+		return 1
+	fi
+
+	display_table "$headers" "$output"
+	ask_to_save "log_filter" "$headers" "$output"
+	return 0
 }
 
-# --- Filter Functions ---
+view_raw_file() {
+	local file=$1
+	if [ $LESS_AVAILABLE -eq 1 ]; then
+		log_info "Opening $(basename "$file") in less (press q to quit)."
+		less -R "$file"
+	else
+		log_warn "less not available; showing tail of file."
+		tail -n 200 "$file"
+	fi
+}
 
-# 1. Filter HTTP Traffic
+summarize_file() {
+	local file=$1
+	log_info "Summary for $(basename "$file"):"
+	if [[ "$file" == *.pcap ]]; then
+		tshark -r "$file" -q -z io,stat,0,"COUNT" || log_warn "Stat summary failed (tshark permissions?)."
+	else
+		local lines words bytes
+		if read -r lines words bytes _ < <(wc -l -w -c "$file" 2>/dev/null); then
+			printf 'Lines: %s  Words: %s  Bytes: %s\n' "$lines" "$words" "$bytes"
+		fi
+		printf '\nTop talkers (count of unique IPs)\n'
+		awk '{for(i=1;i<=NF;i++){if($i~/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)print $i}}' "$file" | sort | uniq -c | sort -nr | head -n 10 || true
+	fi
+}
+
 filter_http_pcap() {
-    local pcap=$1
-    run_pcap_filter "$pcap" "http" "-e frame.time -e ip.src -e ip.dst -e http.request.method -e http.request.uri -e http.response.code" "Time\tSource IP\tDest IP\tMethod\tURI\tResponse Code"
+	run_pcap_filter "$1" "http" "-e frame.time -e ip.src -e ip.dst -e http.request.method -e http.request.uri -e http.response.code" \
+		"Time\tSource\tDestination\tMethod\tURI\tResponse"
 }
 
 filter_http_log() {
-    local log_file=$1
-    run_log_filter "$log_file" "HTTP" "Filtered HTTP Lines from Log"
+	run_log_filter "$1" "HTTP" "Lines Containing HTTP"
 }
 
-# 2. Filter DNS Queries
 filter_dns_pcap() {
-    local pcap=$1
-    run_pcap_filter "$pcap" "dns" "-e frame.time -e ip.src -e ip.dst -e dns.qry.name -e dns.qry.type" "Time\tSource IP\tDest IP\tQuery Name\tQuery Type"
+	run_pcap_filter "$1" "dns" "-e frame.time -e ip.src -e ip.dst -e dns.qry.name -e dns.qry.type" \
+		"Time\tSource\tDestination\tQuery\tType"
 }
 
 filter_dns_log() {
-    local log_file=$1
-    run_log_filter "$log_file" "DNS" "Filtered DNS Lines from Log"
+	run_log_filter "$1" "DNS" "Lines Containing DNS"
 }
 
-# 3. Filter by Port Number
 filter_port_pcap() {
-    local pcap=$1
-    local port
-    read -p "Enter port number (e.g., 80): " port
-    while [ -z "$port" ] || ! [[ "$port" =~ ^[0-9]+$ ]]; do
-        log_warn "Invalid port."
-        read -p "Enter port number: " port
-    done
-    run_pcap_filter "$pcap" "tcp.port == $port or udp.port == $port" "-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e ip.proto" "Time\tSource IP\tDest IP\tSrc Port\tDst Port\tProtocol"
+	local pcap=$1
+	local port
+	read -r -p "Port number: " port || return
+	while [ -z "$port" ] || ! [[ "$port" =~ ^[0-9]+$ ]]; do
+		log_warn "Enter a numeric port."
+		read -r -p "Port number: " port || return
+	done
+	run_pcap_filter "$pcap" "tcp.port == $port || udp.port == $port" \
+		"-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e ip.proto" \
+		"Time\tSource\tDestination\tSrc Port\tDst Port\tProto"
 }
 
 filter_port_log() {
-    local log_file=$1
-    local port
-    read -p "Enter port number (e.g., 80): " port
-    while [ -z "$port" ] || ! [[ "$port" =~ ^[0-9]+$ ]]; do
-        log_warn "Invalid port."
-        read -p "Enter port number: " port
-    done
-    run_log_filter "$log_file" "$port" "Filtered Lines Containing Port $port from Log"
+	local log_file=$1
+	local port
+	read -r -p "Port number: " port || return
+	while [ -z "$port" ] || ! [[ "$port" =~ ^[0-9]+$ ]]; do
+		log_warn "Enter a numeric port."
+		read -r -p "Port number: " port || return
+	done
+	run_log_filter "$log_file" "$port" "Lines Containing Port $port"
 }
 
-# 4. Filter by IP Address
 filter_ip_pcap() {
-    local pcap=$1
-    local ip
-    read -p "Enter IP address (e.g., 192.168.1.1): " ip
-    while [ -z "$ip" ]; do
-        log_warn "IP cannot be empty."
-        read -p "Enter IP address: " ip
-    done
-    run_pcap_filter "$pcap" "ip.src == $ip or ip.dst == $ip" "-e frame.time -e ip.src -e ip.dst -e ip.proto -e frame.len" "Time\tSource IP\tDest IP\tProtocol\tLength"
+	local pcap=$1
+	local ip
+	read -r -p "IP address: " ip || return
+	while [ -z "$ip" ]; do
+		log_warn "IP cannot be empty."
+		read -r -p "IP address: " ip || return
+	done
+	run_pcap_filter "$pcap" "ip.addr == $ip" \
+		"-e frame.time -e ip.src -e ip.dst -e ip.proto -e frame.len" \
+		"Time\tSource\tDestination\tProto\tLength"
 }
 
 filter_ip_log() {
-    local log_file=$1
-    local ip
-    read -p "Enter IP address (e.g., 192.168.1.1): " ip
-    while [ -z "$ip" ]; do
-        log_warn "IP cannot be empty."
-        read -p "Enter IP address: " ip
-    done
-    run_log_filter "$log_file" "$ip" "Filtered Lines Containing IP $ip from Log"
+	local log_file=$1
+	local ip
+	read -r -p "IP address: " ip || return
+	while [ -z "$ip" ]; do
+		log_warn "IP cannot be empty."
+		read -r -p "IP address: " ip || return
+	done
+	run_log_filter "$log_file" "$ip" "Lines Containing $ip"
 }
 
-# 5. Filter TCP SYN/ACK (Potential Scans)
 filter_tcp_syn_pcap() {
-    local pcap=$1
-    run_pcap_filter "$pcap" "tcp.flags.syn == 1 or tcp.flags.ack == 1" "-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e tcp.flags" "Time\tSource IP\tDest IP\tSrc Port\tDst Port\tFlags"
+	run_pcap_filter "$1" "tcp.flags.syn == 1 && tcp.flags.ack == 0" \
+		"-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e tcp.flags" \
+		"Time\tSource\tDestination\tSrc Port\tDst Port\tFlags"
 }
 
 filter_tcp_syn_log() {
-    local log_file=$1
-    # Enhanced with regex for SYN or ACK flags
-    local output=$(grep -i -E "(tcp\.flags\.syn|tcp\.flags\.ack)" "$log_file" 2>/dev/null || awk '/(SYN|ACK)/ {print}' "$log_file")
-    if [ -z "$output" ]; then
-        log_warn "No SYN/ACK results found."
-        return
-    fi
-    echo "Filtered SYN/ACK Lines from Log"
-    echo "------------------------------------------------------------"
-    echo "$output"
-    echo "------------------------------------------------------------"
-    read -p "Save to file? (y/n): " save
-    if [[ $save =~ ^[Yy]$ ]]; then
-        local save_file="$LOG_DIR/syn_ack_$(date +"%Y-%m-%d_%H-%M-%S").txt"
-        echo -e "Filtered SYN/ACK Lines\n------------------------------------------------------------\n$output" > "$save_file"
-        log_info "Output saved to $save_file"
-    fi
+	run_log_filter "$1" 'tcp\\.flags\\.syn|SYN' "Lines Containing SYN" 1
 }
 
-# 6. Extract Credentials (if any)
 filter_creds_pcap() {
-    local pcap=$1
-    local output=$(tshark -r "$pcap" -z credentials 2>/dev/null)
-    if [ -z "$output" ]; then
-        log_warn "No credentials found."
-        return
-    fi
-    echo "$output" | column -t
-    read -p "Save to file? (y/n): " save
-    if [[ $save =~ ^[Yy]$ ]]; then
-        local save_file="$LOG_DIR/creds_$(date +"%Y-%m-%d_%H-%M-%S").txt"
-        echo "$output" > "$save_file" 2>/dev/null || log_warn "Save failed - permission issue?"
-        log_info "Credentials saved to $save_file"
-    fi
+	local pcap=$1
+	local output
+	output=$(tshark -r "$pcap" -q -z credentials 2>&1 || true)
+	output=$(printf '%s\n' "$output" | sed '/^\s*$/d')
+	if [ -z "$output" ]; then
+		log_warn "No credential artifacts reported by tshark."
+		return 1
+	fi
+	display_table "Extracted Credentials" "$output"
+	ask_to_save "credentials" "Extracted Credentials" "$output"
+	return 0
 }
 
 filter_creds_log() {
-    local log_file=$1
-    run_log_filter "$log_file" "credentials" "Filtered Credentials Lines from Log"
+	run_log_filter "$1" 'password|pass=|login|credential' "Lines Containing Credential Keywords" 1
 }
 
-# 7. TCP Conversation Statistics
 filter_tcp_stats_pcap() {
-    local pcap=$1
-    local output=$(tshark -r "$pcap" -z conv,tcp 2>/dev/null)
-    if [ -z "$output" ]; then
-        log_warn "No TCP stats available."
-        return
-    fi
-    echo "$output" | column -t
-    read -p "Save to file? (y/n): " save
-    if [[ $save =~ ^[Yy]$ ]]; then
-        local save_file="$LOG_DIR/tcp_stats_$(date +"%Y-%m-%d_%H-%M-%S").txt"
-        echo "$output" > "$save_file" 2>/dev/null || log_warn "Save failed - permission issue?"
-        log_info "Stats saved to $save_file"
-    fi
+	local pcap=$1
+	local output
+	output=$(tshark -r "$pcap" -q -z conv,tcp 2>/dev/null || true)
+	output=$(printf '%s\n' "$output" | sed '/^\s*$/d')
+	if [ -z "$output" ]; then
+		log_warn "No TCP conversation data available."
+		return 1
+	fi
+	display_table "TCP Conversation Statistics" "$output"
+	ask_to_save "tcp_stats" "TCP Conversation Statistics" "$output"
+	return 0
 }
 
 filter_tcp_stats_log() {
-    local log_file=$1
-    local output=$(grep -A 50 "TCP Conversations" "$log_file" 2>/dev/null || awk '/TCP/ && /Conversations/ {print; getline; while(getline) {if (/^-/) break; print}}' "$log_file")
-    if [ -z "$output" ]; then
-        log_warn "No TCP stats section found in log."
-        return
-    fi
-    echo "TCP Conversation Statistics from Log"
-    echo "------------------------------------------------------------"
-    echo "$output" | column -t
-    echo "------------------------------------------------------------"
-    read -p "Save to file? (y/n): " save
-    if [[ $save =~ ^[Yy]$ ]]; then
-        local save_file="$LOG_DIR/tcp_stats_log_$(date +"%Y-%m-%d_%H-%M-%S").txt"
-        echo -e "TCP Conversation Statistics\n------------------------------------------------------------\n$output" > "$save_file"
-        log_info "Stats saved to $save_file"
-    fi
+	local log_file=$1
+	local output
+	output=$(awk 'BEGIN{capture=0}
+		/TCP Conversations/ {capture=1}
+		capture && /^-+$/ {print; exit}
+		capture {print}' "$log_file" 2>/dev/null || true)
+	if [ -z "$output" ]; then
+		log_warn "Unable to locate TCP conversation section in log."
+		return 1
+	fi
+	display_table "TCP Conversation Statistics" "$output"
+	ask_to_save "tcp_stats_log" "TCP Conversation Statistics" "$output"
+	return 0
 }
 
-# 8. Custom Filter
 filter_custom() {
-    local file=$1
-    local custom_filter
-    read -p "Enter filter pattern (for PCAP: Tshark filter; for LOG: grep pattern): " custom_filter
-    while [ -z "$custom_filter" ]; do
-        log_warn "Filter cannot be empty."
-        read -p "Enter filter pattern: " custom_filter
-    done
-    if [[ "$file" == *.pcap ]]; then
-        local custom_fields
-        read -p "Enter fields to display (e.g., -e frame.time -e ip.src -e ip.dst): " custom_fields
-        custom_fields=${custom_fields:-"-e frame.time -e ip.src -e ip.dst -e ip.proto"}
-        local custom_headers
-        read -p "Enter table headers (tab-separated, e.g., Time\tSource\tDest): " custom_headers
-        custom_headers=${custom_headers:-"Time\tSource IP\tDest IP\tProtocol"}
-        run_pcap_filter "$file" "$custom_filter" "$custom_fields" "$custom_headers"
-    else
-        local custom_headers
-        read -p "Enter output headers: " custom_headers
-        custom_headers=${custom_headers:-"Filtered Lines from Log"}
-        run_log_filter "$file" "$custom_filter" "$custom_headers"
-    fi
+	local file=$1
+	local filter
+	read -r -p "Custom filter/pattern: " filter || return
+	while [ -z "$filter" ]; do
+		log_warn "Filter cannot be blank."
+		read -r -p "Custom filter/pattern: " filter || return
+	done
+
+	if [[ "$file" == *.pcap ]]; then
+		local fields headers
+		read -r -p "Field list (-e args, blank for defaults): " fields || return
+		fields=${fields:-"-e frame.time -e ip.src -e ip.dst -e ip.proto"}
+		read -r -p "Header labels (tab separated): " headers || return
+		headers=${headers:-"Time\tSource\tDestination\tProtocol"}
+		run_pcap_filter "$file" "$filter" "$fields" "$headers"
+	else
+		local headers
+		read -r -p "Header label: " headers || return
+		headers=${headers:-"Filtered Lines"}
+		run_log_filter "$file" "$filter" "$headers"
+	fi
 }
 
-# --- Prompt for Filter Mode (Looped) ---
 prompt_filter() {
-    local file=$1
-    local is_pcap=1
-    if [[ "$file" != *.pcap ]]; then
-        is_pcap=0
-    fi
-    if [ $is_pcap -eq 1 ]; then
-        log_info "Select filter/analysis type for PCAP $(basename "$file"):"
-    else
-        log_info "Select filter/analysis type for LOG $(basename "$file"):"
-    fi
-    echo "1) Filter HTTP Traffic"
-    echo "2) Filter DNS Queries"
-    echo "3) Filter by Port Number"
-    echo "4) Filter by IP Address"
-    echo "5) Filter TCP SYN/ACK (Potential Scans)"
-    echo "6) Extract Credentials"
-    echo "7) TCP Conversation Statistics"
-    echo "8) Custom Filter"
-    echo "9) Back to PCAP Selection"
-    echo "10) Exit"
-    read -p "Enter your choice (1-10): " choice
-    case "$choice" in
-        1) if [ $is_pcap -eq 1 ]; then filter_http_pcap "$file"; else filter_http_log "$file"; fi ;;
-        2) if [ $is_pcap -eq 1 ]; then filter_dns_pcap "$file"; else filter_dns_log "$file"; fi ;;
-        3) if [ $is_pcap -eq 1 ]; then filter_port_pcap "$file"; else filter_port_log "$file"; fi ;;
-        4) if [ $is_pcap -eq 1 ]; then filter_ip_pcap "$file"; else filter_ip_log "$file"; fi ;;
-        5) if [ $is_pcap -eq 1 ]; then filter_tcp_syn_pcap "$file"; else filter_tcp_syn_log "$file"; fi ;;
-        6) if [ $is_pcap -eq 1 ]; then filter_creds_pcap "$file"; else filter_creds_log "$file"; fi ;;
-        7) if [ $is_pcap -eq 1 ]; then filter_tcp_stats_pcap "$file"; else filter_tcp_stats_log "$file"; fi ;;
-        8) filter_custom "$file" ;;
-        9) return 1 ;;  # Back to selection
-        10) exit 0 ;;
-        *) log_error "Invalid choice. Please select 1-10." ;;
-    esac
-    return 0  # Continue looping
+	local file=$1
+	local is_pcap=0
+	[[ "$file" == *.pcap ]] && is_pcap=1
+
+	log_info "Operating on $(basename "$file")"
+	cat <<'MENU'
+1) Filter HTTP traffic
+2) Filter DNS queries
+3) Filter by port number
+4) Filter by IP address
+5) TCP SYN scan check
+6) Extract credentials
+7) TCP conversation stats
+8) Custom filter
+9) View raw file
+10) File summary
+11) Back to file list
+12) Exit
+MENU
+	local choice
+	read -r -p "Select option (1-12): " choice || exit 1
+	case "$choice" in
+		1) if [ $is_pcap -eq 1 ]; then filter_http_pcap "$file"; else filter_http_log "$file"; fi ;;
+		2) if [ $is_pcap -eq 1 ]; then filter_dns_pcap "$file"; else filter_dns_log "$file"; fi ;;
+		3) if [ $is_pcap -eq 1 ]; then filter_port_pcap "$file"; else filter_port_log "$file"; fi ;;
+		4) if [ $is_pcap -eq 1 ]; then filter_ip_pcap "$file"; else filter_ip_log "$file"; fi ;;
+		5) if [ $is_pcap -eq 1 ]; then filter_tcp_syn_pcap "$file"; else filter_tcp_syn_log "$file"; fi ;;
+		6) if [ $is_pcap -eq 1 ]; then filter_creds_pcap "$file"; else filter_creds_log "$file"; fi ;;
+		7) if [ $is_pcap -eq 1 ]; then filter_tcp_stats_pcap "$file"; else filter_tcp_stats_log "$file"; fi ;;
+		8) filter_custom "$file" ;;
+		9) view_raw_file "$file" ;;
+		10) summarize_file "$file" ;;
+		11) return 1 ;;
+		12) exit 0 ;;
+		*) log_warn "Invalid choice." ;;
+	esac
+	return 0
 }
 
-# --- Main Logic ---
 main() {
-    check_tshark
-    check_dir_access
-    while true; do
-        local file=$(get_file)
-        while true; do
-            prompt_filter "$file"
-            if [ $? -eq 1 ]; then break; fi  # Break inner loop if back selected
-            read -p "Apply another filter to this file? (y/n): " again
-            if ! [[ $again =~ ^[Yy]$ ]]; then break; fi
-        done
-        read -p "Analyze another file? (y/n): " another
-        if ! [[ $another =~ ^[Yy]$ ]]; then break; fi
-    done
-    log_info "${GREEN}--- Script Complete ---${NC}"
-    log_info "All saved files are in $LOG_DIR. Use for CCDC incident reporting or threat hunting."
+	print_banner
+	check_dependencies
+	ensure_log_dir
+	load_last_run_metadata
+
+	while true; do
+		local file
+		file=$(select_file)
+		update_last_selection "$file"
+		while true; do
+			prompt_filter "$file" || break
+			local again
+			read -r -p "Run another operation on this file? (y/N): " again || exit 1
+			[[ $again =~ ^[Yy]$ ]] || break
+		done
+		local another
+		read -r -p "Analyze another file? (y/N): " another || exit 1
+		[[ $another =~ ^[Yy]$ ]] || break
+	done
+
+	log_info "Analyzer complete. Generated artifacts (if any) are in $LOG_DIR."
 }
 
 main "$@"
-

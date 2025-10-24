@@ -14,86 +14,81 @@ teampack_confirm() {
     echo ""
     echo "IMPORTANT: This script must only be used against systems you own or are authorized to test."
     read -p "I confirm I will only run this against my team/lab systems (type YES to continue): " _confirm
-    if [[ "$_confirm" != "YES" ]]; then
-        echo "Confirmation not received. Exiting."
-        exit 1
+    if [ "$_confirm" != "YES" ]; then
+        log_error "TeamPack usage not confirmed. Exiting."
     fi
 }
 
-# Run TeamPack confirmation
-teampack_confirm
+ensure_openvpn_service_unit() {
+    if [ -n "$OPENVPN_SERVICE_UNIT" ]; then
+        return 0
+    }
 
-# ==============================================================================
-# File: install_vpns_2.sh
-# Description: Installs and configures multiple VPN solutions (OpenVPN, WireGuard, SoftEther) on Linux.
-#              Supports Debian/Ubuntu (apt) and Fedora/CentOS/RHEL (dnf).
-#              Includes quick mode for faster installations with reduced security (e.g., 1024-bit DH for OpenVPN).
-#              Menu-driven interface for install/uninstall/show instructions/show active services.
-#              Provides connection instructions and active service status for multi-device connectivity.
-#              Optimized for MWCCDC VMs; ensures proper service startup and firewall considerations.
-#              Added: Client credential export, backups (PBF Core), enhanced error handling.
-#
-# Dependencies: apt (Debian/Ubuntu) or dnf (Fedora/CentOS/RHEL).
-# Usage: sudo ./install_vpns_2.sh [--openvpn|--wireguard|--softether|--all|--quick]
-#        Follow prompts if no flags provided.
-# Notes: 
-# - Run as root.
-# - In CCDC, configure firewalls (e.g., Palo Alto NAT) and test connections.
-# - Change default passwords and keys immediately for security.
-# - SoftEther uses pre-built binaries for faster deployment (auto-download).
-# ==============================================================================
+    local output
+    output=$(systemctl list-unit-files "openvpn-server@.service" 2>/dev/null || true)
+    if echo "$output" | grep -q "openvpn-server@.service"; then
+        OPENVPN_SERVICE_UNIT="openvpn-server@server"
+        return 0
+    fi
 
-# --- ASCII Banner ---
-echo -e "\033[1;32m"
-cat << "EOF"
- ___           _        _ _  __     ______  _   _ _ 
-|_ _|_ __  ___| |_ __ _| | | \ \   / /  _ \| \ | | |
- | || '_ \/ __| __/ _` | | |  \ \ / /| |_) |  \| | |
- | || | | \__ \ || (_| | | |   \ V / |  __/| |\  |_|
-|___|_| |_|___/\__\__,_|_|_|    \_/  |_|   |_| \_(_)
-EOF
-echo -e "\033[0m"
-echo "VPN Nexus Installer - For CCDC Team Prep"
-echo "---------------------------------------"
+    output=$(systemctl list-unit-files "openvpn@.service" 2>/dev/null || true)
+    if echo "$output" | grep -q "openvpn@.service"; then
+        OPENVPN_SERVICE_UNIT="openvpn@server"
+        return 0
+    fi
 
-# --- Configuration & Colors ---
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-LOG_FILE="/var/log/vpn_install.log"
-QUICK_MODE=false
-declare -a VPN_FLAGS=()  # Explicitly declare and initialize as array for older bash compatibility
-
-# --- Helper Functions ---
-log_info() { echo -e "${GREEN}[INFO] $1${NC}" | tee -a "$LOG_FILE"; }
-log_warn() { echo -e "${YELLOW}[WARN] $1${NC}" | tee -a "$LOG_FILE"; }
-log_error() { echo -e "${RED}[ERROR] $1${NC}" >&2 | tee -a "$LOG_FILE"; exit 1; }
-
-# Spinner with timeout
-spinner() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='|/-\'
-    local timeout=120  # Increased timeout for long operations like gen-dh
-    local start_time=$(date +%s)
-    while kill -0 $pid 2>/dev/null; do
-        local elapsed=$(($(date +%s) - start_time))
-        if [ $elapsed -ge $timeout ]; then
-            log_warn "Spinner timeout reached ($timeout s)."
-            break
-        fi
-        local temp=${spinstr#?}
-        printf "%c  " "${spinstr:0:1}"  # Added space for better visibility
-        spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b"  # Adjusted for the added space
-    done
-    printf "\n"
+    OPENVPN_SERVICE_UNIT="openvpn@server"
 }
 
-# Sanitize input
-sanitize_input() { echo "$1" | tr -d '[:space:]'; }
+enable_and_start_openvpn_service() {
+    local svc
+    for svc in openvpn-server@server openvpn@server; do
+        if systemctl enable "$svc" >/dev/null 2>&1; then
+            if systemctl start "$svc" >/dev/null 2>&1 || systemctl restart "$svc" >/dev/null 2>&1; then
+                OPENVPN_SERVICE_UNIT="$svc"
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+prepare_easy_rsa_tree() {
+    local target_dir="/etc/openvpn/easy-rsa"
+    rm -rf "$target_dir"
+    if command -v make-cadir >/dev/null 2>&1; then
+        make-cadir "$target_dir" >>"$LOG_FILE" 2>&1
+        return $?
+    fi
+
+    if [ -d /usr/share/easy-rsa ]; then
+        mkdir -p "$target_dir"
+        cp -r /usr/share/easy-rsa/* "$target_dir" >>"$LOG_FILE" 2>&1
+        chown -R root:root "$target_dir"
+        return 0
+    fi
+
+    log_error "Easy-RSA templates not found after package installation."
+}
+
+configure_softether_service_unit() {
+    cat <<'EOF' > /etc/systemd/system/vpnserver.service
+[Unit]
+Description=SoftEther VPN Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/vpnserver
+ExecStart=/usr/local/vpnserver/vpnserver execsvc
+ExecStop=/usr/local/vpnserver/vpnserver stop
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload >/dev/null 2>&1
+}
 
 # --- Root Check ---
 check_root() {
@@ -128,16 +123,16 @@ fix_dpkg() {
 
 # Detect package manager
 detect_pkg_manager() {
-    if command -v apt >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
         PKG_MANAGER="apt"
-        INSTALL_CMD="apt install -y"
-        UPDATE_CMD="apt update -y"
-        UPGRADE_CMD="apt upgrade -y"
-        REMOVE_CMD="apt-get purge -y --autoremove"
+        INSTALL_CMD="apt-get install -y"
+        UPDATE_CMD="apt-get update"
+        UPGRADE_CMD="apt-get upgrade -y"
+        REMOVE_CMD="apt-get purge -y"
     elif command -v dnf >/dev/null 2>&1; then
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf check-update"
+        UPDATE_CMD="dnf makecache --refresh"
         UPGRADE_CMD="dnf upgrade -y"
         REMOVE_CMD="dnf remove -y"
     else
@@ -150,11 +145,13 @@ detect_pkg_manager() {
 install_dependencies() {
     log_info "Installing common dependencies..."
     if [[ "$PKG_MANAGER" == "apt" ]]; then
-        $INSTALL_CMD curl wget git build-essential libssl-dev libreadline-dev zlib1g-dev libncurses5-dev netcat-openbsd ipcalc easy-rsa >/dev/null 2>&1 || \
-        log_warn "Some dependencies failed to install, continuing..."
+        fix_dpkg
+        export DEBIAN_FRONTEND=noninteractive
+        $INSTALL_CMD curl wget git build-essential libssl-dev libreadline-dev zlib1g-dev libncurses-dev netcat-openbsd ipcalc easy-rsa >/dev/null 2>&1 || \
+            log_warn "Some dependencies failed to install, continuing..."
     else  # dnf
         $INSTALL_CMD curl wget git @development-tools openssl-devel readline-devel zlib-devel ncurses-devel nmap-ncat ipcalc easy-rsa >/dev/null 2>&1 || \
-        log_warn "Some dependencies failed to install, continuing..."
+            log_warn "Some dependencies failed to install, continuing..."
     fi
     local missing=()
     for cmd in git curl nc ipcalc; do
@@ -180,7 +177,15 @@ backup_configs() {
 # Check if VPN Installed
 is_openvpn_installed() { command -v openvpn >/dev/null 2>&1; }
 is_wireguard_installed() { command -v wg >/dev/null 2>&1; }
-is_softether_installed() { [[ -x /usr/local/vpnserver/vpnserver ]] && pgrep vpnserver >/dev/null 2>&1; }  # Check binary and process
+is_softether_installed() {
+    [ -x /usr/local/vpnserver/vpnserver ] || return 1
+    local output
+    output=$(systemctl list-unit-files vpnserver.service 2>/dev/null || true)
+    if echo "$output" | grep -q "vpnserver.service"; then
+        return 0
+    fi
+    return 1
+}
 
 all_installed() { is_openvpn_installed && is_wireguard_installed && is_softether_installed; }
 
@@ -300,118 +305,172 @@ update_system() { log_info "Skipping updates for efficiency."; }
 
 # Install OpenVPN with client gen
 install_openvpn() {
-    backup_configs
     log_info "Installing OpenVPN..."
-    printf "Installing... "
+    printf "Installing OpenVPN... "
     local err_file=$(mktemp)
-    ( $INSTALL_CMD openvpn easy-rsa >/dev/null 2>"$err_file" || exit 1
-      if command -v make-cadir >/dev/null 2>&1; then
-          make-cadir /etc/openvpn/easy-rsa >/dev/null 2>>"$err_file" || exit 1
-      else
-          mkdir -p /etc/openvpn >/dev/null 2>>"$err_file" || exit 1
-          cp -r /usr/share/easy-rsa /etc/openvpn/easy-rsa >/dev/null 2>>"$err_file" || exit 1
+    local svc_hint=$(mktemp)
+    (
+      if [ "$PKG_MANAGER" = "apt" ]; then
+          export DEBIAN_FRONTEND=noninteractive
       fi
+
+      $INSTALL_CMD openvpn easy-rsa >/dev/null 2>"$err_file" || { echo "Package installation failed." >>"$err_file"; exit 1; }
+      prepare_easy_rsa_tree || { echo "Easy-RSA setup failed." >>"$err_file"; exit 1; }
+
       cd /etc/openvpn/easy-rsa >/dev/null 2>>"$err_file" || exit 1
       export EASYRSA_BATCH=1
       export EASYRSA_REQ_CN="MWCCDC-CA"
-      ./easyrsa init-pki >/dev/null 2>>"$err_file" || exit 1
-      ./easyrsa build-ca nopass >/dev/null 2>>"$err_file" || exit 1
-      
+      ./easyrsa init-pki >/dev/null 2>>"$err_file" || { echo "PKI init failed." >>"$err_file"; exit 1; }
+      ./easyrsa build-ca nopass >/dev/null 2>>"$err_file" || { echo "CA build failed." >>"$err_file"; exit 1; }
+
       local dh_size=2048
-      $QUICK_MODE && dh_size=1024 && log_warn "Quick mode: Using 1024-bit DH (less secure)."
-      EASYRSA_DH_KEY_SIZE=$dh_size ./easyrsa gen-dh >/dev/null 2>>"$err_file" || exit 1
-      
-      ./easyrsa build-server-full server nopass >/dev/null 2>>"$err_file" || exit 1
-      openvpn --genkey --secret /etc/openvpn/ta.key >/dev/null 2>>"$err_file" || exit 1
-      
-      # Server config
-      cat << EOF > /etc/openvpn/server.conf
+      if $QUICK_MODE; then
+          dh_size=1024
+          log_warn "Quick mode enabled: generating 1024-bit DH parameters (less secure)."
+      fi
+      EASYRSA_DH_KEY_SIZE=$dh_size ./easyrsa gen-dh >/dev/null 2>>"$err_file" || { echo "DH generation failed." >>"$err_file"; exit 1; }
+
+      ./easyrsa build-server-full server nopass >/dev/null 2>>"$err_file" || { echo "Server certificate generation failed." >>"$err_file"; exit 1; }
+      openvpn --genkey --secret /etc/openvpn/ta.key >/dev/null 2>>"$err_file" || { echo "TLS auth key generation failed." >>"$err_file"; exit 1; }
+
+      mkdir -p /etc/openvpn/server
+      cat <<'EOF' > /etc/openvpn/server/server.conf
 port 1194
 proto udp
 dev tun
-ca easy-rsa/pki/ca.crt
-cert easy-rsa/pki/issued/server.crt
-key easy-rsa/pki/private/server.key
-dh easy-rsa/pki/dh.pem
+ca /etc/openvpn/easy-rsa/pki/ca.crt
+cert /etc/openvpn/easy-rsa/pki/issued/server.crt
+key /etc/openvpn/easy-rsa/pki/private/server.key
+dh /etc/openvpn/easy-rsa/pki/dh.pem
+topology subnet
 server 10.8.0.0 255.255.255.0
 push "redirect-gateway def1 bypass-dhcp"
 keepalive 10 120
 persist-key
 persist-tun
-status openvpn-status.log
+status /var/log/openvpn-status.log
 verb 3
+tls-auth /etc/openvpn/ta.key 0
+explicit-exit-notify 1
 EOF
 
-      # Enable and start with retry
-      systemctl enable openvpn@server >/dev/null 2>>"$err_file" || exit 1
-      if ! systemctl start openvpn@server >/dev/null 2>>"$err_file"; then
-          systemctl restart openvpn@server >/dev/null 2>>"$err_file" || exit 1
-      fi ) &
+      ln -sf /etc/openvpn/server/server.conf /etc/openvpn/server.conf
+      chmod 600 /etc/openvpn/easy-rsa/pki/private/server.key /etc/openvpn/ta.key >/dev/null 2>>"$err_file" || true
+
+      if enable_and_start_openvpn_service 2>>"$err_file"; then
+          echo "$OPENVPN_SERVICE_UNIT" > "$svc_hint"
+      else
+          echo "OpenVPN service enable/start failed." >>"$err_file"
+          exit 1
+      fi
+    ) &
     local pid=$!
     spinner $pid
     wait $pid
     local exit_status=$?
-    rm -f "$err_file"
-    [ $exit_status -ne 0 ] && log_error "OpenVPN failed."
-    
-    # Generate client cert
+    local err_content=""
+    [ -f "$err_file" ] && err_content=$(cat "$err_file")
+    if [ -s "$svc_hint" ]; then
+        OPENVPN_SERVICE_UNIT=$(cat "$svc_hint")
+    else
+        ensure_openvpn_service_unit
+    fi
+    rm -f "$err_file" "$svc_hint"
+    if [ $exit_status -ne 0 ]; then
+        echo ""
+        echo -e "${RED}Error during OpenVPN installation:${NC}"
+        echo "$err_content"
+        log_error "OpenVPN installation failed."
+    fi
+    echo ""
+
     cd /etc/openvpn/easy-rsa || log_error "Easy-RSA directory missing after installation."
-    EASYRSA_BATCH=1 ./easyrsa build-client-full client nopass >/dev/null 2>>"$LOG_FILE" || log_error "OpenVPN client certificate generation failed."
-    log_info "Client cert generated: /etc/openvpn/easy-rsa/pki/issued/client.crt"
-    echo "Export client files via: scp root@server:/etc/openvpn/easy-rsa/pki/{ca.crt,client.crt,client.key,issued/client.crt} /local/path"
-    
-    log_info "OpenVPN installed. Change passwords/keys!"
+    EASYRSA_BATCH=1 ./easyrsa build-client-full client nopass >>"$LOG_FILE" 2>&1 || log_warn "Failed to pre-create client certificate. Generate manually as needed."
+
+    log_info "OpenVPN installed and running (${OPENVPN_SERVICE_UNIT:-openvpn@server}). Client configs in /etc/openvpn/easy-rsa/pki/. Change certificates for production use."
+    ensure_openvpn_service_unit
 }
 
 uninstall_openvpn() {
-    systemctl stop openvpn@server 2>/dev/null || true
-    $REMOVE_CMD openvpn easy-rsa
-    rm -rf /etc/openvpn
+    ensure_openvpn_service_unit
+    local svc
+    for svc in openvpn-server@server openvpn@server; do
+        systemctl stop "$svc" >/dev/null 2>&1 || true
+        systemctl disable "$svc" >/dev/null 2>&1 || true
+    done
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+    fi
+    $REMOVE_CMD openvpn easy-rsa >/dev/null 2>&1 || true
+    rm -rf /etc/openvpn /var/log/openvpn-status.log >/dev/null 2>&1 || true
     log_info "OpenVPN uninstalled."
 }
 
 show_openvpn_instructions() {
-    log_info "OpenVPN Instructions: scp ca.crt client.crt client.key ta.key from server; use openvpn --config client.ovpn"
+    log_info "OpenVPN connection steps:"
+    echo "1. On the server, generate additional clients with: cd /etc/openvpn/easy-rsa && ./easyrsa build-client-full <name> nopass"
+    echo "2. Copy /etc/openvpn/easy-rsa/pki/{ca.crt,issued/<name>.crt,private/<name>.key} and /etc/openvpn/ta.key to the client."
+    echo "3. Create a client config referencing those files, or adapt /etc/openvpn/client-template.ovpn if you maintain one."
+    echo "4. Connect using: sudo openvpn --config <client>.ovpn"
 }
 
 # Install WireGuard
 install_wireguard() {
     backup_configs
     log_info "Installing WireGuard..."
-    printf "Installing... "
+    printf "Installing WireGuard... "
     local err_file=$(mktemp)
-    ( $INSTALL_CMD wireguard-tools >/dev/null 2>"$err_file" || exit 1
+    (
+      if [ "$PKG_MANAGER" = "apt" ]; then
+          export DEBIAN_FRONTEND=noninteractive
+          $INSTALL_CMD wireguard wireguard-tools >/dev/null 2>"$err_file" || { echo "WireGuard package install failed." >>"$err_file"; exit 1; }
+      else
+          $INSTALL_CMD wireguard-tools >/dev/null 2>"$err_file" || { echo "WireGuard package install failed." >>"$err_file"; exit 1; }
+      fi
+
       mkdir -p /etc/wireguard
-      wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key >/dev/null 2>>"$err_file" || exit 1
-      chmod 600 /etc/wireguard/private.key
-      
-      cat << EOF > /etc/wireguard/wg0.conf
+      wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key >/dev/null 2>>"$err_file" || { echo "Key generation failed." >>"$err_file"; exit 1; }
+      chmod 600 /etc/wireguard/private.key >/dev/null 2>>"$err_file" || true
+
+      local ext_interface=$(ip route | awk '/default/ {print $5; exit}')
+      [ -n "$ext_interface" ] || ext_interface="eth0"
+
+      cat <<EOF > /etc/wireguard/wg0.conf
 [Interface]
 Address = 10.0.0.1/24
 PrivateKey = $(cat /etc/wireguard/private.key)
 ListenPort = 51820
-PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o $ext_interface -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o $ext_interface -j MASQUERADE
 EOF
 
-      sysctl -w net.ipv4.ip_forward=1 >>"$err_file" 2>&1 || exit 1
-      echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
-      
-      wg-quick up wg0 >/dev/null 2>>"$err_file" || exit 1
-      systemctl enable wg-quick@wg0 >/dev/null 2>>"$err_file" || exit 1 ) &
+      sysctl -w net.ipv4.ip_forward=1 >>"$err_file" 2>&1 || { echo "Failed to enable IP forwarding." >>"$err_file"; exit 1; }
+      if ! grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null; then
+          echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+      fi
+
+      wg-quick up wg0 >/dev/null 2>>"$err_file" || { echo "Failed to bring up wg0." >>"$err_file"; exit 1; }
+      systemctl enable wg-quick@wg0 >/dev/null 2>>"$err_file" || { echo "Failed to enable wg-quick@wg0." >>"$err_file"; exit 1; }
+    ) &
     local pid=$!
     spinner $pid
     wait $pid
     local exit_status=$?
     rm -f "$err_file"
-    [ $exit_status -ne 0 ] && log_error "WireGuard failed."
-    log_info "WireGuard installed. Rotate keys regularly."
+    [ $exit_status -ne 0 ] && log_error "WireGuard installation failed."
+    log_info "WireGuard installed and running (wg0). Update /etc/wireguard/wg0.conf with peers and rotate keys regularly."
 }
 
 uninstall_wireguard() {
-    wg-quick down wg0 2>/dev/null || true
-    $REMOVE_CMD wireguard-tools
-    rm -rf /etc/wireguard
+    systemctl disable --now wg-quick@wg0 >/dev/null 2>&1 || true
+    wg-quick down wg0 >/dev/null 2>&1 || true
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+        $REMOVE_CMD wireguard wireguard-tools >/dev/null 2>&1 || true
+    else
+        $REMOVE_CMD wireguard-tools >/dev/null 2>&1 || true
+    fi
+    rm -rf /etc/wireguard >/dev/null 2>&1 || true
     log_info "WireGuard uninstalled."
 }
 
@@ -423,53 +482,53 @@ show_wireguard_instructions() {
 install_softether() {
     backup_configs
     log_info "Installing SoftEther..."
-    printf "Downloading and installing... "
-    local err_file=$(mktemp)
-    ( $INSTALL_CMD build-essential >/dev/null 2>"$err_file" || exit 1  # Prerequisites
-      cd /tmp
-      wget --no-check-certificate https://www.softether-download.com/files/softether/v4.41-978-beta/softether-vpnserver-v4.41-978-beta-2023.08.31-linux-x64-64bit.tar.gz -O softether.tar.gz >/dev/null 2>>"$err_file" || exit 1  # Latest as of 2025 search
-      tar xzf softether.tar.gz >/dev/null 2>>"$err_file" || exit 1
-      cd vpnserver >/dev/null 2>>"$err_file" || exit 1
-      make >/dev/null 2>>"$err_file" || exit 1
-      mkdir /usr/local/vpnserver >/dev/null 2>>"$err_file" || exit 1
-      cp * /usr/local/vpnserver/ >/dev/null 2>>"$err_file" || exit 1
-      cd /usr/local/vpnserver
-      chmod 755 vpnserver vpncmd
-      ./vpnserver start >/dev/null 2>>"$err_file" || exit 1
-      
-      # Create service
-      cat << EOF > /etc/systemd/system/vpnserver.service
-[Unit]
-Description=SoftEther VPN Server
-After=network.target
+        printf "Downloading and installing SoftEther... "
+        local err_file=$(mktemp)
+        (
+            local softether_url="https://www.softether-download.com/files/softether/v4.43-9799-beta-2024.04.17-tree/Linux/SoftEther_VPN_Server/64bit_-_Intel_x64_or_AMD64/softether-vpnserver-v4.43-9799-beta-2024.04.17-linux-x64-64bit.tar.gz"
+            local archive="/tmp/softether.tar.gz"
+            rm -rf /tmp/vpnserver
 
-[Service]
-Type=forking
-ExecStart=/usr/local/vpnserver/vpnserver start
-ExecStop=/usr/local/vpnserver/vpnserver stop
-RemainAfterExit=yes
+            cd /tmp
+            wget --no-check-certificate "$softether_url" -O "$archive" >/dev/null 2>>"$err_file" || { echo "Download failed." >>"$err_file"; exit 1; }
+            tar xzf "$archive" >/dev/null 2>>"$err_file" || { echo "Extraction failed." >>"$err_file"; exit 1; }
+            cd vpnserver >/dev/null 2>>"$err_file" || exit 1
 
-[Install]
-WantedBy=multi-user.target
-EOF
-      systemctl daemon-reload >/dev/null 2>>"$err_file" || exit 1
-      systemctl enable vpnserver >/dev/null 2>>"$err_file" || exit 1
-      systemctl start vpnserver >/dev/null 2>>"$err_file" || exit 1 ) &
+            printf '1\n1\n1\n' | make >/dev/null 2>>"$err_file" || { echo "Compilation failed." >>"$err_file"; exit 1; }
+
+            mkdir -p /usr/local/vpnserver >/dev/null 2>>"$err_file" || { echo "Failed to create install directory." >>"$err_file"; exit 1; }
+            cp -r * /usr/local/vpnserver/ >/dev/null 2>>"$err_file" || { echo "Failed to copy binaries." >>"$err_file"; exit 1; }
+            chmod 755 /usr/local/vpnserver/vpnserver /usr/local/vpnserver/vpncmd >/dev/null 2>>"$err_file" || true
+
+            configure_softether_service_unit
+            systemctl enable --now vpnserver >/dev/null 2>>"$err_file" || { echo "Failed to start vpnserver service." >>"$err_file"; exit 1; }
+
+            rm -f "$archive"
+                    rm -rf /tmp/vpnserver
+        ) &
     local pid=$!
     spinner $pid
     wait $pid
     local exit_status=$?
-    rm -f "$err_file"
-    [ $exit_status -ne 0 ] && log_error "SoftEther failed."
-    log_info "SoftEther installed. Change default password: vpncmd /SERVER localhost /PASSWORD:adminpassword /CMD ServerPasswordSet"
+        local err_content=$(cat "$err_file")
+        rm -f "$err_file"
+        if [ $exit_status -ne 0 ]; then
+                echo ""
+                echo -e "${RED}Error during SoftEther installation:${NC}"
+                echo "$err_content"
+                log_error "SoftEther installation failed."
+        fi
+        echo ""
+
+        log_info "SoftEther installed and running (service: vpnserver). Immediately change the admin password with: vpncmd /SERVER localhost /CMD ServerPasswordSet"
 }
 
 uninstall_softether() {
-    systemctl stop vpnserver 2>/dev/null || true
-    rm -rf /usr/local/vpnserver
-    rm /etc/systemd/system/vpnserver.service
-    systemctl daemon-reload
-    log_info "SoftEther uninstalled."
+        systemctl disable --now vpnserver >/dev/null 2>&1 || true
+        rm -rf /usr/local/vpnserver >/dev/null 2>&1 || true
+        rm -f /etc/systemd/system/vpnserver.service >/dev/null 2>&1 || true
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        log_info "SoftEther uninstalled."
 }
 
 show_softether_instructions() {
@@ -485,8 +544,10 @@ show_softether_instructions() {
 # Network Config
 setup_network_config() {
     log_info "Setting up network for CCDC..."
-    echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
-    sysctl -p >> $LOG_FILE 2>&1 || log_warn "IP forward failed."
+    if ! grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null; then
+        echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+    fi
+    sysctl -w net.ipv4.ip_forward=1 >> "$LOG_FILE" 2>&1 || log_warn "Unable to enable IP forwarding immediately."
     
     # Detect external interface
     local ext_interface=$(ip route | grep default | awk '{print $5}' | head -1 || echo "eth0")
@@ -510,29 +571,69 @@ setup_network_config() {
     fi
     
     # NAT with duplicate removal
-    iptables -t nat -D POSTROUTING -o "$ext_interface" -j MASQUERADE 2>/dev/null || true
+    if command -v iptables >/dev/null 2>&1; then
+        iptables -t nat -D POSTROUTING -o "$ext_interface" -j MASQUERADE 2>/dev/null || true
     iptables -D FORWARD -i tun+ -j ACCEPT 2>/dev/null || true
     iptables -D FORWARD -i wg+ -j ACCEPT 2>/dev/null || true
-    iptables -t nat -A POSTROUTING -o "$ext_interface" -j MASQUERADE
-    iptables -A FORWARD -i tun+ -j ACCEPT
-    iptables -A FORWARD -i wg+ -j ACCEPT
-    
-    # Persist
-    if command -v netfilter-persistent &> /dev/null; then netfilter-persistent save; fi
+
+        iptables -t nat -A POSTROUTING -o "$ext_interface" -j MASQUERADE
+        iptables -A FORWARD -i tun+ -j ACCEPT
+        iptables -A FORWARD -i wg+ -j ACCEPT
+
+        if command -v netfilter-persistent &> /dev/null; then
+            netfilter-persistent save >> "$LOG_FILE" 2>&1 || log_warn "Failed to persist iptables rules."
+        fi
+    else
+        log_warn "iptables not found; skipping NAT configuration. Configure manually if required."
+    fi
     
     log_info "Network config complete. Verify Palo Alto NAT."
 }
 
 show_active_services() {
-    log_info "Showing active VPN services..."
+    log_info "Active VPN services overview:"  
+
     if is_openvpn_installed; then
-        systemctl status openvpn@server || log_warn "OpenVPN not running."
+        ensure_openvpn_service_unit
+        if systemctl is-active --quiet "$OPENVPN_SERVICE_UNIT" 2>/dev/null; then
+            echo "- OpenVPN: ACTIVE (${OPENVPN_SERVICE_UNIT})"
+            echo "  Config: /etc/openvpn/server/server.conf"
+            if command -v ss >/dev/null 2>&1; then
+                echo "  Sessions: $(ss -u -H state established '( sport = :1194 )' 2>/dev/null | wc -l)"
+            elif command -v netstat >/dev/null 2>&1; then
+                echo "  Sessions: $(netstat -uln 2>/dev/null | grep -c :1194)"
+            fi
+        else
+            echo "- OpenVPN: INSTALLED (inactive). Start with: systemctl start $OPENVPN_SERVICE_UNIT"
+        fi
+    else
+        echo "- OpenVPN: Not installed"
     fi
+
     if is_wireguard_installed; then
-        wg show wg0 || log_warn "WireGuard not running."
+        if ip link show wg0 >/dev/null 2>&1; then
+            echo "- WireGuard: ACTIVE (interface wg0)"
+            local wg_status
+            wg_status=$(wg show wg0 2>/dev/null || true)
+            if [ -n "$wg_status" ]; then
+                printf '  %s
+' "$wg_status"
+            fi
+        else
+            echo "- WireGuard: INSTALLED (interface wg0 down). Start with: wg-quick up wg0"
+        fi
+    else
+        echo "- WireGuard: Not installed"
     fi
+
     if is_softether_installed; then
-        /usr/local/vpnserver/vpncmd /SERVER localhost /CMD StatusGet || log_warn "SoftEther not running."
+        if systemctl is-active --quiet vpnserver 2>/dev/null; then
+            echo "- SoftEther: ACTIVE (vpnserver service)"
+        else
+            echo "- SoftEther: INSTALLED (service stopped). Start with: systemctl start vpnserver"
+        fi
+    else
+        echo "- SoftEther: Not installed"
     fi
 }
 
@@ -544,15 +645,79 @@ show_certificate_management() {
 }
 
 run_vpn_diagnostics() {
-    log_info "Running VPN Diagnostics..."
-    log_info "PBF Moderate: IDS-like port checks performed."
-    echo "Checking open ports..."
-    if command -v netstat &> /dev/null; then
-        netstat -tuln
-    else
-        ss -tuln
+    log_info "Running VPN diagnostics..."
+    echo ""
+
+    local server_ip=$(hostname -I | awk '{print $1}')
+    local issues=0
+
+    if is_openvpn_installed; then
+        ensure_openvpn_service_unit
+        if systemctl is-active --quiet "$OPENVPN_SERVICE_UNIT" 2>/dev/null; then
+            if nc -zu -w3 "$server_ip" 1194 >/dev/null 2>&1; then
+                log_info "OpenVPN UDP port 1194 reachable locally."
+            else
+                log_warn "OpenVPN UDP port 1194 not responding locally."
+                issues=$((issues+1))
+            fi
+            if openvpn --config /etc/openvpn/server/server.conf --test >/dev/null 2>&1; then
+                log_info "OpenVPN configuration passes sanity check."
+            else
+                log_warn "OpenVPN configuration test failed."
+                issues=$((issues+1))
+            fi
+        else
+            log_warn "OpenVPN service inactive."
+            issues=$((issues+1))
+        fi
     fi
+
+    if is_wireguard_installed; then
+        if ip link show wg0 >/dev/null 2>&1; then
+            if nc -zu -w3 "$server_ip" 51820 >/dev/null 2>&1; then
+                log_info "WireGuard UDP port 51820 reachable locally."
+            else
+                log_warn "WireGuard UDP port 51820 not responding locally."
+                issues=$((issues+1))
+            fi
+            local peer_count
+            peer_count=$(wg show wg0 2>/dev/null | grep -c '^peer:' || true)
+            log_info "WireGuard peers configured: $peer_count"
+        else
+            log_warn "WireGuard interface wg0 is down."
+            issues=$((issues+1))
+        fi
+    fi
+
+    if is_softether_installed; then
+        if systemctl is-active --quiet vpnserver 2>/dev/null; then
+            if nc -z -w3 "$server_ip" 443 >/dev/null 2>&1; then
+                log_info "SoftEther TCP port 443 reachable locally."
+            else
+                log_warn "SoftEther TCP port 443 not responding locally."
+                issues=$((issues+1))
+            fi
+        else
+            log_warn "SoftEther service inactive."
+            issues=$((issues+1))
+        fi
+    fi
+
+    echo ""
+    if command -v ss >/dev/null 2>&1; then
+        ss -tuln | head -n 20
+    else
+        netstat -tuln | head -n 20
+    fi
+
+    echo ""
     show_active_services
+
+    if [ "$issues" -gt 0 ]; then
+        log_warn "Diagnostics completed with $issues issue(s). Review warnings above."
+    else
+        log_info "Diagnostics completed with no blocking issues detected."
+    fi
 }
 
 show_integration_help() {
@@ -564,13 +729,45 @@ show_integration_help() {
 
 # Security warnings enhanced
 check_security_warnings() {
-    log_info "SECURITY AUDIT..."
-    # Enhanced: Prompt for changes
-    if is_softether_installed; then
-        read -p "Change SoftEther password? (y/n): " change_pw
-        [ "$change_pw" = "y" ] && /usr/local/vpnserver/vpncmd /SERVER localhost /PASSWORD:adminpassword /CMD ServerPasswordSet
+    log_info "🔒 Security audit checks..."
+    echo ""
+
+    local warnings=0
+
+    if is_softether_installed && systemctl is-active --quiet vpnserver 2>/dev/null; then
+        log_warn "SoftEther default admin password is likely still set to 'adminpassword'. Change it with: vpncmd /SERVER localhost /CMD ServerPasswordSet"
+        warnings=$((warnings+1))
     fi
-    # ... (original)
+
+    if is_openvpn_installed; then
+        if [ -f /etc/openvpn/easy-rsa/pki/ca.crt ]; then
+            log_warn "OpenVPN is using Easy-RSA defaults. Rotate CA, server, and client certificates for production."
+            warnings=$((warnings+1))
+        fi
+    fi
+
+    if is_wireguard_installed && [ -f /etc/wireguard/private.key ]; then
+        local key_age=$(stat -c %Y /etc/wireguard/private.key 2>/dev/null || echo "0")
+        local now=$(date +%s)
+        local age_days=$(( (now - key_age) / 86400 ))
+        if [ "$age_days" -lt 1 ]; then
+            log_warn "WireGuard keys were just generated. Rotate them regularly and protect /etc/wireguard/."
+            warnings=$((warnings+1))
+        fi
+    fi
+
+    if ! command -v ufw >/dev/null 2>&1 && ! command -v firewall-cmd >/dev/null 2>&1; then
+        log_warn "No host firewall detected (ufw or firewalld). Ensure perimeter devices enforce VPN access controls."
+        warnings=$((warnings+1))
+    fi
+
+    if [ "$warnings" -gt 0 ]; then
+        echo ""
+        log_warn "$warnings security reminder(s) detected. Address them before deployment."
+    else
+        log_info "No immediate security findings detected."
+    fi
+    echo ""
 }
 
 # Main
@@ -582,12 +779,12 @@ main() {
     update_system
     install_dependencies
     setup_network_config
-    check_security_warnings
     if [ ${#VPN_FLAGS[@]} -gt 0 ]; then
         install_mode  # Use flags
     else
         prompt_mode
     fi
+    check_security_warnings
     log_info "Script complete. Check log and change defaults!"
 }
 

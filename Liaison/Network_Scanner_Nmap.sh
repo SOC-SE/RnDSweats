@@ -228,69 +228,69 @@ while true; do
             nmap -h | head -50
             ;;
         2)
-            local target=$(get_target)
-            local cmd="nmap -sn $target"
-            local desc="Basic host discovery"
+            target=$(get_target)
+            cmd="nmap -sn $target"
+            desc="Basic host discovery"
             run_nmap "$cmd" "$desc" "host_discovery"
             ;;
         3)
-            local target=$(get_target)
+            target=$(get_target)
             read -p "Enter timing template (default: T4) [T0-T5]: " timing
             timing=${timing:-T4}
-            local cmd="nmap -p- -T$timing $target"
-            local desc="Port scan for all ports"
+            cmd="nmap -p- -T$timing $target"
+            desc="Port scan for all ports"
             run_nmap "$cmd" "$desc" "port_scan"
             ;;
         4)
-            local target=$(get_target)
+            target=$(get_target)
             read -p "Specify ports (default: top 1000) [e.g., 1-1024 or default]: " ports
             ports=${ports:-}
-            local cmd="nmap -sV ${ports:+-p $ports} $target"
-            local desc="Service version detection"
+            cmd="nmap -sV ${ports:+-p $ports} $target"
+            desc="Service version detection"
             run_nmap "$cmd" "$desc" "service_detection"
             ;;
         5)
-            local target=$(get_target)
+            target=$(get_target)
             if [[ $EUID -ne 0 ]]; then
                 log_warn "OS detection requires root privileges for best results."
             fi
-            local cmd="nmap -O $target"
-            local desc="OS detection"
+            cmd="nmap -O $target"
+            desc="OS detection"
             run_nmap "$cmd" "$desc" "os_detection"
             ;;
         6)
-            local target=$(get_target)
-            local cmd="nmap --script vuln $target"
-            local desc="Vulnerability scanning"
+            target=$(get_target)
+            cmd="nmap --script vuln $target"
+            desc="Vulnerability scanning"
             run_nmap "$cmd" "$desc" "vuln_scan"
             ;;
         7)
-            local target=$(get_target)
+            target=$(get_target)
             if [[ $EUID -ne 0 ]]; then
                 log_warn "Aggressive scan requires root for full functionality."
             fi
-            local cmd="nmap -A $target"
-            local desc="Aggressive scan (OS, version, script, traceroute)"
+            cmd="nmap -A $target"
+            desc="Aggressive scan (OS, version, script, traceroute)"
             run_nmap "$cmd" "$desc" "aggressive"
             ;;
         8)
-            local target=$(get_target)
-            local custom_log="custom_$(date +%s).nmap"
+            target=$(get_target)
+            custom_log="custom_$(date +%s).nmap"
             read -p "Output filename (default: $custom_log): " out_file
             out_file=${out_file:-$custom_log}
-            local full_path="${LOG_DIR}/$out_file"
-            local cmd="nmap $target -oN \"$full_path\""
-            local desc="Scan and save to file"
+            full_path="${LOG_DIR}/$out_file"
+            cmd="nmap $target -oN \"$full_path\""
+            desc="Scan and save to file"
             run_nmap "$cmd" "$desc" "saved_scan"
             ;;
         9)
-            local target=$(get_target)
+            target=$(get_target)
             read -p "Enter NSE script name (e.g., http-vuln-cve2017-5638): " script
             if [[ -z $script ]]; then
                 log_error "Script name required."
             fi
-            local cmd="nmap --script $script $target"
-            local desc="Custom NSE script scan: $script"
+            cmd="nmap --script $script $target"
+            desc="Custom NSE script scan: $script"
             run_nmap "$cmd" "$desc" "script_scan_${script//[^a-zA-Z0-9]/_}"
             ;;
         10)
@@ -299,7 +299,7 @@ while true; do
                 log_warn "No command provided. Skipping."
                 continue
             fi
-            local desc="Custom command"
+            desc="Custom command"
             run_nmap "$custom_cmd" "$desc" "custom"
             ;;
         *)
