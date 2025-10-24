@@ -13,6 +13,7 @@
 # 7. Download and configure the Salt-GUI.
 # 8. Create and start a systemd service for the GUI.
 # 9. Enable and restart all Salt services.
+# 10. Configure the local minion and accept its key.
 #
 # --- Ports Used ---
 # TCP 3000: Salt-GUI Web Interface
@@ -24,6 +25,7 @@
 # --- Configuration ---
 SALT_API_PORT=8001
 API_CONFIG_FILE="/etc/salt/master.d/api.conf"
+MINION_CONFIG_FILE="/etc/salt/minion"
 
 GUI_REPO_URL="https://github.com/kyschwartz/salt-gui.git"
 GUI_INSTALL_DIR="/opt/salt-gui"
@@ -168,9 +170,7 @@ install_and_configure_gui() {
         git clone $GUI_REPO_URL --branch=master $GUI_INSTALL_DIR
     fi
 
-    #log "Installing Node.js dependencies for GUI..."
     cd $GUI_SERVER_DIR
-    #npm install --loglevel=error
 
     log "Configuring GUI to connect to local Salt API (http://127.0.0.1:$SALT_API_PORT)..."
     
@@ -240,6 +240,27 @@ manage_salt_services() {
     systemctl restart salt-minion
 }
 
+# *** NEW FUNCTION ***
+configure_local_minion() {
+    log "Configuring local salt-minion..."
+    if [ ! -f "$MINION_CONFIG_FILE" ]; then
+        warn "Minion config file $MINION_CONFIG_FILE not found. Skipping local minion setup."
+        return
+    fi
+    
+    # This finds any line starting with '#master:' or 'master:' and replaces it
+    sed -i 's/^#*master:.*/master: localhost/' $MINION_CONFIG_FILE
+    
+    log "Restarting salt-minion to apply new config..."
+    systemctl restart salt-minion
+    
+    log "Waiting 5 seconds for minion to register key..."
+    sleep 5
+    
+    log "Accepting all pending keys (including local minion)..."
+    salt-key -A -y
+}
+
 # --- Main Execution ---
 
 check_root
@@ -250,10 +271,12 @@ configure_api
 manage_salt_services
 install_and_configure_gui
 run_gui_background
+configure_local_minion  # <-- NEW STEP ADDED HERE
 
 log "---"
 log "SaltStack master, API, minion, and GUI installation complete!"
 log "All services have been enabled and started."
+log "The local minion key has been automatically accepted."
 log ""
 log "--- IMPORTANT NEXT STEPS ---"
 log "1. FIREWALL: Manually configure your firewall to allow TCP ports:"
@@ -264,10 +287,5 @@ log "   - 3000 (Salt-GUI)"
 log "2. API USER: The GUI is hardcoded to use 'sysadmin' / 'Changeme1!'. Create this user:"
 log "   Example: useradd -r -M -G saltapiusers sysadmin && passwd sysadmin"
 log "   (When prompted, set the password to 'Changeme1!')"
-log "3. LOCAL MINION: Configure the local minion to talk to the master:"
-log "   - Edit /etc/salt/minion and set 'master: localhost'"
-log "   - Run: systemctl restart salt-minion"
-log "4. ACCEPT KEY: Accept the local minion's key:"
-log "   - Run: salt-key -A -y"
-log "5. TEST GUI: Access the GUI in your browser at http://<this-server-ip>:3000"
+log "3. TEST GUI: Access the GUI in your browser at http://<this-server-ip>:3000"
 log "---"
