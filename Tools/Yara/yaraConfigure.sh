@@ -45,7 +45,7 @@ install_deps() {
     
     log "Installing yara-python library..."
     # Use pip3 to install the required python module
-    pip3 install yara-python
+    pip3 install --break-system-packages yara-python
     
     log "Dependencies installed successfully."
 }
