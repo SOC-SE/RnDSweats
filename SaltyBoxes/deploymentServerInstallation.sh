@@ -20,7 +20,7 @@ MINION_CONFIG_FILE="/etc/salt/minion"
 
 GUI_REPO_URL="https://github.com/kyschwartz/salt-gui.git"
 GUI_INSTALL_DIR="/opt/salt-gui"
-GUI_SERVER_DIR="$GUI_INSTALL_DIR/"
+GUI_SERVER_DIR="$GUI_INSTALL_DIR"
 GUI_SERVER_JS="$GUI_SERVER_DIR/server.js"
 GUI_SERVICE_FILE="/etc/systemd/system/salt-gui.service"
 GUI_USER="saltgui"
