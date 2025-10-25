@@ -3,18 +3,8 @@
 # This script automates the installation and complete configuration of a
 # SaltStack deployment server (master, api, minion) and a Node.js GUI.
 #
-# It will:
-# 1. Check for root privileges.
-# 2. Detect package manager and install dependencies (curl, git, nodejs, npm).
-# 3. Download and execute the official Salt bootstrap script.
-# 4. Force install salt-api to ensure it's present.
-# 5. Configure the salt-api to run on custom port 8001 (to avoid Splunk).
-# 6. CRITICAL FIX: Change Salt Master run user to 'root' for PAM compatibility.
-# 7. Configure PAM eauth for the API via a 'saltapiusers' group.
-# 8. Create the secure 'deployuser' API access user.
-# 9. Download, configure credentials, and install dependencies for the Salt-GUI.
-# 10. Create and start a systemd service for the GUI.
-# 11. Configure the local minion and automatically accept its key.
+# It includes robust file path handling and all necessary fixes for cross-platform
+# PAM authentication (user: root) and GUI setup.
 #
 # --- Ports Used ---
 # TCP 3000: Salt-GUI Web Interface
@@ -131,18 +121,14 @@ ensure_api_installed() {
 configure_api() {
     log "Configuring Salt API in $MASTER_CONFIG_FILE..."
     
-    # Check if the section already exists to prevent duplication
+    # Check if the API config section already exists to prevent duplication
     if grep -q "^rest_cherrypy:" $MASTER_CONFIG_FILE; then
         warn "Salt API configuration already exists in $MASTER_CONFIG_FILE. Skipping append."
-        log "Creating 'saltapiusers' group. (Errors are safe if group already exists)."
-        groupadd saltapiusers || true
-        return
-    fi
-    
-    # Append the API configuration directly to /etc/salt/master
-    cat << EOF >> $MASTER_CONFIG_FILE
+    else
+        # Append the API configuration directly to /etc/salt/master
+        cat << EOF >> $MASTER_CONFIG_FILE
 
-# --- Salt API Configuration ---
+# --- Salt API Configuration (Auto-Generated) ---
 rest_cherrypy:
   port: $SALT_API_PORT
   host: 0.0.0.0
@@ -153,8 +139,8 @@ external_auth:
     '@saltapiusers':
       - .*
 EOF
-
-    warn "Salt API configured with SSL disabled (disable_ssl: True). This is not recommended for production."
+        warn "Salt API configured with SSL disabled (disable_ssl: True). This is not recommended for production."
+    fi
     
     log "Creating 'saltapiusers' group. (Errors are safe if group already exists)."
     groupadd saltapiusers || true
@@ -162,9 +148,13 @@ EOF
 
 configure_master_user() {
     log "CRITICAL STEP: Changing Salt Master run user to 'root' for PAM compatibility..."
-    # The default config has the line: #user: salt. This removes any existing 'user:' line and inserts the 'user: root' line.
+    
+    # This removes any existing 'user:' line (commented or uncommented)
     sed -i '/^#*user: /d' $MASTER_CONFIG_FILE
+    
+    # Append the desired configuration explicitly
     echo "user: root" >> $MASTER_CONFIG_FILE
+    
     log "Salt Master run user set to 'root' in $MASTER_CONFIG_FILE."
 }
 
@@ -284,7 +274,7 @@ configure_local_minion() {
     if [ ! -f "$MINION_CONFIG_FILE" ]; then
         warn "Minion config file $MINION_CONFIG_FILE not found. Skipping local minion setup."
         return
-    }
+    fi
     
     # This finds any line starting with '#master:' or 'master:' and replaces it
     sed -i 's/^#*master:.*/master: localhost/' $MINION_CONFIG_FILE
