@@ -1,19 +1,19 @@
 #!/bin/bash
 #
-# This script automates the installation and basic configuration of a
-# SaltStack master server (master, api, minion) and a Node.js GUI.
+# This script automates the installation and complete configuration of a
+# SaltStack deployment server (master, api, minion) and a Node.js GUI.
 #
 # It will:
 # 1. Check for root privileges.
 # 2. Detect package manager and install dependencies (curl, git, nodejs, npm).
 # 3. Download and execute the official Salt bootstrap script.
 # 4. Force install salt-api to ensure it's present.
-# 5. Configure the salt-api to run on a custom port (for Splunk).
-# 6. Configure PAM eauth for the API via a 'saltapiusers' group.
-# 7. Create the 'deployuser' for the GUI.
-# 8. Download, configure, and install dependencies for the Salt-GUI.
-# 9. Create and start a systemd service for the GUI.
-# 10. Enable and restart all Salt services.
+# 5. Configure the salt-api to run on custom port 8001.
+# 6. **CRITICAL FIX: Change Salt Master run user to 'root' for PAM compatibility.**
+# 7. Configure PAM eauth for the API via a 'saltapiusers' group.
+# 8. Create the 'deployuser' API access user.
+# 9. Download, configure credentials, and install dependencies for the Salt-GUI.
+# 10. Create and start a systemd service for the GUI.
 # 11. Configure the local minion and accept its key.
 #
 # --- Ports Used ---
@@ -30,12 +30,13 @@ MINION_CONFIG_FILE="/etc/salt/minion"
 
 GUI_REPO_URL="https://github.com/kyschwartz/salt-gui.git"
 GUI_INSTALL_DIR="/opt/salt-gui"
+# Correct path after git clone creates 'Salt-GUI-master' folder inside install dir
 GUI_SERVER_DIR="$GUI_INSTALL_DIR/"
 GUI_SERVER_JS="$GUI_SERVER_DIR/server.js"
 GUI_SERVICE_FILE="/etc/systemd/system/salt-gui.service"
 GUI_USER="saltgui"
 
-# --- NEW SECURE CREDENTIALS ---
+# --- SECURE CREDENTIALS ---
 API_USER="deployuser"
 API_PASS="ChangeMeIntoAMuchHarderToCrackPasswordPleaseBecauseThisIsSuperShort123!*"
 
@@ -116,8 +117,6 @@ install_dependencies() {
 
 run_bootstrap() {
     log "Downloading and executing the Salt bootstrap script..."
-    # -M = Install Master, -A = Install API
-    # We will also manually install salt-api just in case this fails.
     curl -L https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh | sudo sh -s -- -M -A
 }
 
@@ -153,7 +152,6 @@ EOF
 
     # --- Configure PAM EAuth ---
     log "Configuring PAM external auth for '@saltapiusers' group..."
-    # Using the correct YAML format (no indentation on first line)
     cat << 'EOF' >> $API_CONFIG_FILE
 
 external_auth:
@@ -166,6 +164,15 @@ EOF
     groupadd saltapiusers || true
 }
 
+# *** NEW FUNCTION ADDED ***
+configure_master_user() {
+    log "CRITICAL STEP: Changing Salt Master run user to 'root' for PAM compatibility..."
+    # The default config has the line: #user: salt. This removes any existing 'user:' line and inserts the 'user: root' line.
+    sed -i '/^#*user: /d' /etc/salt/master
+    echo "user: root" >> /etc/salt/master
+    log "Salt Master run user set to 'root' in /etc/salt/master."
+}
+
 create_api_user() {
     log "Creating API user '$API_USER' for GUI..."
     if id "$API_USER" &>/dev/null; then
@@ -173,12 +180,10 @@ create_api_user() {
         usermod -a -G saltapiusers $API_USER
     else
         log "Creating new system user '$API_USER'..."
-        # -r = system user, -M = no home dir, -G = add to group
         useradd -r -M -G saltapiusers $API_USER
     fi
     
     log "Setting password for '$API_USER'..."
-    # Set password non-interactively
     echo "$API_USER:$API_PASS" | chpasswd
     
     log "API user '$API_USER' is configured."
@@ -195,23 +200,26 @@ install_and_configure_gui() {
 
     log "Installing Node.js dependencies for GUI..."
     cd $GUI_SERVER_DIR
+    # This was commented out, but is necessary for the node app to run
     npm install --loglevel=error
 
     log "Configuring GUI to use new credentials and local API..."
     
-    # --- NEW SED COMMANDS to update credentials ---
-    # Note: Using $API_PASS in "" requires escaping the '!' and '*' for bash
+    # --- SED COMMANDS to update credentials and URL ---
+    # Need to escape the password for sed, using printf %q for reliable shell quoting
     local escaped_pass=$(printf '%q' "$API_PASS" | sed 's/\\!/!/g; s/\\\*/\*/g')
 
+    # 1. Update Username
     if ! sed -i "s/username: 'sysadmin',/username: '$API_USER',/" $GUI_SERVER_JS; then
         error "sed command failed to update username in $GUI_SERVER_JS"
     fi
     
+    # 2. Update Password
     if ! sed -i "s/password: 'Changeme1!',/password: '$escaped_pass',/" $GUI_SERVER_JS; then
         error "sed command failed to update password in $GUI_SERVER_JS"
     fi
-    
-    # --- This command updates the API URL ---
+
+    # 3. Update API URL
     local find_string="^const saltApiUrl = 'https://salt80.soc-se.org/salt-api'.*"
     local replace_string="const saltApiUrl = 'http://127.0.0.1:$SALT_API_PORT';"
     
@@ -219,9 +227,9 @@ install_and_configure_gui() {
         error "sed command failed to update API URL in $GUI_SERVER_JS"
     fi
     
-    # Check if sed worked
+    # Final check on URL
     if ! grep -q "http://127.0.0.1:$SALT_API_PORT" $GUI_SERVER_JS; then
-        error "Failed to configure $GUI_SERVER_JS. The replacement string was not found after sed."
+        error "Failed to confirm API URL update in $GUI_SERVER_JS."
     fi
     
     log "The Salt-GUI server.js file is now configured to use '$API_USER'."
@@ -229,11 +237,9 @@ install_and_configure_gui() {
 
 run_gui_background() {
     log "Creating '$GUI_USER' user for Salt-GUI service..."
-    # Create a system user (-r) with no home dir (-M) and shell (-s /bin/false)
     useradd -r -M -s /bin/false -d $GUI_INSTALL_DIR $GUI_USER || true
     chown -R $GUI_USER:$GUI_USER $GUI_INSTALL_DIR
 
-    # Find node path
     NODE_PATH=$(which node)
     if [ -z "$NODE_PATH" ]; then
         error "Could not find 'node' executable path."
@@ -272,6 +278,7 @@ manage_salt_services() {
     systemctl enable salt-minion
 
     log "Restarting all Salt services to apply configuration..."
+    # salt-master restart is critical to pick up the 'user: root' change
     systemctl restart salt-master
     systemctl restart salt-api
     systemctl restart salt-minion
@@ -304,6 +311,7 @@ install_dependencies
 run_bootstrap
 ensure_api_installed
 configure_api
+configure_master_user   # <-- CRITICAL FIX ADDED HERE
 create_api_user
 manage_salt_services
 install_and_configure_gui
@@ -312,7 +320,7 @@ configure_local_minion
 
 log "---"
 log "SaltStack master, API, minion, and GUI installation complete!"
-log "All services have been enabled and started."
+log "The Salt Master is now configured for PAM authentication."
 log "The API user '$API_USER' has been created."
 log "The local minion key has been automatically accepted."
 log ""
@@ -323,4 +331,5 @@ log "   - 4505 (Salt Master Pub)"
 log "   - 4506 (Salt Master Ret)"
 log "   - 3000 (Salt-GUI)"
 log "2. TEST GUI: Access the GUI in your browser at http://<this-server-ip>:3000"
+log "3. TEST SALT: Run 'salt '*' test.ping'"
 log "---"
