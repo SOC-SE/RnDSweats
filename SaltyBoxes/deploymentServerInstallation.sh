@@ -3,8 +3,8 @@
 # This script automates the installation and complete configuration of a
 # SaltStack deployment server (master, api, minion) and a Node.js GUI.
 #
-# It includes robust file path handling and all necessary fixes for cross-platform
-# PAM authentication (user: root) and GUI setup.
+# Authentication has been simplified to use the single 'deployuser' account
+# directly in the master config, removing the dedicated 'saltapiusers' group.
 #
 # --- Ports Used ---
 # TCP 3000: Salt-GUI Web Interface
@@ -136,14 +136,17 @@ rest_cherrypy:
 
 external_auth:
   pam:
-    '@saltapiusers':
-      - .*
+    $API_USER:
+      - .*          # Permission to target all minions
+      - '@runner'   # Permission to run salt-master runner functions
+      - '@wheel'    # Permission to run salt-master wheel functions
+      - '@jobs'     # Permssion to access the jobs system
 EOF
         warn "Salt API configured with SSL disabled (disable_ssl: True). This is not recommended for production."
     fi
     
-    log "Creating 'saltapiusers' group. (Errors are safe if group already exists)."
-    groupadd saltapiusers || true
+    log "Skipping creation of 'saltapiusers' group. Using direct user authentication."
+    # NOTE: The useradd step below handles creating the user, no group needed.
 }
 
 configure_master_user() {
@@ -159,20 +162,20 @@ configure_master_user() {
 }
 
 create_api_user() {
-    log "Creating API user '$API_USER' for GUI..."
+    log "Creating system user '$API_USER' for API authentication..."
     if id "$API_USER" &>/dev/null; then
-        log "User '$API_USER' already exists. Ensuring they are in 'saltapiusers' group."
-        usermod -a -G saltapiusers $API_USER
+        log "User '$API_USER' already exists. Setting password only."
     else
         log "Creating new system user '$API_USER'..."
-        useradd -r -M -G saltapiusers $API_USER
+        # Create a non-login system user (-r, -M)
+        useradd -r -M $API_USER
     fi
     
     log "Setting password for '$API_USER'..."
     # Set password non-interactively
     echo "$API_USER:$API_PASS" | chpasswd
     
-    log "API user '$API_USER' is configured."
+    log "API user '$API_USER' is configured for direct PAM authentication."
 }
 
 install_and_configure_gui() {
@@ -274,7 +277,7 @@ configure_local_minion() {
     if [ ! -f "$MINION_CONFIG_FILE" ]; then
         warn "Minion config file $MINION_CONFIG_FILE not found. Skipping local minion setup."
         return
-    fi
+    fi # <-- Correctly closed 'if' block
     
     # This finds any line starting with '#master:' or 'master:' and replaces it
     sed -i 's/^#*master:.*/master: localhost/' $MINION_CONFIG_FILE
