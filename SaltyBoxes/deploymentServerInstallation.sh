@@ -32,7 +32,7 @@ GUI_USER="saltgui"
 # --- SECURE CREDENTIALS ---
 API_USER="deployuser"
 # !! IMPORTANT: CHANGE THIS DEFAULT PASSWORD !!
-API_PASS="ChangeMeIntoAMuchHarderToCrackPasswordPleaseBecauseThisIsSuperShort123!*"
+API_PASS="YouWouldNeverAttackMySalt,Right?"
 
 
 # Exit immediately if a command exits with a non-zero status.
