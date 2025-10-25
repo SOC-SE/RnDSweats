@@ -1,3 +1,10 @@
+#!/bin/bash
+#
+# We all know how permanent the most temporary solutions are
+#
+# Samuel Brucker 2025-2026
+#
+
 # Make sure this is being ran as sudo
 if [ "$EUID" -ne 0 ]; then
   echo "❌ This script must be run as root or with sudo. Please try again."
