@@ -75,6 +75,7 @@ CRED_FILE="/etc/fts_credentials.conf"
 LAST_CREATED_USERNAME=""
 LAST_CREATED_PASSWORD=""
 NOLOGIN_SHELL=""
+SSH_SERVICE_UNIT=""
 
 detect_nologin_shell() {
     NOLOGIN_SHELL=$(command -v nologin 2>/dev/null || true)
@@ -87,6 +88,23 @@ detect_nologin_shell() {
             NOLOGIN_SHELL=/bin/false
         fi
     fi
+}
+
+detect_ssh_service_unit() {
+    if [ -n "$SSH_SERVICE_UNIT" ]; then
+        return 0
+    fi
+
+    local candidate output
+    for candidate in ssh sshd; do
+        output=$(systemctl list-unit-files "${candidate}.service" 2>/dev/null || true)
+        if echo "$output" | grep -q "${candidate}.service"; then
+            SSH_SERVICE_UNIT="$candidate"
+            return 0
+        fi
+    done
+
+    SSH_SERVICE_UNIT="ssh"
 }
 
 # --- Helper Functions ---
@@ -127,12 +145,12 @@ detect_pkg_manager() {
     elif command -v dnf &> /dev/null; then
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf check-update"
+        UPDATE_CMD="dnf makecache --refresh"
         QUERY_CMD="rpm -q"
         REMOVE_CMD="dnf remove -y"
     else
         log_error "Unsupported package manager. Only apt (Debian/Ubuntu) and dnf (Fedora/CentOS) are supported."
-            cat > /etc/vsftpd.conf << 'EOF'
+    fi
     log_info "Detected package manager: $PKG_MANAGER"
 }
 
@@ -155,11 +173,7 @@ is_ftp_installed() {
 }
 
 is_sftp_installed() {
-    if [ "$PKG_MANAGER" = "apt" ]; then
-            user_sub_token=\$USER
-            local_root=/srv/ftp/\$USER
-        $QUERY_CMD openssh-server &> /dev/null
-    fi
+    $QUERY_CMD openssh-server &> /dev/null
 }
 
 is_tftp_installed() {
@@ -243,7 +257,11 @@ install_ftp() {
     fi
 
     log_info "Installing FTP (vsftpd)..."
-    $UPDATE_CMD >/dev/null 2>&1
+    $UPDATE_CMD >/dev/null 2>&1 || log_warn "Package cache update reported issues; continuing."
+
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+    fi
 
     create_credentials "FTP"
     local username="$LAST_CREATED_USERNAME"
@@ -254,8 +272,7 @@ install_ftp() {
     chown root:root /srv/ftp
     chmod 755 /srv/ftp
     useradd -d "/srv/ftp/$username" -s "$NOLOGIN_SHELL" -M "$username"
-    echo "$username:$password" | chpasswd
-    if ! passwd --status "$username" | grep -q "P"; then
+    if ! echo "$username:$password" | chpasswd; then
         log_error "Failed to set password for user $username."
     fi
     mkdir -p "/srv/ftp/$username"
@@ -263,7 +280,11 @@ install_ftp() {
     chmod 750 "/srv/ftp/$username"
     save_credentials "FTP" "$username" "$password"
     $INSTALL_CMD vsftpd >/dev/null 2>&1 &
-    spinner $!
+    local install_pid=$!
+    spinner $install_pid
+    if ! wait $install_pid; then
+        log_error "vsftpd installation failed."
+    fi
 
     # Basic config: disable anonymous, local users only
     cat > /etc/vsftpd.conf << 'EOF'
@@ -307,9 +328,18 @@ install_sftp() {
     fi
 
     log_info "Installing SFTP (openssh-server)..."
-    $UPDATE_CMD >/dev/null 2>&1
+    $UPDATE_CMD >/dev/null 2>&1 || log_warn "Package cache update reported issues; continuing."
+
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+    fi
+
     $INSTALL_CMD openssh-server >/dev/null 2>&1 &
-    spinner $!
+    local install_pid=$!
+    spinner $install_pid
+    if ! wait $install_pid; then
+        log_error "openssh-server installation failed."
+    fi
 
     create_credentials "SFTP"
     local username="$LAST_CREATED_USERNAME"
@@ -317,8 +347,7 @@ install_sftp() {
 
     userdel -r "$username" 2>/dev/null || true
     useradd -m -s "$NOLOGIN_SHELL" "$username"
-    echo "$username:$password" | chpasswd
-    if ! passwd --status "$username" | grep -q "P"; then
+    if ! echo "$username:$password" | chpasswd; then
         log_error "Failed to set password for user $username."
     fi
     save_credentials "SFTP" "$username" "$password"
@@ -355,9 +384,13 @@ Match Group sftpusers
 EOF
     fi
 
-    systemctl restart ssh
-    systemctl enable --now ssh >/dev/null 2>&1
-    log_info "SFTP installed and configured for group sftpusers."
+    detect_ssh_service_unit
+    systemctl enable "$SSH_SERVICE_UNIT" >/dev/null 2>&1 || true
+    if ! systemctl restart "$SSH_SERVICE_UNIT" >/dev/null 2>&1; then
+        log_warn "Unable to restart $SSH_SERVICE_UNIT; verify SSH configuration manually."
+    fi
+
+    log_info "SFTP installed and configured for group sftpusers (service: $SSH_SERVICE_UNIT)."
     return 0
 }
 
@@ -369,10 +402,15 @@ install_tftp() {
     fi
 
     log_info "Installing TFTP..."
-    $UPDATE_CMD >/dev/null 2>&1
+    $UPDATE_CMD >/dev/null 2>&1 || log_warn "Package cache update reported issues; continuing."
     if [ "$PKG_MANAGER" = "apt" ]; then
+        export DEBIAN_FRONTEND=noninteractive
         $INSTALL_CMD tftpd-hpa >/dev/null 2>&1 &
-        spinner $!
+        local install_pid=$!
+        spinner $install_pid
+        if ! wait $install_pid; then
+            log_error "tftpd-hpa installation failed."
+        fi
         # Config
         cat > /etc/default/tftpd-hpa << EOF
 TFTP_USERNAME="tftp"
@@ -384,7 +422,11 @@ EOF
         systemctl enable --now tftpd-hpa >/dev/null 2>&1
     else
         $INSTALL_CMD tftp-server >/dev/null 2>&1 &
-        spinner $!
+        local install_pid=$!
+        spinner $install_pid
+        if ! wait $install_pid; then
+            log_error "tftp-server installation failed."
+        fi
         mkdir -p /var/lib/tftpboot
         systemctl enable --now tftp >/dev/null 2>&1
     fi
@@ -400,9 +442,18 @@ uninstall_ftp() {
     fi
 
     log_info "Uninstalling FTP (vsftpd)..."
-    systemctl disable --now vsftpd >/dev/null 2>&1
+    systemctl disable --now vsftpd >/dev/null 2>&1 || true
+
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+    fi
+
     $REMOVE_CMD vsftpd >/dev/null 2>&1 &
-    spinner $!
+    local remove_pid=$!
+    spinner $remove_pid
+    if ! wait $remove_pid; then
+        log_error "vsftpd removal failed."
+    fi
 
     # Delete user if credentials exist
     if [ -f "$CRED_FILE" ]; then
@@ -433,9 +484,19 @@ uninstall_sftp() {
     fi
 
     log_info "Uninstalling SFTP (openssh-server)..."
-    systemctl disable --now ssh >/dev/null 2>&1
+    detect_ssh_service_unit
+    systemctl disable --now "$SSH_SERVICE_UNIT" >/dev/null 2>&1 || true
+
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        export DEBIAN_FRONTEND=noninteractive
+    fi
+
     $REMOVE_CMD openssh-server >/dev/null 2>&1 &
-    spinner $!
+    local remove_pid=$!
+    spinner $remove_pid
+    if ! wait $remove_pid; then
+        log_error "openssh-server removal failed."
+    fi
 
     # Delete user if credentials exist
     if [ -f "$CRED_FILE" ]; then
@@ -467,13 +528,18 @@ uninstall_tftp() {
 
     log_info "Uninstalling TFTP..."
     if [ "$PKG_MANAGER" = "apt" ]; then
-        systemctl disable --now tftpd-hpa >/dev/null 2>&1
+        systemctl disable --now tftpd-hpa >/dev/null 2>&1 || true
+        export DEBIAN_FRONTEND=noninteractive
         $REMOVE_CMD tftpd-hpa >/dev/null 2>&1 &
     else
-        systemctl disable --now tftp >/dev/null 2>&1
+        systemctl disable --now tftp >/dev/null 2>&1 || true
         $REMOVE_CMD tftp-server >/dev/null 2>&1 &
     fi
-    spinner $!
+    local remove_pid=$!
+    spinner $remove_pid
+    if ! wait $remove_pid; then
+        log_error "TFTP removal failed."
+    fi
 
     log_info "TFTP uninstalled."
     return 0
