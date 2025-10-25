@@ -127,6 +127,17 @@ configure_api() {
     else
         # Append the API configuration directly to /etc/salt/master
         cat << EOF >> $MASTER_CONFIG_FILE
+#####         NetAPI settings          #####
+############################################
+
+# Allow the raw_shell parameter to be used when calling Salt SSH client via API
+#netapi_allow_raw_shell: True
+# Set a list of clients to enable in in the API
+# netapi_enable_clients: [local, runner, wheel]
+netapi_enable_clients:
+  - local
+  - runner
+  - wheel
 
 # --- Salt API Configuration (Auto-Generated) ---
 rest_cherrypy:
