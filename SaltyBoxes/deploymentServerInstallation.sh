@@ -8,13 +8,13 @@
 # 2. Detect package manager and install dependencies (curl, git, nodejs, npm).
 # 3. Download and execute the official Salt bootstrap script.
 # 4. Force install salt-api to ensure it's present.
-# 5. Configure the salt-api to run on custom port 8001.
-# 6. **CRITICAL FIX: Change Salt Master run user to 'root' for PAM compatibility.**
+# 5. Configure the salt-api to run on custom port 8001 (to avoid Splunk).
+# 6. CRITICAL FIX: Change Salt Master run user to 'root' for PAM compatibility.
 # 7. Configure PAM eauth for the API via a 'saltapiusers' group.
-# 8. Create the 'deployuser' API access user.
+# 8. Create the secure 'deployuser' API access user.
 # 9. Download, configure credentials, and install dependencies for the Salt-GUI.
 # 10. Create and start a systemd service for the GUI.
-# 11. Configure the local minion and accept its key.
+# 11. Configure the local minion and automatically accept its key.
 #
 # --- Ports Used ---
 # TCP 3000: Salt-GUI Web Interface
@@ -25,12 +25,11 @@
 
 # --- Configuration ---
 SALT_API_PORT=8001
-API_CONFIG_FILE="/etc/salt/master.d/api.conf"
+MASTER_CONFIG_FILE="/etc/salt/master"
 MINION_CONFIG_FILE="/etc/salt/minion"
 
 GUI_REPO_URL="https://github.com/kyschwartz/salt-gui.git"
 GUI_INSTALL_DIR="/opt/salt-gui"
-# Correct path after git clone creates 'Salt-GUI-master' folder inside install dir
 GUI_SERVER_DIR="$GUI_INSTALL_DIR/"
 GUI_SERVER_JS="$GUI_SERVER_DIR/server.js"
 GUI_SERVICE_FILE="/etc/systemd/system/salt-gui.service"
@@ -46,17 +45,14 @@ set -e
 
 # --- Helper Functions ---
 log() {
-    # Logs a message to stdout
     echo "[INFO] $1"
 }
 
 warn() {
-    # Logs a warning message to stdout
     echo "[WARN] $1"
 }
 
 error() {
-    # Logs an error message to stderr and exits
     echo "[ERROR] $1" >&2
     exit 1
 }
@@ -133,26 +129,24 @@ ensure_api_installed() {
 }
 
 configure_api() {
-    log "Configuring Salt API in $API_CONFIG_FILE..."
-    mkdir -p /etc/salt/master.d
-    touch $API_CONFIG_FILE
+    log "Configuring Salt API in $MASTER_CONFIG_FILE..."
+    
+    # Check if the section already exists to prevent duplication
+    if grep -q "^rest_cherrypy:" $MASTER_CONFIG_FILE; then
+        warn "Salt API configuration already exists in $MASTER_CONFIG_FILE. Skipping append."
+        log "Creating 'saltapiusers' group. (Errors are safe if group already exists)."
+        groupadd saltapiusers || true
+        return
+    fi
+    
+    # Append the API configuration directly to /etc/salt/master
+    cat << EOF >> $MASTER_CONFIG_FILE
 
-    # Clear the file to prevent duplicate entries from script re-runs
-    > $API_CONFIG_FILE
-
-    # --- Configure rest_cherrypy ---
-    cat << EOF >> $API_CONFIG_FILE
+# --- Salt API Configuration ---
 rest_cherrypy:
   port: $SALT_API_PORT
   host: 0.0.0.0
   disable_ssl: True
-EOF
-
-    warn "Salt API configured with SSL disabled (disable_ssl: True). This is not recommended for production."
-
-    # --- Configure PAM EAuth ---
-    log "Configuring PAM external auth for '@saltapiusers' group..."
-    cat << 'EOF' >> $API_CONFIG_FILE
 
 external_auth:
   pam:
@@ -160,17 +154,18 @@ external_auth:
       - .*
 EOF
 
+    warn "Salt API configured with SSL disabled (disable_ssl: True). This is not recommended for production."
+    
     log "Creating 'saltapiusers' group. (Errors are safe if group already exists)."
     groupadd saltapiusers || true
 }
 
-# *** NEW FUNCTION ADDED ***
 configure_master_user() {
     log "CRITICAL STEP: Changing Salt Master run user to 'root' for PAM compatibility..."
     # The default config has the line: #user: salt. This removes any existing 'user:' line and inserts the 'user: root' line.
-    sed -i '/^#*user: /d' /etc/salt/master
-    echo "user: root" >> /etc/salt/master
-    log "Salt Master run user set to 'root' in /etc/salt/master."
+    sed -i '/^#*user: /d' $MASTER_CONFIG_FILE
+    echo "user: root" >> $MASTER_CONFIG_FILE
+    log "Salt Master run user set to 'root' in $MASTER_CONFIG_FILE."
 }
 
 create_api_user() {
@@ -184,6 +179,7 @@ create_api_user() {
     fi
     
     log "Setting password for '$API_USER'..."
+    # Set password non-interactively
     echo "$API_USER:$API_PASS" | chpasswd
     
     log "API user '$API_USER' is configured."
@@ -200,7 +196,6 @@ install_and_configure_gui() {
 
     log "Installing Node.js dependencies for GUI..."
     cd $GUI_SERVER_DIR
-    # This was commented out, but is necessary for the node app to run
     npm install --loglevel=error
 
     log "Configuring GUI to use new credentials and local API..."
@@ -209,12 +204,12 @@ install_and_configure_gui() {
     # Need to escape the password for sed, using printf %q for reliable shell quoting
     local escaped_pass=$(printf '%q' "$API_PASS" | sed 's/\\!/!/g; s/\\\*/\*/g')
 
-    # 1. Update Username
+    # 1. Update Username: Change 'sysadmin' to 'deployuser'
     if ! sed -i "s/username: 'sysadmin',/username: '$API_USER',/" $GUI_SERVER_JS; then
         error "sed command failed to update username in $GUI_SERVER_JS"
     fi
     
-    # 2. Update Password
+    # 2. Update Password: Change 'Changeme1!' to new strong password
     if ! sed -i "s/password: 'Changeme1!',/password: '$escaped_pass',/" $GUI_SERVER_JS; then
         error "sed command failed to update password in $GUI_SERVER_JS"
     fi
@@ -278,7 +273,7 @@ manage_salt_services() {
     systemctl enable salt-minion
 
     log "Restarting all Salt services to apply configuration..."
-    # salt-master restart is critical to pick up the 'user: root' change
+    # The salt-master restart is critical to pick up the 'user: root' change and new API config
     systemctl restart salt-master
     systemctl restart salt-api
     systemctl restart salt-minion
@@ -289,7 +284,7 @@ configure_local_minion() {
     if [ ! -f "$MINION_CONFIG_FILE" ]; then
         warn "Minion config file $MINION_CONFIG_FILE not found. Skipping local minion setup."
         return
-    fi
+    }
     
     # This finds any line starting with '#master:' or 'master:' and replaces it
     sed -i 's/^#*master:.*/master: localhost/' $MINION_CONFIG_FILE
@@ -311,7 +306,7 @@ install_dependencies
 run_bootstrap
 ensure_api_installed
 configure_api
-configure_master_user   # <-- CRITICAL FIX ADDED HERE
+configure_master_user
 create_api_user
 manage_salt_services
 install_and_configure_gui
@@ -319,17 +314,17 @@ run_gui_background
 configure_local_minion
 
 log "---"
-log "SaltStack master, API, minion, and GUI installation complete!"
-log "The Salt Master is now configured for PAM authentication."
+log "SaltStack deployment is fully configured and operational!"
+log "The API configuration has been merged into $MASTER_CONFIG_FILE."
 log "The API user '$API_USER' has been created."
 log "The local minion key has been automatically accepted."
 log ""
-log "--- IMPORTANT NEXT STEPS ---"
+log "--- ✅ SUCCESS: FINAL NEXT STEPS ✅ ---"
 log "1. FIREWALL: Manually configure your firewall to allow TCP ports:"
 log "   - $SALT_API_PORT (Salt API)"
 log "   - 4505 (Salt Master Pub)"
 log "   - 4506 (Salt Master Ret)"
 log "   - 3000 (Salt-GUI)"
 log "2. TEST GUI: Access the GUI in your browser at http://<this-server-ip>:3000"
-log "3. TEST SALT: Run 'salt '*' test.ping'"
+log "3. TEST SALT: Run 'salt '*' test.ping' on the master's command line."
 log "---"
