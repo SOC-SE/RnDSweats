@@ -52,7 +52,11 @@ if [ -d "$SPLUNK_HOME" ]; then
         # Stop and disable boot-start (best effort, will error if service isn't there)
         sudo $SPLUNK_HOME/bin/splunk stop 2>/dev/null
         sudo $SPLUNK_HOME/bin/splunk disable boot-start 2>/dev/null
+
+        mkdir -p /home/splbackup
+        cp $SPLUNK_HOME/etc/licences/enterprise/* /home/splbackup
         
+    
         # Uninstall based on detected package manager
         echo "Removing Splunk package..."
         if [ "$DISTRO" = "rhel" ]; then
@@ -118,6 +122,8 @@ EOF
 
 sudo chown splunk:splunk $SPLUNK_HOME/etc/system/local/user-seed.conf
 sudo chmod 600 $SPLUNK_HOME/etc/system/local/user-seed.conf
+
+cp /home/splbackup/* $SPLUNK_HOME/etc/licences/enterprise/
 
 # Start Splunk and accept license
 echo "Starting Splunk and accepting license..."
