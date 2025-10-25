@@ -307,7 +307,7 @@ crcSalt = <SOURCE>
 
 [monitor:///var/log/suricata/eve.json]
 index = main
-sourcetype = suricacata:eve
+sourcetype = suricata:eve
 crcSalt = <SOURCE>
 
 # For cron-driven YARA scans. The path may need to be adjusted.
