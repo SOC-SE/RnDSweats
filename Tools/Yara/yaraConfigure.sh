@@ -1,23 +1,22 @@
 #!/bin/bash
 
-# CCDC Development - Centralized Yara Rules Compiler
-# This script downloads the signature-base Yara rules, removes problematic ones,
-# and compiles them into a centralized location (/opt/yara-rules).
-# This allows Wazuh and other tools to use the same compiled ruleset.
+# CCDC Development - Community Yara Rules Builder & Installer
+# This script installs Yara and jq, downloads the signature-base Yara rules,
+# removes problematic files at the source using find -delete, and combines
+# the rest into a single master rule file saved in the current directory.
 # Run as root or with sudo.
- 
-set -e
-set -o pipefail
+
+# Removing set -e and -o pipefail to ensure the script runs completely
+# set -e
+# set -o pipefail
 
 # --- Variables ---
 REPO_URL="https://github.com/neo23x0/signature-base.git"
 CLONE_DIR="/tmp/signature-base"
-# Centralized location for storing compiled Yara rules
-RULES_STORAGE_DIR="/opt/yara-rules"
-COMPILED_RULES_FILE="compiled_community_rules.yarac"
-LOG_FILE="/var/log/yara_rules_compiler.log"
-MASTER_RULES_FILE_TMP="${CLONE_DIR}/master.yar"
-EXCLUDED_RULES_LOG="${CLONE_DIR}/excluded_rules.log"
+YARA_RULES_SRC_DIR="${CLONE_DIR}/yara"
+# Output file in the current directory
+MASTER_RULES_FILE="./master_community_rules.yar"
+LOG_FILE="/var/log/community_yara_builder.log"
 
 # --- Functions ---
 
@@ -38,18 +37,46 @@ check_root() {
 # Function to check for dependencies
 check_deps() {
     local missing_deps=0
-    for cmd in git yarac awk grep sed; do
+    # Dependencies needed: git, find, xargs, cat, yara, jq
+    for cmd in git find xargs cat yara jq; do
         if ! command -v "$cmd" &> /dev/null; then
             log "ERROR: Dependency '$cmd' not found."
             missing_deps=1
         fi
     done
     if [[ $missing_deps -eq 1 ]]; then
-        log "Please install the missing dependencies and run the script again."
-        log "Hint: 'yarac' is part of the Yara package. You may need to compile it from source."
+        log "Please install the missing dependencies (git, findutils, coreutils, yara, jq) and run the script again."
         exit 1
     fi
     log "All dependencies are satisfied."
+}
+
+# Function to install dependencies (Yara & jq)
+install_deps() {
+    log "Installing dependencies (Yara & jq)..."
+    if command -v apt-get &> /dev/null; then
+        echo "Debian/Ubuntu based system detected. Using apt-get..."
+        apt-get update -y > /dev/null 2>&1
+        apt-get install yara jq -y
+        
+    elif command -v dnf &> /dev/null; then
+        echo "RHEL/Fedora based system detected. Using dnf..."
+        dnf install yara jq -y
+        
+    elif command -v yum &> /dev/null; then
+        echo "RHEL/CentOS based system detected. Using yum..."
+        # JQ might be in EPEL repository for older CentOS
+        if ! rpm -q epel-release > /dev/null 2>&1; then
+            log "  - Installing EPEL repository for JQ..."
+            yum install epel-release -y
+        fi
+        yum install yara jq -y
+        
+    else
+        log "Unsupported package manager. Please install Yara and JQ manually."
+        exit 1
+    fi
+    log "Dependencies installed successfully."
 }
 
 # Function to download the Yara rules
@@ -60,86 +87,91 @@ download_rules() {
     log "Rules downloaded successfully to ${CLONE_DIR}."
 }
 
-# Function to assemble and filter the rules
-process_rules() {
-    log "Creating a master index file with include statements..."
+# Function to remove problematic rules at the source (Using find -delete)
+remove_problematic_rules() {
+    log "Removing problematic rule files *before* combining..."
 
-    # Define directories to scan for rules.
-    declare -a directories_to_include=(
-        "${CLONE_DIR}/yara/"
+    local rules_to_delete=(
+        # --- Problematic files found from debugging. These rules break the compilation.
+        "*3cx*"             # Caused "SUSP APT 3CX" error
+        "*screenconnect*"   # Caused "SUSP ScreenConnect" errors
+        "*vcruntime*"       # Caused "SUSP VCRuntime" error
+        "*base64_pe*"       # Caused "SUSP Double Base64" error
+        "*poisonivy*"       # Caused "PoisonIvy Sample 6" error
+        "*Linux_Sudops*"    # Found later, causes issues
+        "*gen_susp_obfuscation.yar*" # Contains SUSP_Reversed_Base64_Encoded_EXE
+
+        # Recommended list of rules to remove
+        "*apt_barracuda_esg_unc4841_jun23.yar*"
+        "*apt_cobaltstrike.yar*"
+        "*apt_tetris.yar*"
+        "*configured_vulns_ext_vars.yar*"
+        "*expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar*"
+        "*expl_cleo_dec24.yar*"
+        "*expl_commvault_cve_2025_57791.yar*"
+        "*expl_outlook_cve_2023_23397.yar*"
+        "*gen_fake_amsi_dll.yar*"
+        "*gen_gcti_cobaltstrike.yar*"
+        "*gen_susp_js_obfuscatorio.yar*"
+        "*gen_susp_xor.yar*"
+        "*gen_webshells_ext_vars.yar*"
+        "*gen_xor_hunting.yar*"
+        "*general_cloaking.yar*"
+        "*generic_anomalies.yar*"
+        "*mal_lockbit_lnx_macos_apr23.yar*"
+        "*thor-hacktools.yar*"
+        "*thor_inverse_matches.yar*"
+        "*vuln_paloalto_cve_2024_3400_apr24.yar*"
+        "*yara-rules_vuln_drivers_strict_renamed.yar*"
+        "*yara_mixed_ext_vars.yar*"
     )
 
-    # This is a comprehensive exclusion list combining the maintainer's recommendations
-    # and files found to have persistent syntax errors.
+    local total_deleted_count=0
+    for pattern in "${rules_to_delete[@]}"; do
+        log "  - Searching for pattern: $pattern"
+        
+        # Use find -delete -print to remove and log files.
+        # || true prevents the script from exiting if no files match.
+        local deleted_files
+        deleted_files=$(find "$YARA_RULES_SRC_DIR" -type f -name "$pattern" -delete -print 2>/dev/null || true)
+        
+        if [ -n "$deleted_files" ]; then
+            while IFS= read -r file; do
+                log "    - Removed: $(basename "$file")"
+                ((total_deleted_count++))
+            done <<< "$deleted_files"
+        fi
+    done
 
-    # This fix sucks. I hate to exclude so many of these, only a chunk of them are recommended to be remove by the creator of the yara rules
-    # repo. Hopefully I can fix this in the future, but I'm too fucking tired right now. FML, this feels disgusting, but some coverage is
-    # better than no coverage. - Sam 2025
-    find "${directories_to_include[@]}" -type f \( -name "*.yar" -o -name "*.yara" \) \
-        -not -path "*/apt_barracuda_esg_unc4841_jun23.yar" \
-        -not -path "*/apt_cobaltstrike.yar" \
-        -not -path "*/apt_tetris.yar" \
-        -not -path "*/configured_vulns_ext_vars.yar" \
-        -not -path "*/expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar" \
-        -not -path "*/expl_cleo_dec24.yar" \
-        -not -path "*/expl_commvault_cve_2025_57791.yar" \
-        -not -path "*/expl_outlook_cve_2023_23397.yar" \
-        -not -path "*/gen_fake_amsi_dll.yar" \
-        -not -path "*/gen_gcti_cobaltstrike.yar" \
-        -not -path "*/gen_susp_js_obfuscatorio.yar" \
-        -not -path "*/gen_susp_xor.yar" \
-        -not -path "*/gen_webshells_ext_vars.yar" \
-        -not -path "*/gen_xor_hunting.yar" \
-        -not -path "*/general_cloaking.yar" \
-        -not -path "*/generic_anomalies.yar" \
-        -not -path "*/mal_lockbit_lnx_macos_apr23.yar" \
-        -not -path "*/thor-hacktools.yar" \
-        -not -path "*/thor_inverse_matches.yar" \
-        -not -path "*/vuln_paloalto_cve_2024_3400_apr24.yar" \
-        -not -path "*/yara-rules_vuln_drivers_strict_renamed.yar" \
-        -not -path "*/yara_mixed_ext_vars.yar" \
-        -print | sed 's/^/include "/; s/$/"/' > "$MASTER_RULES_FILE_TMP"
+    log "Removed a total of ${total_deleted_count} problematic rule files."
+}
 
 
-    if [[ ! -s "$MASTER_RULES_FILE_TMP" ]]; then
-        log "ERROR: The master rules file ('$MASTER_RULES_FILE_TMP') is empty."
-        log "This usually means that the git clone failed or that the repository structure has changed."
-        log "Please check the clone directory ('$CLONE_DIR') to investigate."
+# Function to build the master rule file
+build_master_rule_file() {
+    log "Finding and concatenating all remaining .yar/.yara files..."
+    
+    # Clear the old file before appending
+    rm -f "$MASTER_RULES_FILE"
+    touch "$MASTER_RULES_FILE"
+
+    # Find all remaining rule files and append them
+    find "${YARA_RULES_SRC_DIR}" -type f \( -name "*.yar" -o -name "*.yara" \) -print0 | while IFS= read -r -d $'\0' file; do
+        cat "$file" >> "$MASTER_RULES_FILE"
+        # Add a newline between files for safety
+        echo -e "\n" >> "$MASTER_RULES_FILE"
+    done
+
+    if [[ ! -s "$MASTER_RULES_FILE" ]]; then
+        log "ERROR: The master rules file ('$MASTER_RULES_FILE') is empty."
+        log "This usually means that the git clone failed or no rules were found after filtering."
         exit 1
     fi
 
-    log "Master index file created successfully at ${MASTER_RULES_FILE_TMP}."
-}
+    # Set standard permissions
+    chmod 644 "$MASTER_RULES_FILE"
 
-# Function to compile the rules
-compile_rules() {
-    log "Compiling the final ruleset..."
-    # The -w flag disables common warnings.
-    # The -d flag defines external variables that many rules in this repo expect.
-    # This allows us to compile rules that would otherwise fail, without having to exclude them.
-    yarac -w \
-    -d filename="dummy" \
-    -d filepath="dummy" \
-    -d extension="dummy" \
-    -d filetype="dummy" \
-    -d filesize=0 \
-    "$MASTER_RULES_FILE_TMP" "${CLONE_DIR}/${COMPILED_RULES_FILE}"
-    
-    log "Rules compiled successfully."
-}
-
-# Function to deploy the compiled rules
-deploy_rules() {
-    log "Deploying compiled rules to ${RULES_STORAGE_DIR}..."
-    mkdir -p "$RULES_STORAGE_DIR"
-    mv "${CLONE_DIR}/${COMPILED_RULES_FILE}" "${RULES_STORAGE_DIR}/${COMPILED_RULES_FILE}"
-    
-    # Set appropriate permissions for Wazuh (user: wazuh) to read the files
-    # Modern Wazuh runs as the 'wazuh' user/group.
-    chmod 750 "$RULES_STORAGE_DIR"
-    chmod 640 "${RULES_STORAGE_DIR}/${COMPILED_RULES_FILE}"
-    
-    log "Deployment complete."
+    log "Master rule file created successfully at ${MASTER_RULES_FILE}."
 }
 
 # Function to cleanup temporary files
@@ -152,17 +184,18 @@ cleanup() {
 # --- Main Execution ---
 main() {
     # Initialize log file for this run
-    echo "--- Yara Rules Compiler Log ---" > "$LOG_FILE"
+    echo "--- Community Yara Rules Builder Log ---" > "$LOG_FILE"
     
     check_root
-    check_deps
+    install_deps # Added back
+    check_deps   # Added yara and jq check
     download_rules
-    process_rules
-    compile_rules
-    deploy_rules
+    remove_problematic_rules
+    build_master_rule_file
     cleanup
 
-    log "--- Yara Rules Update Complete ---"
+    log "--- Community Yara Rules Build Complete ---"
 }
 
 main "$@"
+

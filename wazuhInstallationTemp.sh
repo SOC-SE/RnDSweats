@@ -1,3 +1,10 @@
+#!/bin/bash
+#
+# We all know how permanent the most temporary solutions are
+#
+# Samuel Brucker 2025-2026
+#
+
 # Make sure this is being ran as sudo
 if [ "$EUID" -ne 0 ]; then
   echo "❌ This script must be run as root or with sudo. Please try again."
@@ -7,8 +14,8 @@ fi
 
 apt install curl -y
 
-curl -sO https://packages.wazuh.com/4.13/wazuh-install.sh
-curl -so wazuh-passwords-tool.sh https://packages.wazuh.com/4.13/wazuh-passwords-tool.sh
+curl -sO https://packages.wazuh.com/4.14/wazuh-install.sh
+curl -so wazuh-passwords-tool.sh https://packages.wazuh.com/4.14/wazuh-passwords-tool.sh
 
 bash wazuh-install.sh -a
 
