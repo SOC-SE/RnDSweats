@@ -6,6 +6,7 @@
 # The Node.js GUI server runs directly on port 3000 and serves all content.
 # Authentication uses the 'deployuser' account via PAM.
 # Configuration for the Node.js backend is read from config.json.
+# Frontend script.js is configured with a HARDCODED IP address.
 #
 # --- Ports Used ---
 # TCP 3000: Salt-GUI Node.js Backend & Frontend (Public Access Point)
@@ -17,6 +18,7 @@
 # --- Configuration ---
 SALT_API_PORT=8001
 NODEJS_PORT=3000 # Port the Node.js server will listen on
+TARGET_IP="172.20.241.20" # HARDCODED IP for frontend configuration
 MASTER_CONFIG_FILE="/etc/salt/master"
 MINION_CONFIG_FILE="/etc/salt/minion"
 
@@ -59,70 +61,56 @@ check_root() {
     log "Root privileges confirmed."
 }
 
-# Function to attempt to get the primary public/private IP address
-get_server_ip() {
-    # Try common commands to find a non-localhost IP
-    local ip_addr=$(ip -4 addr show scope global | grep inet | awk '{print $2}' | cut -d '/' -f 1 | head -n 1)
-    if [ -z "$ip_addr" ]; then
-        ip_addr=$(hostname -I | awk '{print $1}')
+# Function to attempt to stop the salt-gui service gracefully
+stop_gui_service() {
+    log "Attempting to stop existing salt-gui service..."
+    if systemctl is-active --quiet salt-gui; then
+        systemctl stop salt-gui || warn "Failed to stop salt-gui service via systemctl. It might not exist or be running."
+        # Optional: Add a check/kill for port 3000 if stop fails persistently
+        # PGPID=$(lsof -t -i:$NODEJS_PORT -sTCP:LISTEN)
+        # if [ -n "$PGPID" ]; then
+        #    warn "Port $NODEJS_PORT still in use after service stop. Attempting to kill process $PGPID..."
+        #    kill -9 $PGPID || warn "Failed to kill process $PGPID."
+        #    sleep 2 # Give time for port to release
+        # fi
+    else
+        log "salt-gui service is not active."
     fi
-    if [ -z "$ip_addr" ]; then
-        # Fallback if other methods fail
-        warn "Could not automatically determine server IP. Using 'localhost'. You may need to manually edit $GUI_SCRIPT_JS."
-        ip_addr="localhost"
-    fi
-    echo "$ip_addr"
 }
 
 
 install_dependencies() {
-    # Removed nginx, kept jq
     log "Installing base dependencies (curl, git, jq, policycoreutils-python-utils)..."
 
     if command -v apt &> /dev/null; then
         log "Detected Debian-based system (apt found)."
         apt-get update -y > /dev/null
-        apt-get install -y curl git jq # policycoreutils usually default/part of selinux-utils
-        
+        apt-get install -y curl git jq
         if ! command -v node &> /dev/null; then
-            log "Installing Node.js (LTS) from NodeSource for Debian..."
             curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - > /dev/null
             apt-get install -y nodejs
-        else
-            log "Node.js already installed."
         fi
         PKG_MANAGER="apt"
-
     elif command -v dnf &> /dev/null; then
         log "Detected Red Hat-based system (dnf found)."
-        dnf install -y curl git jq policycoreutils-python-utils # For semanage
-        
+        dnf install -y curl git jq policycoreutils-python-utils
         if ! command -v node &> /dev/null; then
-            log "Installing Node.js (LTS) from NodeSource for RHEL (dnf)..."
             curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - > /dev/null
             dnf install -y nodejs
-        else
-            log "Node.js already installed."
         fi
         PKG_MANAGER="dnf"
-
     elif command -v yum &> /dev/null; then
         log "Detected Red Hat-based system (yum found)."
-        # Assumes EPEL is enabled or jq is in base repos for older RHEL/CentOS
-        yum install -y curl git jq policycoreutils-python-utils # For semanage
-        
+        yum install -y curl git jq policycoreutils-python-utils
         if ! command -v node &> /dev/null; then
-            log "Installing Node.js (LTS) from NodeSource for RHEL (yum)..."
             curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - > /dev/null
             yum install -y nodejs
-        else
-            log "Node.js already installed."
         fi
         PKG_MANAGER="yum"
-
     else
-        error "Unsupported distribution. No 'apt', 'dnf', or 'yum' package manager found."
+        error "Unsupported distribution."
     fi
+    log "Dependencies installed."
 }
 
 run_bootstrap() {
@@ -142,9 +130,8 @@ ensure_api_installed() {
 
 configure_api() {
     log "Configuring Salt API in $MASTER_CONFIG_FILE..."
-
     if grep -q "^rest_cherrypy:" $MASTER_CONFIG_FILE; then
-        warn "Salt API configuration section (rest_cherrypy) already exists in $MASTER_CONFIG_FILE. Skipping append."
+        warn "Salt API configuration section (rest_cherrypy) already exists. Skipping append."
     else
         cat << EOF >> $MASTER_CONFIG_FILE
 
@@ -153,49 +140,45 @@ rest_cherrypy:
   port: $SALT_API_PORT
   host: 0.0.0.0
   disable_ssl: True
-
 external_auth:
   pam:
     $API_USER:
-      - .* # Permission to target all minions
-      - '@runner'   # Permission to run salt-master runner functions
-      - '@wheel'    # Permission to run salt-master wheel functions
-      - '@jobs'     # Permssion to access the jobs system
-
-# Also ensure netapi_enable_clients is set correctly
+      - .*
+      - '@runner'
+      - '@wheel'
+      - '@jobs'
 netapi_enable_clients:
   - local
   - runner
   - wheel
 EOF
-        warn "Salt API configured with SSL disabled (disable_ssl: True). This is not recommended for production."
+        warn "Salt API configured with SSL disabled (disable_ssl: True)."
     fi
 }
 
 configure_master_user() {
-    log "CRITICAL STEP: Changing Salt Master run user to 'root' for PAM compatibility..."
-    sed -i '/^#*user: /d' $MASTER_CONFIG_FILE # Remove existing 'user:' line
-    echo "user: root" >> $MASTER_CONFIG_FILE # Add 'user: root' explicitly
-    log "Salt Master run user set to 'root' in $MASTER_CONFIG_FILE."
+    log "Setting Salt Master run user to 'root' for PAM compatibility..."
+    sed -i '/^#*user: /d' $MASTER_CONFIG_FILE
+    echo "user: root" >> $MASTER_CONFIG_FILE
+    log "Salt Master run user set to 'root'."
 }
 
 create_api_user() {
     log "Creating/Updating system user '$API_USER' for API authentication..."
     if id "$API_USER" &>/dev/null; then
-        log "User '$API_USER' already exists. Setting password."
+        log "User '$API_USER' exists. Setting password."
     else
         log "Creating new system user '$API_USER'..."
-        useradd -r -M $API_USER # Create system user, no home dir
+        useradd -r -M $API_USER
     fi
-    echo "$API_USER:$API_PASS" | chpasswd # Set password non-interactively
-    log "API user '$API_USER' configured for PAM authentication."
+    echo "$API_USER:$API_PASS" | chpasswd
+    log "API user '$API_USER' configured."
 }
 
 manage_salt_services() {
     log "Enabling Salt services (master, api, minion)..."
     systemctl enable salt-master salt-api salt-minion > /dev/null
-
-    log "Restarting Salt services to apply configuration..."
+    log "Restarting Salt services..."
     systemctl restart salt-master
     systemctl restart salt-api
     systemctl restart salt-minion
@@ -204,29 +187,27 @@ manage_salt_services() {
 install_and_configure_gui() {
     log "Setting up Salt-GUI in $GUI_INSTALL_DIR..."
     if [ -d "$GUI_INSTALL_DIR" ]; then
-        log "GUI directory exists. Removing old version and re-cloning for clean install..."
+        log "GUI directory exists. Removing old version..."
         rm -rf "$GUI_INSTALL_DIR"
     fi
-    
     log "Cloning Salt-GUI from $GUI_REPO_URL..."
     git clone $GUI_REPO_URL --branch=master "$GUI_INSTALL_DIR"
 
-    log "Installing Node.js dependencies for GUI..."
-    # Use GUI_INSTALL_DIR directly now
+    log "Installing Node.js dependencies..."
     cd "$GUI_INSTALL_DIR"
-    npm install --loglevel=error # Install dependencies listed in package.json
+    npm install --loglevel=error
 
     log "Configuring GUI backend via $GUI_CONFIG_JSON..."
-
     if [ ! -f "$GUI_CONFIG_JSON" ]; then
-        error "$GUI_CONFIG_JSON not found after cloning. Cannot configure."
+        error "$GUI_CONFIG_JSON not found. Cannot configure."
     fi
 
     local temp_json=$(mktemp)
+    # Correctly modify existing keys in config.json using jq
     jq \
     --arg user "$API_USER" \
     --arg pass "$API_PASS" \
-    --arg url "http://127.0.0.1:$SALT_API_PORT" \
+    --arg url "http://$TARGET_IP:$SALT_API_PORT" \
     '.saltApiUrl = $url | .saltUsername = $user | .saltPassword = $pass' \
     "$GUI_CONFIG_JSON" > "$temp_json" \
     || error "jq command failed to update $GUI_CONFIG_JSON"
@@ -234,160 +215,142 @@ install_and_configure_gui() {
     || error "Failed to replace $GUI_CONFIG_JSON with updated version."
 
     # Verify updates
-    if ! grep -q "\"saltApiUrl\": \"http://127.0.0.1:$SALT_API_PORT\"" "$GUI_CONFIG_JSON"; then
+    log "Verifying $GUI_CONFIG_JSON..."
+    if ! jq -e ".saltApiUrl == \"http://$TARGET_IP:$SALT_API_PORT\"" "$GUI_CONFIG_JSON" > /dev/null; then
         warn "Could not verify saltApiUrl update in $GUI_CONFIG_JSON."
     fi
-    if ! grep -q "\"saltUsername\": \"$API_USER\"" "$GUI_CONFIG_JSON"; then
+    if ! jq -e ".saltUsername == \"$API_USER\"" "$GUI_CONFIG_JSON" > /dev/null; then
         warn "Could not verify saltUsername update in $GUI_CONFIG_JSON."
     fi
 
     log "Configuring GUI frontend ($GUI_SCRIPT_JS)..."
-    # Get the server IP
-    local server_ip=$(get_server_ip)
-    local proxy_url_for_script="http://${server_ip}:${NODEJS_PORT}"
-    log "Setting frontend proxy URL to: $proxy_url_for_script"
+    # HARDCODE the IP address as requested
+    local proxy_url_for_script="http://${TARGET_IP}:${NODEJS_PORT}"
+    log "Setting frontend proxy URL to HARDCODED: $proxy_url_for_script"
 
-    # Use a different delimiter for sed since the replacement contains slashes
-    sed -i "s|^ *const proxyUrl = 'http://localhost:3000';|const proxyUrl = '${proxy_url_for_script}';|" "$GUI_SCRIPT_JS" \
+    # Use a different delimiter for sed since the replacement contains slashes and colons
+    sed -i "s|^ *const proxyUrl = 'http://$TARGET_IP:3000';|const proxyUrl = '${proxy_url_for_script}';|" "$GUI_SCRIPT_JS" \
     || error "Failed to update proxyUrl in $GUI_SCRIPT_JS"
+
      # Verify update
     if ! grep -q "const proxyUrl = '${proxy_url_for_script}';" "$GUI_SCRIPT_JS"; then
         warn "Failed to confirm proxyUrl update in $GUI_SCRIPT_JS. Manual edit might be needed."
     fi
 
     log "GUI config.json and script.js configured."
-    cd - > /dev/null # Go back to previous directory
+    cd - > /dev/null
 }
 
 setup_gui_service() {
-    log "Creating '$GUI_USER' user for Salt-GUI service..."
-    useradd -r -M -s /bin/false -d "$GUI_INSTALL_DIR" "$GUI_USER" || log "User $GUI_USER likely already exists."
+    log "Setting up salt-gui systemd service..."
+    log "Creating '$GUI_USER' user..."
+    useradd -r -M -s /bin/false -d "$GUI_INSTALL_DIR" "$GUI_USER" || log "User $GUI_USER likely exists."
     chown -R "$GUI_USER":"$GUI_USER" "$GUI_INSTALL_DIR"
 
     NODE_PATH=$(which node)
-    if [ -z "$NODE_PATH" ]; then
-        error "Could not find 'node' executable path."
-    fi
-    log "Node.js executable found at $NODE_PATH"
+    [ -z "$NODE_PATH" ] && error "Could not find 'node' executable."
+    log "Node.js executable: $NODE_PATH"
 
-    log "Creating systemd service file at $GUI_SERVICE_FILE..."
+    log "Creating systemd service file: $GUI_SERVICE_FILE..."
     cat << EOF > "$GUI_SERVICE_FILE"
 [Unit]
-Description=Salt-GUI Node.js Backend Server
+Description=Salt-GUI Node.js Server
 Documentation=$GUI_REPO_URL
-After=network.target salt-api.service # Depends on network and salt-api
+After=network.target salt-api.service
 
 [Service]
 Type=simple
 User=$GUI_USER
 Group=$GUI_USER
-# Use GUI_INSTALL_DIR directly
 WorkingDirectory=$GUI_INSTALL_DIR 
-# Server.js should read config.json for settings
-# Ensure server.js listens on 0.0.0.0 or the specific IP to be accessible
 ExecStart=$NODE_PATH server.js 
 Restart=always
 RestartSec=10
-# Optional: Add environment variables if needed
-# Environment="NODE_ENV=production"
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    log "Reloading systemd, enabling and starting salt-gui service..."
+    log "Reloading systemd, enabling and restarting salt-gui service..."
     systemctl daemon-reload
-    systemctl enable --now salt-gui.service
-    systemctl status salt-gui --no-pager
-    log "Node.js service 'salt-gui' is set up. Ensure it's listening on 0.0.0.0:$NODEJS_PORT or the server's IP."
+    systemctl enable salt-gui.service > /dev/null
+    # Use restart instead of enable --now to ensure clean start after config changes
+    systemctl restart salt-gui.service
+    # Give it a second to potentially fail
+    sleep 2
+    systemctl status salt-gui --no-pager || warn "salt-gui service might have issues starting."
+    log "Node.js service 'salt-gui' configured. Should listen on 0.0.0.0:$NODEJS_PORT or $TARGET_IP:$NODEJS_PORT."
 }
 
 configure_selinux() {
-    # Only configure SELinux on Red Hat based systems
     if [ "$PKG_MANAGER" = "dnf" ] || [ "$PKG_MANAGER" = "yum" ]; then
         log "Configuring SELinux..."
-        
         if sestatus | grep "Current mode:" | grep -q "enforcing"; then
             log "SELinux is enforcing."
-            
-            # Allow node process (assuming systemd context) to listen on the specified port
-            log "Allowing Node.js service to bind to port $NODEJS_PORT..."
-            # Check if http_port_t already includes the port
+            log "Allowing Node.js service to bind to port $NODEJS_PORT (http_port_t)..."
             if ! semanage port -l | grep http_port_t | grep -qw "$NODEJS_PORT"; then
-                semanage port -a -t http_port_t -p tcp "$NODEJS_PORT" || warn "Failed to add port $NODEJS_PORT to http_port_t context. GUI might be inaccessible."
+                semanage port -a -t http_port_t -p tcp "$NODEJS_PORT" || warn "Failed to add port $NODEJS_PORT context."
             else
                 log "Port $NODEJS_PORT already has http_port_t context."
             fi
 
-            # Allow node process (assuming systemd context) to connect network ports (needed for Salt API on 8001)
             log "Allowing Node.js service network connection (daemons_enable_cluster_mode)..."
-            setsebool -P daemons_enable_cluster_mode 1 || warn "Could not set daemons_enable_cluster_mode. Node.js might not reach Salt API."
-            
+            setsebool -P daemons_enable_cluster_mode 1 || warn "Could not set daemons_enable_cluster_mode."
         else
-            warn "SELinux is not in enforcing mode. Skipping SELinux configuration commands."
+            warn "SELinux not enforcing. Skipping SELinux commands."
         fi
-
     else
-        log "Skipping SELinux configuration (not a Red Hat based system)."
+        log "Skipping SELinux configuration (not RH-based)."
     fi
 }
 
 
 configure_local_minion() {
     log "Configuring local salt-minion..."
-    if [ ! -f "$MINION_CONFIG_FILE" ]; then
-        warn "Minion config file $MINION_CONFIG_FILE not found. Skipping local minion setup."
-        return
-    fi
-    sed -i 's/^#*master:.*/master: 127.0.0.1/' "$MINION_CONFIG_FILE" # Point minion to localhost master
+    [ ! -f "$MINION_CONFIG_FILE" ] && warn "$MINION_CONFIG_FILE not found. Skipping." && return
+    sed -i 's/^#*master:.*/master: 127.0.0.1/' "$MINION_CONFIG_FILE"
     log "Restarting salt-minion..."
     systemctl restart salt-minion
-    log "Waiting 5 seconds for minion key registration..."
-    sleep 5
+    log "Waiting 5 seconds..." && sleep 5
     log "Accepting all pending Salt keys..."
-    salt-key -A -y || warn "salt-key command failed. Key might need manual acceptance."
+    salt-key -A -y || warn "salt-key command failed."
 }
 
 # --- Main Execution ---
 
-SERVER_IP=$(get_server_ip) # Get IP early for potential use/logging
-log "Detected Server IP (used for frontend config): $SERVER_IP"
+log "Starting SaltStack + Salt-GUI Direct Deployment..."
+log "Target IP for Frontend: $TARGET_IP"
 
 check_root
-install_dependencies        # Includes jq now
+# Stop potentially running GUI service first to avoid EADDRINUSE
+stop_gui_service
+install_dependencies
 run_bootstrap
 ensure_api_installed
 configure_api
 configure_master_user
 create_api_user
-manage_salt_services      # Restart Salt services to apply changes
+manage_salt_services      # Restart Salt services
 
-install_and_configure_gui # Clones repo, installs npm deps, configures config.json and script.js (using detected IP)
-setup_gui_service         # Creates systemd service for Node.js app and starts it
+install_and_configure_gui # Clones repo, installs deps, configures config.json & script.js
+setup_gui_service         # Creates/enables systemd service, restarts Node.js app
 
-# Configure SELinux for Node.js port and network access
-configure_selinux
-
-configure_local_minion    # Configure and accept local minion key last
+configure_selinux         # SELinux rules for Node.js port and network
+configure_local_minion    # Configure local minion last
 
 log "---"
 log "SaltStack Deployment Server with Salt-GUI (Node.js Direct) Setup Complete!"
-log "Salt-GUI backend is configured via config.json and should be accessible on port $NODEJS_PORT."
-log "Salt API user '$API_USER' is configured."
-log "Local minion key should be accepted."
-log "*** NGINX WAS NOT INSTALLED OR CONFIGURED ***"
+log "Salt-GUI backend configured via config.json, accessible on port $NODEJS_PORT."
+log "Frontend configured to connect to http://$TARGET_IP:$NODEJS_PORT."
+log "Salt API user '$API_USER' configured."
 log "*** FIREWALL WAS NOT CONFIGURED BY THIS SCRIPT ***"
 log ""
 log "--- ✅ SUCCESS: FINAL NEXT STEPS ✅ ---"
-log "1. FIREWALL: Manually configure your firewall to allow TCP ports:"
-log "   - $NODEJS_PORT (Salt-GUI - Public Access)"
-log "   - 4505 (Salt Master Pub - If minions connect from outside)"
-log "   - 4506 (Salt Master Ret - If minions connect from outside)"
-log "   - $SALT_API_PORT (Salt API - Maybe only needed locally by Node.js)"
-log "2. PASSWORD: If you haven't already, CHANGE THE DEFAULT '$API_USER' PASSWORD used in this script!"
+log "1. FIREWALL: Manually configure local & cloud firewalls to allow TCP port $NODEJS_PORT."
+log "   Also ensure 4505/4506 are open if external minions connect."
+log "2. PASSWORD: CHANGE THE DEFAULT '$API_USER' PASSWORD!"
 log "   Run: 'sudo passwd $API_USER'"
-log "   Then UPDATE the password in $GUI_CONFIG_JSON and restart the salt-gui service: 'sudo systemctl restart salt-gui'"
-log "3. TEST GUI: Access the GUI in your browser at http://$SERVER_IP:$NODEJS_PORT"
-log "4. TEST SALT: Run 'sudo salt '*' test.ping' on the server's command line."
-log "5. CLOUD PROVIDER FW: Ensure your cloud provider/external firewall allows traffic to TCP port $NODEJS_PORT."
+log "   Then UPDATE password in $GUI_CONFIG_JSON & restart service: 'sudo systemctl restart salt-gui'"
+log "3. TEST GUI: Access http://$TARGET_IP:$NODEJS_PORT"
+log "4. TEST SALT: Run 'sudo salt '*' test.ping'"
 log "---"
