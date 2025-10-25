@@ -330,6 +330,10 @@ setup_gui_service         # Creates/enables systemd service, restarts Node.js ap
 configure_selinux         # SELinux rules for Node.js port and network
 configure_local_minion    # Configure local minion last
 
+#set up directory for custom scripts
+mkdir -p /srv/salt
+git clone https://github.com/SOC-SE/rndsweats /srv/salt/rndsweats
+
 log "---"
 log "SaltStack Deployment Server with Salt-GUI (Node.js Direct) Setup Complete!"
 log "Salt-GUI backend configured via config.json for user '$API_USER', accessible on port $NODEJS_PORT."
