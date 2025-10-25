@@ -22,9 +22,6 @@ cd $SCRIPT_DIR
 echo "Setting up Auditd"
 bash Auditd/auditdSetup.sh
 
-echo "Installing Yara"
-bash Yara/yaraInstall.sh
-
 echo "Configuring Yara rules"
 bash Yara/yaraConfigure.sh
 
