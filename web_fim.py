@@ -215,14 +215,19 @@ def report(added, removed, modified):
 
 
 # --- CLI / main ---
+# --- CLI / main ---
 def main():
     parser = argparse.ArgumentParser(description="Simple file integrity monitor for web files (SHA256).")
     parser.add_argument("--init", action="store_true", help="Create baseline from monitored paths (write baseline file).")
     parser.add_argument("--update", action="store_true", help="Update baseline (overwrite) with current state — use when changes are legitimate.")
     parser.add_argument("--check", action="store_true", help="Perform one integrity check against baseline (default if no flags).")
     parser.add_argument("--loop", type=int, metavar="SECS", help="Run in loop and check every SECS seconds (alternative to cron).")
-    parser.add.argument("--baseline", default=BASELINE_FILE, help="Baseline file path.")
-    parser.add.argument("--paths", nargs="*", help="Additional paths or globs to monitor.")
+    
+    # --- FIX WAS HERE ---
+    parser.add_argument("--baseline", default=BASELINE_FILE, help="Baseline file path.")
+    parser.add_argument("--paths", nargs="*", help="Additional paths or globs to monitor.")
+    # --- END FIX ---
+    
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
