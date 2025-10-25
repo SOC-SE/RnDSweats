@@ -10,10 +10,11 @@
 # 4. Force install salt-api to ensure it's present.
 # 5. Configure the salt-api to run on a custom port (for Splunk).
 # 6. Configure PAM eauth for the API via a 'saltapiusers' group.
-# 7. Download and configure the Salt-GUI.
-# 8. Create and start a systemd service for the GUI.
-# 9. Enable and restart all Salt services.
-# 10. Configure the local minion and accept its key.
+# 7. Create the 'deployuser' for the GUI.
+# 8. Download, configure, and install dependencies for the Salt-GUI.
+# 9. Create and start a systemd service for the GUI.
+# 10. Enable and restart all Salt services.
+# 11. Configure the local minion and accept its key.
 #
 # --- Ports Used ---
 # TCP 3000: Salt-GUI Web Interface
@@ -33,6 +34,10 @@ GUI_SERVER_DIR="$GUI_INSTALL_DIR/"
 GUI_SERVER_JS="$GUI_SERVER_DIR/server.js"
 GUI_SERVICE_FILE="/etc/systemd/system/salt-gui.service"
 GUI_USER="saltgui"
+
+# --- NEW SECURE CREDENTIALS ---
+API_USER="deployuser"
+API_PASS="ChangeMeIntoAMuchHarderToCrackPasswordPleaseBecauseThisIsSuperShort123!*"
 
 
 # Exit immediately if a command exits with a non-zero status.
@@ -69,6 +74,7 @@ install_dependencies() {
     
     if command -v apt &> /dev/null; then
         log "Detected Debian-based system (apt found)."
+        apt-get update -y > /dev/null
         apt-get install -y curl git
         
         if ! command -v node &> /dev/null; then
@@ -160,6 +166,24 @@ EOF
     groupadd saltapiusers || true
 }
 
+create_api_user() {
+    log "Creating API user '$API_USER' for GUI..."
+    if id "$API_USER" &>/dev/null; then
+        log "User '$API_USER' already exists. Ensuring they are in 'saltapiusers' group."
+        usermod -a -G saltapiusers $API_USER
+    else
+        log "Creating new system user '$API_USER'..."
+        # -r = system user, -M = no home dir, -G = add to group
+        useradd -r -M -G saltapiusers $API_USER
+    fi
+    
+    log "Setting password for '$API_USER'..."
+    # Set password non-interactively
+    echo "$API_USER:$API_PASS" | chpasswd
+    
+    log "API user '$API_USER' is configured."
+}
+
 install_and_configure_gui() {
     log "Setting up Salt-GUI..."
     if [ -d "$GUI_INSTALL_DIR" ]; then
@@ -169,15 +193,30 @@ install_and_configure_gui() {
         git clone $GUI_REPO_URL --branch=master $GUI_INSTALL_DIR
     fi
 
+    log "Installing Node.js dependencies for GUI..."
     cd $GUI_SERVER_DIR
+    npm install --loglevel=error
 
-    log "Configuring GUI to connect to local Salt API (http://127.0.0.1:$SALT_API_PORT)..."
+    log "Configuring GUI to use new credentials and local API..."
     
+    # --- NEW SED COMMANDS to update credentials ---
+    # Note: Using $API_PASS in "" requires escaping the '!' and '*' for bash
+    local escaped_pass=$(printf '%q' "$API_PASS" | sed 's/\\!/!/g; s/\\\*/\*/g')
+
+    if ! sed -i "s/username: 'sysadmin',/username: '$API_USER',/" $GUI_SERVER_JS; then
+        error "sed command failed to update username in $GUI_SERVER_JS"
+    fi
+    
+    if ! sed -i "s/password: 'Changeme1!',/password: '$escaped_pass',/" $GUI_SERVER_JS; then
+        error "sed command failed to update password in $GUI_SERVER_JS"
+    fi
+    
+    # --- This command updates the API URL ---
     local find_string="^const saltApiUrl = 'https://salt80.soc-se.org/salt-api'.*"
     local replace_string="const saltApiUrl = 'http://127.0.0.1:$SALT_API_PORT';"
     
     if ! sed -i "s|$find_string|$replace_string|" $GUI_SERVER_JS; then
-        error "sed command failed to update $GUI_SERVER_JS"
+        error "sed command failed to update API URL in $GUI_SERVER_JS"
     fi
     
     # Check if sed worked
@@ -185,8 +224,7 @@ install_and_configure_gui() {
         error "Failed to configure $GUI_SERVER_JS. The replacement string was not found after sed."
     fi
     
-    warn "The Salt-GUI server.js file has hardcoded credentials: (username: 'sysadmin', password: 'Changeme1!')."
-    warn "Ensure this matches a valid PAM user in the 'saltapiusers' group."
+    log "The Salt-GUI server.js file is now configured to use '$API_USER'."
 }
 
 run_gui_background() {
@@ -239,7 +277,6 @@ manage_salt_services() {
     systemctl restart salt-minion
 }
 
-# *** NEW FUNCTION ***
 configure_local_minion() {
     log "Configuring local salt-minion..."
     if [ ! -f "$MINION_CONFIG_FILE" ]; then
@@ -267,14 +304,16 @@ install_dependencies
 run_bootstrap
 ensure_api_installed
 configure_api
+create_api_user
 manage_salt_services
 install_and_configure_gui
 run_gui_background
-configure_local_minion  # <-- NEW STEP ADDED HERE
+configure_local_minion
 
 log "---"
 log "SaltStack master, API, minion, and GUI installation complete!"
 log "All services have been enabled and started."
+log "The API user '$API_USER' has been created."
 log "The local minion key has been automatically accepted."
 log ""
 log "--- IMPORTANT NEXT STEPS ---"
@@ -283,8 +322,5 @@ log "   - $SALT_API_PORT (Salt API)"
 log "   - 4505 (Salt Master Pub)"
 log "   - 4506 (Salt Master Ret)"
 log "   - 3000 (Salt-GUI)"
-log "2. API USER: The GUI is hardcoded to use 'sysadmin' / 'Changeme1!'. Create this user:"
-log "   Example: useradd -r -M -G saltapiusers sysadmin && passwd sysadmin"
-log "   (When prompted, set the password to 'Changeme1!')"
-log "3. TEST GUI: Access the GUI in your browser at http://<this-server-ip>:3000"
+log "2. TEST GUI: Access the GUI in your browser at http://<this-server-ip>:3000"
 log "---"
