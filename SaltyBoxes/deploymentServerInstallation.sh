@@ -18,7 +18,7 @@
 # --- Configuration ---
 SALT_API_PORT=8001
 NODEJS_PORT=3000 # Port the Node.js server will listen on
-TARGET_IP="172.20.241.20" # HARDCODED IP for frontend AND backend config
+TARGET_IP="172.20.242.20" # HARDCODED IP for frontend AND backend config
 MASTER_CONFIG_FILE="/etc/salt/master"
 MINION_CONFIG_FILE="/etc/salt/minion"
 
