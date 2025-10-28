@@ -202,6 +202,7 @@ install_and_configure_gui() {
     # Using deployuser credentials and HARDCODED Target IP
     cat << EOF > "$GUI_CONFIG_JSON"
 {
+  "proxyUrl": "http://${TARGET_IP}:$NODEJS_PORT",
   "saltApiUrl": "http://${TARGET_IP}:$SALT_API_PORT",
   "saltUsername": "$API_USER",
   "saltPassword": "$API_PASS",
