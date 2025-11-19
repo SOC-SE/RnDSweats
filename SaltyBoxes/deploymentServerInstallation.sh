@@ -29,6 +29,12 @@ GUI_SCRIPT_JS="$GUI_INSTALL_DIR/script.js"    # Path to Frontend JS script
 GUI_SERVICE_FILE="/etc/systemd/system/salt-gui.service"
 GUI_USER="saltgui"
 
+
+
+
+
+
+
 # --- SECURE CREDENTIALS ---
 API_USER="deployuser"
 # !! IMPORTANT: CHANGE THIS DEFAULT PASSWORD !!
@@ -202,11 +208,11 @@ install_and_configure_gui() {
     # Using deployuser credentials and HARDCODED Target IP
     cat << EOF > "$GUI_CONFIG_JSON"
 {
-  "proxyUrl": "http://${TARGET_IP}:$NODEJS_PORT",
+  "proxyURL": "http://${TARGET_IP}:$NODEJS_PORT",
   "saltApiUrl": "http://${TARGET_IP}:$SALT_API_PORT",
-  "saltUsername": "$API_USER",
-  "saltPassword": "$API_PASS",
-  "saltEauth": "pam"
+  "username": "$API_USER",
+  "password": "$API_PASS",
+  "eauth": "pam"
 }
 EOF
     log "Successfully wrote deployuser configuration to $GUI_CONFIG_JSON."
