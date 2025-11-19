@@ -52,7 +52,7 @@ set nat source rule 100 description 'OUTBOUND-ACCESS'
 # ==========================================
 # 4. FIREWALL (Allow All)
 # ==========================================
-set firewall name PERMISSIVE default-ahttps://raw.githubusercontent.com/SOC-SE/RnDSweats/refs/heads/Development/Archive/BoxSetups/VyOS-Setup.shction 'accept'
+set firewall name PERMISSIVE default-action 'accept'
 
 # Apply PERMISSIVE to WAN (eth0)
 set interfaces ethernet eth0 firewall local name PERMISSIVE
