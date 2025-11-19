@@ -38,6 +38,8 @@ set interfaces ethernet eth2 description 'LINK-TO-CISCO'
 # ==========================================
 # Default gateway for internet access
 set protocols static route 0.0.0.0/0 next-hop '10.0.255.254'
+set system name-server 1.1.1.1
+set system name-server 8.8.8.8
 
 # ==========================================
 # 3. NAT (Masquerade)
@@ -50,7 +52,7 @@ set nat source rule 100 description 'OUTBOUND-ACCESS'
 # ==========================================
 # 4. FIREWALL (Allow All)
 # ==========================================
-set firewall name PERMISSIVE default-action 'accept'
+set firewall name PERMISSIVE default-ahttps://raw.githubusercontent.com/SOC-SE/RnDSweats/refs/heads/Development/Archive/BoxSetups/VyOS-Setup.shction 'accept'
 
 # Apply PERMISSIVE to WAN (eth0)
 set interfaces ethernet eth0 firewall local name PERMISSIVE
