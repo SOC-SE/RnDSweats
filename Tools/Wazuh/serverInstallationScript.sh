@@ -587,7 +587,7 @@ services:
       - ./config/wazuh_cluster/wazuh_manager.conf:/wazuh-config-mount/etc/ossec.conf
 
   wazuh.indexer:
-    image: wazuh/wazuh-indexer:4.7.3
+    image: wazuh/wazuh-indexer:4.14.1
     hostname: wazuh.indexer
     restart: always
     ports:
@@ -612,7 +612,7 @@ services:
       - ./config/wazuh_indexer/internal_users.yml:/usr/share/wazuh-indexer/opensearch-security/internal_users.yml
 
   wazuh.dashboard:
-    image: wazuh/wazuh-dashboard:4.7.3
+    image: wazuh/wazuh-dashboard:4.14.1
     hostname: wazuh.dashboard
     restart: always
     ports:
@@ -709,7 +709,7 @@ API_USERNAME=wazuh-wui
 OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
 
 WAZUH_API_URL=https://wazuh.manager
-DASHBOARD_USERNAME=kibanaserver
+DASHBOARD_USERNAME=admin
 
 INDEXER_PASSWORD=$INDEXER_PASSWORD
 API_PASSWORD=$API_PASSWORD
