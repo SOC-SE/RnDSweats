@@ -541,12 +541,11 @@ cluster.routing.allocation.disk.threshold_enabled: false
 EOF
 cat >"./docker-compose.yml" <<"EOF"
 # Wazuh App Copyright (C) 2017, Wazuh Inc. (License GPLv2)
-version: '3.7'
+#version: '3.7'
 
 services:
   wazuh.manager:
-    image: wazuh/wazuh-manager:4.7.3
-    hostname: wazuh.manager
+    image: wazuh/wazuh-manager:4.14.1
     restart: always
     ulimits:
       memlock:
