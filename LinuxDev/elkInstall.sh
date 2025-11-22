@@ -84,16 +84,21 @@ systemctl restart kibana
 
 echo -e "${GREEN}Setting Credentials...${NC}"
 
-# Manually set the password to Changeme1!
-# We use the -i (interactive) flag and pipe the password to stdin twice (for confirmation)
-echo "Changeme1!
-Changeme1!" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -i
+# 1. Reset password to an auto-generated one (Batch mode -s -b)
+# We capture just the password from the output
+TEMP_PASS=$(/usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b)
+
+# 2. Use the temp password to set your custom password via API
+# This avoids TTY/Interactive input errors completely
+curl -k -X POST -u "elastic:$TEMP_PASS" -H "Content-Type: application/json" \
+"https://127.0.0.1:9200/_security/user/elastic/_password" \
+-d '{"password" : "Changeme1!"}'
+
+# Set PASS variable for the rest of the script
+PASS="Changeme1!"
 
 # Configure Filebeat with the new credentials
 CA=$(openssl x509 -fingerprint -sha256 -noout -in /etc/elasticsearch/certs/http_ca.crt | awk -F '=' '{print $2}' | sed 's/://g')
-
-# Set the PASS variable for the sed command below
-PASS="Changeme1!"
 
 sed -e 's/hosts: \["localhost:9200"\]/hosts: \["https:\/\/localhost:9200"\]/g; /hosts: \["https:\/\/localhost:9200"\]/a \ \n  username: "elastic"\n  password: "'"$PASS"'"\n  ssl:\n    enabled: true\n    ca_trusted_fingerprint: "'"$CA"'"' /etc/filebeat/filebeat.yml > $TMP
 mv $TMP /etc/filebeat/filebeat.yml
