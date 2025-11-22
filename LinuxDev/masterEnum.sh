@@ -26,8 +26,16 @@ log() {
 }
 
 error_exit() {
-    echo "CRITICAL ERROR: $1" >&2
-    log "CRITICAL ERROR: $1"
+    local msg="CRITICAL SECURITY AUDIT ERROR: $1"
+    
+    # 1. Write to the log file
+    echo "ERROR: $1" >&2
+    log "$msg"
+    
+    # 2. Broadcast to all logged-in users
+    # (Only works if running as root, which this script requires anyway)
+    echo "$msg" | wall
+    
     exit 1
 }
 
@@ -78,8 +86,47 @@ get_inventory(){
     echo -e $OS
     empty_line
 
+    echo "Hardware Resources:"
+    
+    # CPU Information
+    if command_exists lscpu; then
+        local cpu_model=$(lscpu | grep "Model name:" | sed 's/Model name:[ \t]*//')
+        local cpu_cores=$(lscpu | grep "^CPU(s):" | awk '{print $2}')
+    else
+        local cpu_model=$(grep "model name" /proc/cpuinfo | head -n1 | cut -d: -f2 | sed 's/^[ \t]*//')
+        local cpu_cores=$(grep -c ^processor /proc/cpuinfo)
+    fi
+
+    printf "CPU Model: "
+    echo "$cpu_model"
+    printf "CPU Cores: "
+    echo "$cpu_cores"
+
+    # RAM Information
+    if command_exists free; then
+        local ram_total=$(free -m | awk '/Mem:/ {print $2}')
+        printf "Total RAM: "
+        echo "${ram_total} MB"
+    else
+        echo "RAM: Unable to determine (free command missing)"
+    fi
+
+    empty_line
+
+    # Storage Information
+    echo "Storage Devices:"
+    if command_exists lsblk; then
+        # List physical disks only (no partitions/loops)
+        lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -v "loop"
+    else
+        # Fallback to df if lsblk is missing
+        df -h --output=source,size,target -x tmpfs -x devtmpfs
+    fi
+    empty_line
+
+
     if command -v transactional-update; then
-        echo "Transactional Server"
+        echo "Transactional Server - This is an immutable Linux distribution"
         transactional-update status
         empty_line
     fi
@@ -193,10 +240,8 @@ get_inventory(){
             echo "THIS IS A KUBERNETES CONTROL PLANE NODE"
             kubectl get nodes -o wide
         fi
-        empty_line
     else
         echo "KUBERNETES NOT INSTALLED"
-        empty_line
     fi
 }
 
@@ -1773,55 +1818,56 @@ get_privesc(){
 
 
 main() {
-log "Starting Master Audit on $HOSTNAME"
+    echo "Starting Master Security Audit on $HOSTNAME. Logs: $LOG_FILE" | wall
+    log "Starting Master Audit on $HOSTNAME"
     
-    # --- HEADER (Screen + Log) ---
     {
+        # --- HEADER (Screen + Log) ---   
         echo "=================================================================="
         echo "MASTER SECURITY AUDIT REPORT"
         echo "Date: $(date)"
         echo "Hostname: $HOSTNAME"
         echo "=================================================================="
         echo ""
-    } | tee -a "$LOG_FILE"
-    
-    # --- 1. GENERAL INVENTORY ---
-    get_inventory | tee -a "$LOG_FILE"
-    echo -e "\n\n\n" >> "$LOG_FILE"
+        
+        
+        # --- 1. GENERAL INVENTORY ---
+        get_inventory 
+        echo -e "\n\n" 
 
-    # --- 2. CRON JOBS ---
-    # Run function, send output to screen AND append to log
-    get_cron | tee -a "$LOG_FILE"
-    echo -e "\n\n\n" >> "$LOG_FILE"
-    
-    # --- 3. USERS ---
-    get_users | tee -a "$LOG_FILE"
-    echo -e "\n\n\n" >> "$LOG_FILE"
-    
-    # --- 4. SUDOERS ---
-    get_sudoers | tee -a "$LOG_FILE"
-    echo -e "\n\n\n" >> "$LOG_FILE"
-    
-    # --- 5. SERVICES ---
-    {
+        # --- 2. CRON JOBS ---
+        # Run function, send output to screen AND append to log
+        get_cron 
+        echo -e "\n\n" 
+        
+        # --- 3. USERS ---
+        get_users
+        echo -e "\n\n" 
+        
+        # --- 4. SUDOERS ---
+        get_sudoers 
+        echo -e "\n\n" 
+        
+        # --- 5. SERVICES ---
         echo "Service Enumeration - Security Assessment"
         echo "========================================="
         get_services
-    } | tee -a "$LOG_FILE"
-    echo -e "\n\n\n" >> "$LOG_FILE"
+        echo -e "\n\n"
 
-    # --- 6. PRIVESC ---
-    get_privesc | tee -a "$LOG_FILE"
-    echo -e "\n\n" >> "$LOG_FILE"
-    
-    # --- FOOTER ---
-    {
+        # --- 6. PRIVESC ---
+        get_privesc 
+        echo -e "\n\n" 
+        
+        # --- FOOTER ---
         echo "=================================================================="
         echo "AUDIT COMPLETE"
         echo "=================================================================="
-    } | tee -a "$LOG_FILE"
+    } >> "$LOG_FILE" 2>&1
     
-    log "Master Audit completed. Log saved to $LOG_FILE"
+    log "Master Audit completed."
+    
+
+    echo "Master Security Audit Completed. Review logs at: $LOG_FILE" | wall
 }
 
 # CALL THE MAIN FUNCTION
