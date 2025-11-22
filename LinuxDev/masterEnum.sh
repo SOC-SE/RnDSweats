@@ -1818,7 +1818,7 @@ get_privesc(){
 
 
 main() {
-    echo "Starting Master Security Audit on $HOSTNAME. Logs: $LOG_FILE" | wall
+    echo "Starting Master Security Audit on $HOSTNAME. Logs: $LOG_FILE" 
     log "Starting Master Audit on $HOSTNAME"
     
     {
@@ -1867,7 +1867,7 @@ main() {
     log "Master Audit completed."
     
 
-    echo "Master Security Audit Completed. Review logs at: $LOG_FILE" | wall
+    echo "Master Security Audit Completed. Review logs at: $LOG_FILE" 
 }
 
 # CALL THE MAIN FUNCTION
