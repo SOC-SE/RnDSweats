@@ -7,7 +7,7 @@ set -euo pipefail
 
 # Configuration
 LOG_FILE="/var/log/get_cron.log"
-ENABLE_LOGGING=${ENABLE_LOGGING:-false}
+ENABLE_LOGGING=${ENABLE_LOGGING:-ENABLE_LOGGING=${ENABLE_LOGGING:-true}}
 
 # Column width configuration
 USER_WIDTH=12

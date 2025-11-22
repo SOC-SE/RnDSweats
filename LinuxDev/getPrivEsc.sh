@@ -10,7 +10,7 @@ set -euo pipefail
 
 # Configuration
 LOG_FILE="/var/log/get_privesc.log"
-ENABLE_LOGGING=${ENABLE_LOGGING:-false}
+ENABLE_LOGGING=${ENABLE_LOGGING:-true}
 
 # Column width configuration
 BINARY_WIDTH=35

@@ -10,8 +10,7 @@ set -euo pipefail
 
 # Configuration
 LOG_FILE="/var/log/get_sudoers.log"
-ENABLE_LOGGING=${ENABLE_LOGGING:-false}
-
+ENABLE_LOGGING=${ENABLE_LOGGING:-true}
 # Column width configuration
 ENTITY_WIDTH=10
 TYPE_WIDTH=6
