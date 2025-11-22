@@ -1,5 +1,18 @@
 #!/bin/bash
-# MasterAudit.sh - Combined Security Assessment
+#
+#   masterEnum.sh
+#   
+#   This script is an amalgamation of several ideas, scripts, and small personal tools I've built up.
+#   This run and system audit and outputs it to a log file.
+#
+#   A thank you to CyberUCI and Windserpent. Several scripts of theirs were used and adapted for this script.
+#
+#   https://github.com/cyberuci
+#   https://github.com/windserpent
+#
+#
+#   Samuel Brucker 2025-2026
+#
 
 set -u pipefail 
 
