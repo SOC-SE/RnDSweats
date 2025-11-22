@@ -4,6 +4,7 @@
 # - Downloads from official Elastic repos
 # - Sets password to 'Changeme1!'
 # - Allows Kibana access from ANY IP
+# - WAITS for ES to fully initialize before configuring
 
 # Set colors for status messages
 GREEN='\033[0;32m'
@@ -28,10 +29,6 @@ RHEL(){
     rpm -i elasticsearch-8.13.2-x86_64.rpm 
     rpm -i kibana-8.13.2-x86_64.rpm 
     rpm -i filebeat-8.13.2-x86_64.rpm
-    
-    # Stop firewalld to allow iptables management or direct access
-    systemctl stop firewalld
-    systemctl disable firewalld
 }
 
 # Function for Debian/Ubuntu
@@ -68,16 +65,34 @@ systemctl daemon-reload
 systemctl enable elasticsearch
 systemctl enable kibana
 
+# Start ES
 systemctl start elasticsearch
 
-# Firewall Configuration - Modified to allow ALL traffic on 5601
-# Removed "-s" source restriction
-iptables -A INPUT -p tcp --dport 5601 -j ACCEPT
+# --- CRITICAL FIX: Wait for Elasticsearch to initialize ---
+echo -e "${GREEN}Waiting for Elasticsearch to initialize (this may take a minute)...${NC}"
+# Loop until curl returns HTTP 401 (Unauthorized), which means ES is UP and listening.
+# -s = silent, -k = ignore SSL cert, -I = head request only
+until curl -s -k -I https://127.0.0.1:9200 | grep -q "401 Unauthorized"; do
+    echo "Elasticsearch is still starting up... (sleeping 5s)"
+    sleep 5
+done
+echo -e "${GREEN}Elasticsearch is ready!${NC}"
+# ----------------------------------------------------------
 
 # Kibana Configuration
+echo -e "${GREEN}Generating Kibana Enrollment Token...${NC}"
+
+# Check if token generation works before proceeding
+token=$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token --scope kibana)
+if [[ $? -ne 0 ]]; then
+    echo "Error: Failed to generate enrollment token. Exiting."
+    exit 1
+fi
+
 /usr/share/kibana/bin/kibana-encryption-keys generate | tail -4 >> /etc/kibana/kibana.yml
 echo 'server.host: "0.0.0.0"' >> /etc/kibana/kibana.yml
-token=$(/usr/share/elasticsearch/bin/elasticsearch-create-enrollment-token --scope kibana)
+
+# Apply token
 /usr/share/kibana/bin/kibana-setup --enrollment-token=$token 
 
 systemctl restart kibana
@@ -85,11 +100,9 @@ systemctl restart kibana
 echo -e "${GREEN}Setting Credentials...${NC}"
 
 # 1. Reset password to an auto-generated one (Batch mode -s -b)
-# We capture just the password from the output
 TEMP_PASS=$(/usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -s -b)
 
 # 2. Use the temp password to set your custom password via API
-# This avoids TTY/Interactive input errors completely
 curl -k -X POST -u "elastic:$TEMP_PASS" -H "Content-Type: application/json" \
 "https://127.0.0.1:9200/_security/user/elastic/_password" \
 -d '{"password" : "Changeme1!"}'
@@ -98,12 +111,14 @@ curl -k -X POST -u "elastic:$TEMP_PASS" -H "Content-Type: application/json" \
 PASS="Changeme1!"
 
 # Configure Filebeat with the new credentials
+# Extract CA fingerprint
 CA=$(openssl x509 -fingerprint -sha256 -noout -in /etc/elasticsearch/certs/http_ca.crt | awk -F '=' '{print $2}' | sed 's/://g')
 
 sed -e 's/hosts: \["localhost:9200"\]/hosts: \["https:\/\/localhost:9200"\]/g; /hosts: \["https:\/\/localhost:9200"\]/a \ \n  username: "elastic"\n  password: "'"$PASS"'"\n  ssl:\n    enabled: true\n    ca_trusted_fingerprint: "'"$CA"'"' /etc/filebeat/filebeat.yml > $TMP
 mv $TMP /etc/filebeat/filebeat.yml
 
 # Run Filebeat Setup
+echo -e "${GREEN}Setting up Filebeat...${NC}"
 filebeat setup --index-management -E output.logstash.enabled=false  -E "output.elasticsearch.ssl.enabled=true" -E "output.elasticsearch.ssl.ca_trusted_fingerprint=$CA" -E 'output.elasticsearch.hosts=["https://127.0.0.1:9200"]'
 
 # Append optional config (commented out by default)
