@@ -22,19 +22,19 @@ command_exists() {
 echo -e "${BLUE}Installing essential packages:${NC}"
 if command_exists apt-get; then
     apt-get update -y
-    apt-get install -y coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano
+    apt-get install -y coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano jq
 fi
 
 if command_exists yum; then
-    yum install -y bash coreutils net-tools iproute2 iptables curl git vim wget grep tar jq gpg nano
+    yum install -y bash coreutils net-tools iproute2 iptables curl git vim wget grep tar jq gpg nano jq
 fi
 
 if command_exists pacman; then
-    pacman -S --noconfirm coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano
+    pacman -S --noconfirm coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano jq
 fi
 
 if command_exists apk; then
-    apk add coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano
+    apk add coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano jq
 fi
 echo -e "${BLUE}Essential packages stage done.${NC}"
 
