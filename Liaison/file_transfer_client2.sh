@@ -13,52 +13,23 @@
 # - File upload and download capabilities
 # - Interactive sessions for all protocols
 # - Server connectivity testing
-# - CCDC-optimized with security considerations
+# - Optimized with security considerations
 # - Cross-platform compatibility (Linux with standard tools)
 # - Auto-suggests credentials if /etc/fts_credentials.conf exists (from server script)
 #
 # Dependencies: ftp, sftp, tftp clients (usually pre-installed)
 # Usage: ./file_transfer_client.sh
 # Notes:
-# - For CCDC: Test connections in safe environment first
-# - Ensure server IPs are accessible (check Palo Alto NAT rules)
+# - Test connections in safe environment first
+# - Ensure server IPs are accessible (check firewall rules)
 # - Use strong credentials and monitor transfers
 # - If running on same machine as server or copy /etc/fts_credentials.conf, creds auto-suggested
 # ==============================================================================
 
 set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# TeamPack Compliance Notice
-# This script is intended for use only against systems that you own or
-# are explicitly authorized to test (your team lab / competition VMs).
-# By continuing you confirm you will NOT use this tool to connect to or transfer
-# files to systems you do not control. Follow MWCCDC Team Pack rules.
-# ------------------------------------------------------------------------------
-teampack_confirm() {
-    echo ""
-    echo "IMPORTANT: This script must only be used against systems you own or are authorized to test."
-    read -p "I confirm I will only run this against my team/lab systems (type YES to continue): " _confirm
-    if [[ "$_confirm" != "YES" ]]; then
-        echo "Confirmation not received. Exiting."
-        exit 1
-    fi
-}
-
-# Run TeamPack confirmation
-teampack_confirm
-
-# --- ASCII Banner ---
-echo -e "\033[1;32m"
-cat << "EOF"
- _____ _____ ____ _ _            _   
-|  ___|_   _/ ___| (_) ___ _ __ | |_ 
-| |_    | || |   | | |/ _ \ '_ \| __|
-|  _|   | || |___| | |  __/ | | | |_ 
-|_|     |_| \____|_|_|\___|_| |_|\__|
-EOF
-echo -e "\033[0m"
-echo "File Transfer Client - For CCDC Team File Operations"
+# --- Simple Banner ---
+echo "File Transfer Client"
 echo "---------------------------------------------------"
 
 # --- Configuration & Colors ---
@@ -102,14 +73,21 @@ check_dependencies() {
 
     if [ ${#missing_deps[@]} -ne 0 ]; then
         log_warn "Missing dependencies: ${missing_deps[*]}"
-        log_info "Install missing clients:"
-        echo "  Ubuntu/Debian: sudo apt update && sudo apt install ${missing_deps[*]}"
-        echo "  Fedora/RHEL: sudo dnf install ${missing_deps[*]}"
-        echo ""
-        read -p "Continue anyway? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
+        log_info "Attempting to install missing clients..."
+        
+        if command -v apt &> /dev/null; then
+            sudo apt update && sudo apt install -y "${missing_deps[@]}"
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y "${missing_deps[@]}"
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y "${missing_deps[@]}"
+        else
+            log_error "Package manager not found. Please install manually: ${missing_deps[*]}"
+            read -p "Continue anyway? (y/n): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                exit 1
+            fi
         fi
     fi
 }
@@ -711,7 +689,7 @@ main() {
                 ;;
             6)
                 log_info "Thank you for using File Transfer Client!"
-                log_info "Remember to secure your file transfers in CCDC environments."
+                log_info "Remember to secure your file transfers."
                 exit 0
                 ;;
             *)
