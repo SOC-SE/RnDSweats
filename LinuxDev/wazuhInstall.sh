@@ -1,8 +1,9 @@
 #!/bin/bash
 set -e # Exit immediately if a command exits with a non-zero status.
 
-# Wazuh FRESH Installation Script for Oracle Linux 9
+# Wazuh FRESH Installation Script for Oracle Linux 9 (v2)
 # Goal: Establish a working baseline with zero custom tuning.
+# Includes robust network handling and automatic index pattern setup.
 # Target Version: 4.14.1
 
 # --- Configuration Variables ---
@@ -10,7 +11,7 @@ WAZUH_MAJOR="4.14"
 WAZUH_VERSION="4.14.1"
 INSTALL_DIR="/root/wazuh-install-temp"
 
-echo "--- [1/6] Deep Cleaning previous installations ---"
+echo "--- [1/7] Deep Cleaning previous installations ---"
 # 1. Stop all services
 systemctl stop wazuh-dashboard wazuh-indexer wazuh-manager filebeat elasticsearch kibana 2>/dev/null || true
 
@@ -36,8 +37,8 @@ fi
 echo "Installing necessary tools..."
 dnf install -y coreutils curl unzip wget libcap tar gnupg openssl
 
-# --- [2/6] Repositories ---
-echo "--- [2/6] Setting up Repositories ---"
+# --- [2/7] Repositories ---
+echo "--- [2/7] Setting up Repositories ---"
 rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
 cat > /etc/yum.repos.d/wazuh.repo <<EOF
 [wazuh]
@@ -49,8 +50,8 @@ baseurl=https://packages.wazuh.com/4.x/yum/
 protect=1
 EOF
 
-# --- [3/6] Certificates ---
-echo "--- [3/6] Generating SSL Certificates ---"
+# --- [3/7] Certificates ---
+echo "--- [3/7] Generating SSL Certificates ---"
 cd $INSTALL_DIR
 
 # Only generate if they don't exist
@@ -77,8 +78,13 @@ else
     echo "Certificates found. Skipping generation."
 fi
 
-# --- [4/6] Wazuh Indexer (Database) ---
-echo "--- [4/6] Installing Wazuh Indexer ---"
+if [ ! -f "wazuh-certificates/node-1.pem" ]; then
+    echo "ERROR: Certificates were not generated correctly."
+    exit 1
+fi
+
+# --- [4/7] Wazuh Indexer (Database) ---
+echo "--- [4/7] Installing Wazuh Indexer ---"
 dnf install -y wazuh-indexer-$WAZUH_VERSION
 
 # Deploy Certs
@@ -131,8 +137,8 @@ export JAVA_HOME=/usr/share/wazuh-indexer/jdk/
   -icl \
   -h 127.0.0.1
 
-# --- [5/6] Wazuh Manager & Filebeat ---
-echo "--- [5/6] Installing Manager & Filebeat ---"
+# --- [5/7] Wazuh Manager & Filebeat ---
+echo "--- [5/7] Installing Manager & Filebeat ---"
 dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 
 # Start Manager (Default Config)
@@ -140,7 +146,9 @@ systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
 # Configure Filebeat
-curl -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
+# Retry logic added for robustness
+curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
+
 # FIX: Explicitly set 127.0.0.1
 sed -i 's/output.elasticsearch.hosts: \["127.0.0.1:9200"\]/output.elasticsearch.hosts: \["127.0.0.1:9200"\]\n  protocol: https\n  ssl.certificate_authorities: \["\/etc\/filebeat\/certs\/root-ca.pem"\]\n  ssl.certificate: "\/etc\/filebeat\/certs\/filebeat.pem"\n  ssl.key: "\/etc\/filebeat\/certs\/filebeat-key.pem"\n  ssl.verification_mode: none/' /etc/filebeat/filebeat.yml
 
@@ -155,11 +163,35 @@ filebeat keystore create
 echo admin | filebeat keystore add username --stdin --force
 echo admin | filebeat keystore add password --stdin --force
 
+# --- [6/7] Filebeat Template Initialization ---
+echo "--- [6/7] Downloading & Initializing Wazuh Index Template ---"
+# Retry logic added here as well
+curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/wazuh-template.json https://raw.githubusercontent.com/wazuh/wazuh/v$WAZUH_VERSION/extensions/elasticsearch/7.x/wazuh-template.json
+chmod go+r /etc/filebeat/wazuh-template.json
+
+curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -s https://packages.wazuh.com/4.x/filebeat/wazuh-filebeat-0.4.tar.gz | tar -xvz -C /usr/share/filebeat/module
+
+# Initialize Index Pattern
+filebeat setup --index-management \
+  -E setup.template.json.enabled=true \
+  -E setup.template.json.path=/etc/filebeat/wazuh-template.json \
+  -E setup.template.json.name=wazuh \
+  -E setup.ilm.overwrite=true \
+  -E setup.ilm.enabled=false \
+  -E output.elasticsearch.hosts=["127.0.0.1:9200"] \
+  -E output.elasticsearch.protocol=https \
+  -E output.elasticsearch.username=admin \
+  -E output.elasticsearch.password=admin \
+  -E output.elasticsearch.ssl.certificate_authorities=["/etc/filebeat/certs/root-ca.pem"] \
+  -E output.elasticsearch.ssl.certificate="/etc/filebeat/certs/filebeat.pem" \
+  -E output.elasticsearch.ssl.key="/etc/filebeat/certs/filebeat-key.pem" \
+  -E output.elasticsearch.ssl.verification_mode=none
+
 systemctl enable filebeat
 systemctl start filebeat
 
-# --- [6/6] Wazuh Dashboard ---
-echo "--- [6/6] Installing Wazuh Dashboard ---"
+# --- [7/7] Wazuh Dashboard ---
+echo "--- [7/7] Installing Wazuh Dashboard ---"
 dnf install -y wazuh-dashboard-$WAZUH_VERSION
 
 # Deploy Certs
