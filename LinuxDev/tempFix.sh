@@ -1,0 +1,11 @@
+filebeat setup --index-management \
+  -E setup.template.json.enabled=true \
+  -E setup.template.json.path=/etc/filebeat/wazuh-template.json \
+  -E setup.template.json.name=wazuh \
+  -E setup.ilm.overwrite=true \
+  -E setup.ilm.enabled=false \
+  -E output.elasticsearch.hosts=["127.0.0.1:9200"] \
+  -E output.elasticsearch.protocol=https \
+  -E output.elasticsearch.username=admin \
+  -E output.elasticsearch.password=admin \
+  -E output.elasticsearch.ssl.verification_mode=none
