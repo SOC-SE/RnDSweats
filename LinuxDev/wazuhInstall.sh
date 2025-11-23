@@ -4,6 +4,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 # Wazuh Master Installation Script for Oracle Linux 9
 # Target Version: 4.14.1
 # Fixes: 
+#   - Aggressive cleanup (kills processes) to prevent data version conflicts
 #   - Prevents duplicate certificate generation error
 #   - Forces IPv4 (127.0.0.1) for internal backend communication
 #   - Fixes missing Filebeat module
@@ -15,6 +16,9 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Removed unsupported opensearch.compatibility setting
 #   - Fixes "No matching indices" by removing client certs from Filebeat (Basic Auth only)
 #   - Fixes sed failure when password hash contains slashes
+#   - NEW: Sets strict permissions on filebeat.yml (chmod 600) to ensure startup
+#   - NEW: Runs 'filebeat test output' to verify connectivity during install
+#   - NEW: Restarts Wazuh Manager at the end to force initial alert generation
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -32,10 +36,19 @@ echo "Adjusting SELinux to Permissive for installation..."
 setenforce 0 || true
 sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config
 
+echo "Stopping services..."
 systemctl stop wazuh-dashboard wazuh-indexer wazuh-manager filebeat elasticsearch kibana 2>/dev/null || true
+
+echo "Force killing any lingering processes..."
+pkill -u wazuh-indexer 2>/dev/null || true
+pkill -u wazuh-dashboard 2>/dev/null || true
+pkill -u wazuh 2>/dev/null || true
+pkill -f filebeat 2>/dev/null || true
+
+echo "Removing packages..."
 dnf remove -y wazuh-indexer wazuh-manager wazuh-dashboard filebeat elasticsearch kibana 2>/dev/null || true
 
-echo "Removing config, data, and log directories..."
+echo "Wiping config, data, and log directories..."
 rm -rf /etc/wazuh-indexer /etc/wazuh-manager /etc/wazuh-dashboard /etc/filebeat
 rm -rf /var/lib/wazuh-indexer /var/lib/wazuh-manager /var/lib/wazuh-dashboard /var/lib/filebeat
 rm -rf /usr/share/wazuh-indexer /usr/share/wazuh-manager /usr/share/wazuh-dashboard /usr/share/filebeat
@@ -227,6 +240,10 @@ output.elasticsearch:
   ssl.verification_mode: none
 EOF
 
+# CRITICAL FIX: Enforce permissions on filebeat.yml
+# Filebeat will silently refuse to start if config is writable by group/others
+chmod 600 /etc/filebeat/filebeat.yml
+
 mkdir -p /etc/filebeat/certs
 cp wazuh-certificates/wazuh-1.pem /etc/filebeat/certs/filebeat.pem
 cp wazuh-certificates/wazuh-1-key.pem /etc/filebeat/certs/filebeat-key.pem
@@ -270,6 +287,15 @@ filebeat setup --index-management \
   -E output.elasticsearch.ssl.certificate_authorities=["/etc/filebeat/certs/root-ca.pem"] \
   -E output.elasticsearch.ssl.verification_mode=none
 
+echo "Testing Filebeat Connectivity..."
+if filebeat test output; then
+    echo "Filebeat output test PASSED."
+else
+    echo "ERROR: Filebeat output test FAILED. Checking logs..."
+    filebeat test output
+    # Do not exit, try to continue, but warn user
+fi
+
 systemctl enable filebeat
 systemctl start filebeat
 
@@ -311,6 +337,11 @@ systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
 
 echo "--- INSTALLATION COMPLETE ---"
+# Force a restart of Wazuh Manager to generate a "System Started" alert
+# This ensures that Filebeat (which is now running) picks up data and creates the index
+echo "Generating initial alerts..."
+systemctl restart wazuh-manager
+
 # Grab IP for display only
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "Access Dashboard at: https://$SERVER_IP"
