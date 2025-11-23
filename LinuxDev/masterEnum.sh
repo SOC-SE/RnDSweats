@@ -29,7 +29,10 @@ HOSTNAME=$(hostname || cat /etc/hostname)
 # Global Config
 mkdir -p /var/log/syst/
 # UPDATED: Added _%H%M to the filename for hour/minute granularity
-LOG_FILE="/var/log/syst/${HOSTNAME}_audit_$(date +%Y%m%d_%H%M).log"
+# OLD: LOG_FILE="/var/log/syst/${HOSTNAME}_audit_$(date +%Y%m%d_%H%M).log"
+# NEW: Write to a temp file first
+FINAL_LOG="/var/log/syst/${HOSTNAME}_audit_$(date +%Y%m%d_%H%M).log"
+LOG_FILE="${FINAL_LOG}.tmp"
 ENABLE_LOGGING=true
 
 # Unified Logging Function
@@ -1882,7 +1885,10 @@ main() {
     log "Master Audit completed."
     
 
-    echo "Master Security Audit Completed. Review logs at: $LOG_FILE" 
+    # Move the temp file to the final .log name
+    mv "$LOG_FILE" "$FINAL_LOG"
+
+    echo "Master Security Audit Completed. Review logs at: $FINAL_LOG"
 }
 
 # CALL THE MAIN FUNCTION
