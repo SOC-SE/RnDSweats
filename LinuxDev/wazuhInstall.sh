@@ -2,10 +2,12 @@
 set -e # Exit immediately if a command exits with a non-zero status.
 
 # Wazuh Manual Installation Script for Oracle Linux 9
-# optimized for Single-Node (All-in-One) with 1GB RAM Limit
+# Optimized for Single-Node (All-in-One) with 1GB RAM Limit
+# TARGET VERSION: 4.14.1
 
 # --- Configuration Variables ---
-WAZUH_VERSION="4.7" # Using stable 4.7
+WAZUH_MAJOR="4.14"       # Used for URLs
+WAZUH_VERSION="4.14.1"   # Used for Package Pinning
 INSTALL_DIR="/root/wazuh-install-temp"
 mkdir -p $INSTALL_DIR
 
@@ -29,9 +31,9 @@ EOF
 
 echo "--- [3/7] Generating SSL Certificates ---"
 cd $INSTALL_DIR
-# We use the official tool to generate certs correctly
-curl -sO https://packages.wazuh.com/4.7/wazuh-certs-tool.sh
-curl -sO https://packages.wazuh.com/4.7/config.yml
+# Download tools (Using 4.14 path as patch folders usually don't exist for these tools)
+curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/wazuh-certs-tool.sh
+curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/config.yml
 
 # Create a single-node configuration (All on 127.0.0.1)
 cat > config.yml <<EOF
@@ -51,7 +53,8 @@ bash wazuh-certs-tool.sh -A
 tar -cvf wazuh-certificates.tar -C wazuh-certificates/ .
 
 echo "--- [4/7] Installing & Configuring Wazuh Indexer (Database) ---"
-dnf install -y wazuh-indexer
+# Pinning version to 4.14.1
+dnf install -y wazuh-indexer-$WAZUH_VERSION
 
 # CRITICAL: Force 1GB RAM Limit
 sed -i 's/-Xms4g/-Xms1g/' /etc/wazuh-indexer/jvm.options
@@ -97,7 +100,8 @@ until curl -k -s https://127.0.0.1:9200 >/dev/null; do sleep 5; echo "Waiting fo
 /usr/share/wazuh-indexer/bin/indexer-security-init.sh
 
 echo "--- [5/7] Installing Wazuh Manager ---"
-dnf install -y wazuh-manager
+# Pinning version to 4.14.1
+dnf install -y wazuh-manager-$WAZUH_VERSION
 
 # Enable Vulnerability Detector
 sed -i 's/<enabled>no<\/enabled>/<enabled>yes<\/enabled>/' /var/ossec/etc/ossec.conf
@@ -108,8 +112,8 @@ systemctl start wazuh-manager
 echo "--- [6/7] Installing & Configuring Filebeat ---"
 dnf install -y filebeat
 
-# Configure Filebeat
-curl -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/4.7/tpl/wazuh/filebeat/filebeat.yml
+# Configure Filebeat (using 4.14 template)
+curl -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
 # Point Filebeat to local Indexer
 sed -i 's/output.elasticsearch.hosts: \["127.0.0.1:9200"\]/output.elasticsearch.hosts: \["127.0.0.1:9200"\]\n  protocol: https\n  ssl.certificate_authorities: \["\/etc\/filebeat\/certs\/root-ca.pem"\]\n  ssl.certificate: "\/etc\/filebeat\/certs\/filebeat.pem"\n  ssl.key: "\/etc\/filebeat\/certs\/filebeat-key.pem"\n  ssl.verification_mode: none/' /etc/filebeat/filebeat.yml
 
@@ -130,7 +134,8 @@ systemctl enable filebeat
 systemctl start filebeat
 
 echo "--- [7/7] Installing Wazuh Dashboard ---"
-dnf install -y wazuh-dashboard
+# Pinning version to 4.14.1
+dnf install -y wazuh-dashboard-$WAZUH_VERSION
 
 # Deploy Certs to Dashboard
 mkdir -p /etc/wazuh-dashboard/certs
