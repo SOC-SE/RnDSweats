@@ -7,6 +7,9 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Prevents duplicate certificate generation error
 #   - Forces IPv4 (127.0.0.1) for internal backend communication
 #   - Fixes missing Filebeat module
+#   - Handles SELinux for Oracle Linux
+#   - Robust Filebeat configuration (avoids sed)
+#   - Added timeout for Indexer startup
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -18,7 +21,12 @@ CURRENT_DIR=$(pwd)
 WAZUH_PASSWORD="Changeme1!" # Set your desired password here
 # -----------------------------
 
-echo "--- [1/8] Deep Cleaning previous installations ---"
+echo "--- [1/8] Deep Cleaning previous installations ---\""
+# Adjust SELinux for Oracle Linux 9 (Permissive is safer for initial install)
+echo "Adjusting SELinux to Permissive for installation..."
+setenforce 0 || true
+sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config
+
 systemctl stop wazuh-dashboard wazuh-indexer wazuh-manager filebeat elasticsearch kibana 2>/dev/null || true
 dnf remove -y wazuh-indexer wazuh-manager wazuh-dashboard filebeat elasticsearch kibana 2>/dev/null || true
 
@@ -29,7 +37,6 @@ rm -rf /usr/share/wazuh-indexer /usr/share/wazuh-manager /usr/share/wazuh-dashbo
 rm -rf /var/log/wazuh-indexer /var/log/wazuh-manager /var/log/wazuh-dashboard /var/log/filebeat
 
 # Only wipe temp dir if certs don't exist to save time
-# We check for the DIRECTORY now, not just a file, to avoid the tool error
 if [ -d "$INSTALL_DIR/wazuh-certificates" ]; then
     echo "Preserving existing certificates..."
 else
@@ -67,7 +74,6 @@ else
     curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/config.yml
 
     # Force 127.0.0.1 for all internal components
-    # This ensures the certs match the localhost IP we force later
     cat > config.yml <<EOF
 nodes:
   indexer:
@@ -128,11 +134,26 @@ systemctl daemon-reload
 systemctl enable wazuh-indexer
 systemctl start wazuh-indexer
 
-echo "Waiting for Indexer to initialize..."
-until curl -k -s https://127.0.0.1:9200 >/dev/null; do sleep 5; echo "Waiting..."; done
+echo "Waiting for Indexer to initialize (Max 5 mins)..."
+RETRIES=0
+until curl -k -s https://127.0.0.1:9200 >/dev/null; do
+    if [ $RETRIES -eq 30 ]; then
+        echo "ERROR: Indexer failed to start within 5 minutes. Check /var/log/wazuh-indexer/wazuh-cluster.log"
+        exit 1
+    fi
+    sleep 10
+    ((RETRIES++))
+    echo "Waiting... ($RETRIES/30)"
+done
 
 # Initialize Security
-export JAVA_HOME=/usr/share/wazuh-indexer/jdk/
+if [ -d "/usr/share/wazuh-indexer/jdk" ]; then
+    export JAVA_HOME=/usr/share/wazuh-indexer/jdk/
+else
+    echo "ERROR: Java Home not found at /usr/share/wazuh-indexer/jdk/. Indexer layout may have changed."
+    exit 1
+fi
+
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
   -cd /etc/wazuh-indexer/opensearch-security/ \
   -nhnv \
@@ -171,8 +192,33 @@ systemctl start wazuh-manager
 # Configure Filebeat (Retry Logic)
 curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
 
-# Point Filebeat to 127.0.0.1 explicitly
-sed -i "s/output.elasticsearch.hosts: \[\"127.0.0.1:9200\"\]/output.elasticsearch.hosts: \[\"127.0.0.1:9200\"\]\n  protocol: https\n  ssl.certificate_authorities: \[\"\/etc\/filebeat\/certs\/root-ca.pem\"\]\n  ssl.certificate: \"\/etc\/filebeat\/certs\/filebeat.pem\"\n  ssl.key: \"\/etc\/filebeat\/certs\/filebeat-key.pem\"\n  ssl.verification_mode: none/" /etc/filebeat/filebeat.yml
+# Config Overwrite (Replacing fragile sed)
+echo "Applying Filebeat Configuration..."
+cp /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak
+cat > /etc/filebeat/filebeat.yml <<EOF
+filebeat.modules:
+  - module: wazuh
+    alerts:
+      enabled: true
+    archives:
+      enabled: false
+
+setup.template.json.enabled: true
+setup.template.json.path: '/etc/filebeat/wazuh-template.json'
+setup.template.json.name: 'wazuh'
+setup.template.overwrite: true
+setup.ilm.enabled: false
+
+output.elasticsearch:
+  hosts: ["127.0.0.1:9200"]
+  protocol: https
+  username: "admin"
+  password: "$WAZUH_PASSWORD"
+  ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
+  ssl.certificate: "/etc/filebeat/certs/filebeat.pem"
+  ssl.key: "/etc/filebeat/certs/filebeat-key.pem"
+  ssl.verification_mode: none
+EOF
 
 mkdir -p /etc/filebeat/certs
 cp wazuh-certificates/wazuh-1.pem /etc/filebeat/certs/filebeat.pem
