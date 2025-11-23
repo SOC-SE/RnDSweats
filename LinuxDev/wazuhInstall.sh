@@ -12,6 +12,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Added timeout for Indexer startup
 #   - Fixes Dashboard "Not Ready" by matching curl behavior (Basic Auth only)
 #   - Fixes internal_users.yml corruption (only changes admin pass)
+#   - Removed unsupported opensearch.compatibility setting
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -306,7 +307,6 @@ uiSettings.overrides.defaultRoute: /app/wz-home
 opensearch_security.cookie.secure: true
 opensearch.username: admin
 opensearch.password: $WAZUH_PASSWORD
-opensearch.compatibility.override_main_response_version: true
 EOF
 
 systemctl enable wazuh-dashboard
