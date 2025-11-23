@@ -28,11 +28,13 @@ HOSTNAME=$(hostname || cat /etc/hostname)
 
 # Global Config
 mkdir -p /var/log/syst/
-# UPDATED: Added _%H%M to the filename for hour/minute granularity
-# OLD: LOG_FILE="/var/log/syst/${HOSTNAME}_audit_$(date +%Y%m%d_%H%M).log"
-# NEW: Write to a temp file first
-FINAL_LOG="/var/log/syst/${HOSTNAME}_audit_$(date +%Y%m%d_%H%M).log"
-LOG_FILE="${FINAL_LOG}.tmp"
+
+# Get the log time
+TIME_SUFFIX=$(date +%Y%m%d_%H%M)
+
+# Define the paths
+FINAL_LOG="/var/log/syst/${HOSTNAME}_audit_${TIME_SUFFIX}.log"
+LOG_FILE="/tmp/${HOSTNAME}_audit_${TIME_SUFFIX}.tmp"
 ENABLE_LOGGING=true
 
 # Unified Logging Function
