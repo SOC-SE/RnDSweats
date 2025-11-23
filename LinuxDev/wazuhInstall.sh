@@ -17,9 +17,10 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Fixes "No matching indices" by removing client certs from Filebeat (Basic Auth only)
 #   - Fixes sed failure when password hash contains slashes
 #   - Sets strict permissions on filebeat.yml (chmod 600)
-#   - NEW: Explicitly configures Wazuh API User and Password (fixes AxiosError)
-#   - NEW: Generates wazuh.yml for Dashboard-to-API connection (fixes AxiosError)
-#   - NEW: Retry loop for 'filebeat setup' (fixes No Matching Indices)
+#   - Explicitly configures Wazuh API User and Password (fixes AxiosError)
+#   - Generates wazuh.yml for Dashboard-to-API connection (fixes AxiosError)
+#   - Retry loop for 'filebeat setup' (fixes No Matching Indices)
+#   - NEW: Explicitly invokes embedded Python to run wazuh-user (Fixes "No such file" interpreter error)
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -213,10 +214,19 @@ dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-# [FIX] Force Set Wazuh API Password
+# [CRITICAL FIX] Force Set Wazuh API Password
+# We invoke python directly to avoid "No such file" interpreter errors on Oracle Linux
 echo "Setting Wazuh API credentials..."
-sleep 5 # Wait for manager to stabilize
-/var/ossec/bin/wazuh-user -u wazuh -p "$WAZUH_PASSWORD"
+sleep 10 # Wait for manager to stabilize
+if [ -f /var/ossec/bin/wazuh-user ]; then
+    # Try running the command via the embedded python interpreter directly
+    # This bypasses any shebang (#!) incompatibilities
+    /var/ossec/framework/python/bin/python3 /var/ossec/bin/wazuh-user -u wazuh -p "$WAZUH_PASSWORD"
+else
+    echo "ERROR: wazuh-user tool missing. Listing /var/ossec/bin for debugging:"
+    ls -la /var/ossec/bin/
+    # Don't exit, try to continue, but the UI might fail login
+fi
 
 # Configure Filebeat (Retry Logic)
 curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
