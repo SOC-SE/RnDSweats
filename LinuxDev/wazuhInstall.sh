@@ -14,6 +14,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Fixes internal_users.yml corruption (only changes admin pass)
 #   - Removed unsupported opensearch.compatibility setting
 #   - Fixes "No matching indices" by removing client certs from Filebeat (Basic Auth only)
+#   - Fixes sed failure when password hash contains slashes
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -174,9 +175,9 @@ echo "Changing admin password..."
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$WAZUH_PASSWORD" | tail -n 1 > /tmp/hash.txt
 HASH=$(cat /tmp/hash.txt)
 
-# Use refined sed to ONLY replace the FIRST occurrence of 'hash:' (which is the admin user)
-# This prevents breaking other system users like kibanaserver
-sed -i "0,/hash:.*/s//hash: \"$HASH\"/" /etc/wazuh-indexer/opensearch-security/internal_users.yml
+# Use refined sed with PIPE delimiter to handle slashes in bcrypt hash
+# Replaces only the FIRST occurrence of 'hash:' (the admin user)
+sed -i "0,/hash:.*/s|hash:.*|hash: \"$HASH\"|" /etc/wazuh-indexer/opensearch-security/internal_users.yml
 
 # Re-run securityadmin to apply password change
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
