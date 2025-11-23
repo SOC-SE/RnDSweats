@@ -33,6 +33,9 @@ mkdir -p /var/log/syst/
 TIME_SUFFIX=$(date +%Y%m%d_%H%M)
 
 # Define the paths
+# Splunk kept reading the log file before the audit finished, which caused issues of splitting a single audit
+#   into multiple logs within the Splunk GUI. The tmp file is to complete the audit before sending it somewhere
+#   Splunk is reading.
 FINAL_LOG="/var/log/syst/${HOSTNAME}_audit_${TIME_SUFFIX}.log"
 LOG_FILE="/tmp/${HOSTNAME}_audit_${TIME_SUFFIX}.tmp"
 ENABLE_LOGGING=true

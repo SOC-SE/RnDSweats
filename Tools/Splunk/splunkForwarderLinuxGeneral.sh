@@ -456,7 +456,6 @@ index = main
 sourcetype = salt:minion
 crcSalt = <SOURCE>
 
-
 # -----------------------------------------------------------------------------
 # Virtualization & Containers
 # -----------------------------------------------------------------------------
@@ -499,6 +498,17 @@ blacklist = \.(gz|bz2|zip)$|\.\d$
 index = main
 sourcetype = bind:query
 recursive = true
+crcSalt = <SOURCE>
+
+
+# -----------------------------------------------------------------------------
+# Custom Applications and Scripts
+# -----------------------------------------------------------------------------
+
+#Linux masterEnum logs
+[monitor:///var/log/syst/*audit*]
+index = main
+sourcetype = lin_audit
 crcSalt = <SOURCE>
 
 #Test log
