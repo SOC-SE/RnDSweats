@@ -20,7 +20,8 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Explicitly configures Wazuh API User and Password (fixes AxiosError)
 #   - Generates wazuh.yml for Dashboard-to-API connection (fixes AxiosError)
 #   - Retry loop for 'filebeat setup' (fixes No Matching Indices)
-#   - NEW: Explicitly invokes embedded Python to run wazuh-user (Fixes "No such file" interpreter error)
+#   - Explicitly invokes embedded Python to run wazuh-user (Fixes "No such file" interpreter error)
+#   - NEW: Recursively fixes ownership of /usr/share/wazuh-dashboard/data (Fixes EACCES/mkdir error)
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -365,8 +366,10 @@ hosts:
       password: $WAZUH_PASSWORD
       run_as: false
 EOF
-chmod 600 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
-chown wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+
+# CRITICAL FIX: Ensure the dashboard user owns its config AND data directories
+# This prevents EACCES/mkdir errors when the dashboard tries to create downloads/reports
+chown -R wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data
 
 systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
