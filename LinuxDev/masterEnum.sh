@@ -28,14 +28,16 @@ HOSTNAME=$(hostname || cat /etc/hostname)
 
 # Global Config
 mkdir -p /var/log/syst/
-LOG_FILE="/var/log/syst/${HOSTNAME}_audit_$(date +%Y%m%d).log"
+# UPDATED: Added _%H%M to the filename for hour/minute granularity
+LOG_FILE="/var/log/syst/${HOSTNAME}_audit_$(date +%Y%m%d_%H%M).log"
 ENABLE_LOGGING=true
 
 # Unified Logging Function
 log() {
-    local msg="$(date '+%Y-%m-%d %H:%M:%S') - $1"
+    # UPDATED: Removed timestamp. Now acts as a simple append.
+    # Was: local msg="$(date '+%Y-%m-%d %H:%M:%S') - $1"
+    local msg="[PROGRESS] - $1"
     echo "$msg" >> "$LOG_FILE"
-    # Optional: echo to console if you want verbose output
 }
 
 error_exit() {
