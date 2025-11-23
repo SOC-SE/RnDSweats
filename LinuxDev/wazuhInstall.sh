@@ -115,9 +115,32 @@ systemctl daemon-reload
 systemctl enable wazuh-indexer
 systemctl start wazuh-indexer
 
-echo "Initializing Indexer Security (Wait 30s)..."
-until curl -k -s https://127.0.0.1:9200 >/dev/null; do sleep 5; echo "Waiting for Indexer..."; done
-/usr/share/wazuh-indexer/bin/indexer-security-init.sh
+echo "Waiting for Indexer to initialize (approx 30s)..."
+# Loop until port 9200 is listening, even if it returns 503 or 401
+count=0
+while ! curl -k -s https://127.0.0.1:9200 >/dev/null; do
+    echo "Waiting for Indexer port 9200... ($count/30)"
+    sleep 5
+    count=$((count+1))
+    if [ $count -ge 30 ]; then
+        echo "Indexer failed to start. Checking logs..."
+        tail -n 20 /var/log/wazuh-indexer/wazuh-cluster.log
+        exit 1
+    fi
+done
+
+echo "Initializing Indexer Security (Explicit Method)..."
+# Using the explicit securityadmin.sh command instead of the helper script
+export JAVA_HOME=/usr/share/wazuh-indexer/jdk/
+/usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
+  -cd /etc/wazuh-indexer/opensearch-security/ \
+  -nhnv \
+  -cacert /etc/wazuh-indexer/certs/root-ca.pem \
+  -cert /etc/wazuh-indexer/certs/admin.pem \
+  -key /etc/wazuh-indexer/certs/admin-key.pem \
+  -p 9200 \
+  -icl \
+  -h 127.0.0.1
 
 # --- [5/7] Wazuh Manager ---
 echo "--- [5/7] Installing Wazuh Manager ---"
