@@ -16,9 +16,10 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Removed unsupported opensearch.compatibility setting
 #   - Fixes "No matching indices" by removing client certs from Filebeat (Basic Auth only)
 #   - Fixes sed failure when password hash contains slashes
-#   - NEW: Sets strict permissions on filebeat.yml (chmod 600) to ensure startup
-#   - NEW: Runs 'filebeat test output' to verify connectivity during install
-#   - NEW: Restarts Wazuh Manager at the end to force initial alert generation
+#   - Sets strict permissions on filebeat.yml (chmod 600)
+#   - NEW: Explicitly configures Wazuh API User and Password (fixes AxiosError)
+#   - NEW: Generates wazuh.yml for Dashboard-to-API connection (fixes AxiosError)
+#   - NEW: Retry loop for 'filebeat setup' (fixes No Matching Indices)
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -53,6 +54,7 @@ rm -rf /etc/wazuh-indexer /etc/wazuh-manager /etc/wazuh-dashboard /etc/filebeat
 rm -rf /var/lib/wazuh-indexer /var/lib/wazuh-manager /var/lib/wazuh-dashboard /var/lib/filebeat
 rm -rf /usr/share/wazuh-indexer /usr/share/wazuh-manager /usr/share/wazuh-dashboard /usr/share/filebeat
 rm -rf /var/log/wazuh-indexer /var/log/wazuh-manager /var/log/wazuh-dashboard /var/log/filebeat
+rm -rf /var/ossec # IMPORTANT: Wipe Wazuh Manager data for clean API state
 
 # Only wipe temp dir if certs don't exist to save time
 if [ -d "$INSTALL_DIR/wazuh-certificates" ]; then
@@ -211,6 +213,11 @@ dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
+# [FIX] Force Set Wazuh API Password
+echo "Setting Wazuh API credentials..."
+sleep 5 # Wait for manager to stabilize
+/var/ossec/bin/wazuh-user -u wazuh -p "$WAZUH_PASSWORD"
+
 # Configure Filebeat (Retry Logic)
 curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
 
@@ -272,9 +279,10 @@ chmod go+r /etc/filebeat/wazuh-template.json
 echo "Downloading Wazuh Filebeat Module..."
 curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -s https://packages.wazuh.com/4.x/filebeat/wazuh-filebeat-0.4.tar.gz | tar -xvz -C /usr/share/filebeat/module
 
-# 3. Initialize Index Pattern
-echo "Initializing Filebeat..."
-filebeat setup --index-management \
+# 3. Initialize Index Pattern with RETRY LOOP
+echo "Initializing Filebeat (Attempts to load template)..."
+RETRIES=0
+until filebeat setup --index-management \
   -E setup.template.json.enabled=true \
   -E setup.template.json.path=/etc/filebeat/wazuh-template.json \
   -E setup.template.json.name=wazuh \
@@ -285,16 +293,19 @@ filebeat setup --index-management \
   -E output.elasticsearch.username=admin \
   -E output.elasticsearch.password="$WAZUH_PASSWORD" \
   -E output.elasticsearch.ssl.certificate_authorities=["/etc/filebeat/certs/root-ca.pem"] \
-  -E output.elasticsearch.ssl.verification_mode=none
+  -E output.elasticsearch.ssl.verification_mode=none; do
+  
+    if [ $RETRIES -eq 10 ]; then
+        echo "ERROR: Failed to run filebeat setup after 10 attempts."
+        exit 1
+    fi
+    echo "Filebeat setup failed. Retrying in 10 seconds... ($RETRIES/10)"
+    sleep 10
+    ((RETRIES++))
+done
 
 echo "Testing Filebeat Connectivity..."
-if filebeat test output; then
-    echo "Filebeat output test PASSED."
-else
-    echo "ERROR: Filebeat output test FAILED. Checking logs..."
-    filebeat test output
-    # Do not exit, try to continue, but warn user
-fi
+filebeat test output
 
 systemctl enable filebeat
 systemctl start filebeat
@@ -312,9 +323,7 @@ chmod 500 /etc/wazuh-dashboard/certs
 chmod 400 /etc/wazuh-dashboard/certs/*
 chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 
-# Configure Dashboard
-# NOTE: We disable backend client auth (server.ssl.key/cert) to match the behavior of the working curl command.
-# We only keep server.ssl.* (browser <-> dashboard) and ssl.certificateAuthorities (trusting the indexer CA).
+# Configure Dashboard Backend (OpenSearch connection)
 cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
 server.host: 0.0.0.0
 server.port: 443
@@ -333,12 +342,27 @@ opensearch.username: admin
 opensearch.password: $WAZUH_PASSWORD
 EOF
 
+# [FIX] Configure Dashboard Plugin to API Connection (wazuh.yml)
+# This fixes the AxiosError by telling the UI how to talk to the API
+echo "Configuring Dashboard Plugin API connection..."
+mkdir -p /usr/share/wazuh-dashboard/data/wazuh/config
+cat > /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml <<EOF
+hosts:
+  - default:
+      url: https://127.0.0.1
+      port: 55000
+      username: wazuh
+      password: $WAZUH_PASSWORD
+      run_as: false
+EOF
+chmod 600 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+chown wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+
 systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
 
 echo "--- INSTALLATION COMPLETE ---"
 # Force a restart of Wazuh Manager to generate a "System Started" alert
-# This ensures that Filebeat (which is now running) picks up data and creates the index
 echo "Generating initial alerts..."
 systemctl restart wazuh-manager
 
