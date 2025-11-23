@@ -1,35 +1,8 @@
 #!/bin/bash
 
-# ============================================================================== 
-# File: docker_manager.sh
-# Description: Manages Docker Engine on Linux: Install or Uninstall.
-#              Follows official repository-based method.
-#              Detects OS (Debian/Ubuntu, Fedora/CentOS/RHEL).
-#              Adds current user to 'docker' group on install.
-#              Verifies install without pulling remote images.
-#              Checks for existing install/uninstall to skip as needed.
-#              Optimized for MWCCDC VMs; no auto-service containerization.
-#
-# Dependencies: apt (Debian/Ubuntu) or dnf/yum (Fedora/CentOS/RHEL).
-# Usage: sudo ./docker_manager.sh
-#        Follow prompts for Install/Uninstall/Quit.
-# Notes:
-# - Run as root.
-# - In CCDC, ensure Docker doesn't break service scoring (e.g., expose ports manually).
-# - For services (e.g., FTP from FileTransferServer2.sh), containerize manually post-install.
-# ============================================================================== 
+# Docker Install Script
 
 set -euo pipefail
-
-# TeamPack compliance: confirm authorized environment
-teampack_confirm() {
-    read -p "Confirm you will run this only on your authorized team/lab systems (type YES to continue): " _confirm
-    if [[ "$_confirm" != "YES" ]]; then
-        echo "Confirmation not received. Exiting."
-        exit 1
-    fi
-}
-teampack_confirm
 
 # --- ASCII Banner ---
 echo -e "\033[1;32m"
@@ -44,8 +17,8 @@ cat << "EOF"
 \====================================================/
 EOF
 echo -e "\033[0m"
-echo "Docker Manager - For MWCCDC Team Prep"
-echo "-------------------------------------"
+echo "Docker Manager"
+echo "--------------"
 
 # --- Colors ---
 GREEN='\033[0;32m'
@@ -150,8 +123,8 @@ is_docker_installed() {
 
 # --- Print Docker Usage Instructions ---
 print_docker_instructions() {
-    log_info "Docker Usage Instructions (Tailored for MWCCDC Preparation):"
-    echo "Docker allows you to containerize applications for isolation, quick deployment, and security in CCDC scenarios. In MWCCDC (per 2025 Team Pack), use it on the 'Docker/Remote' VM (172.20.240.10, NAT'd to 172.25.20+team#.x) to run services without affecting host scoring. Key guidelines: Manually containerize to avoid uptime issues; expose ports via Palo Alto NAT; harden against threats like container escapes (e.g., CVE-2025 trends in AI-driven attacks on misconfigured images)."
+    log_info "Docker Usage Instructions:"
+    echo "Docker allows you to containerize applications for isolation, quick deployment, and security."
     echo ""
     echo "**Basic Commands:**"
     echo "- Pull an image: \`docker pull <image-name>\` (e.g., \`docker pull ubuntu\` from Docker Hub)."
@@ -160,17 +133,10 @@ print_docker_instructions() {
     echo "- Stop/Remove: \`docker stop <name>\` then \`docker rm <name>\`."
     echo "- Build from Dockerfile: \`docker build -t <tag> .\`."
     echo ""
-    echo "**CCDC-Specific Examples:**"
-    echo "- Run FTP (vsftpd) in a container: \`docker run -d --name ftp-server -p 21:21 -v /host/dir:/srv/ftp fauria/vsftpd\` (mount host dir for files; expose via Palo Alto for scoring)."
-    echo "- Network scanning tool (Nmap): \`docker run --rm -it instrumentisto/nmap -sV <target-ip>\` (ephemeral for threat hunting)."
-    echo "- Isolate a vulnerable service: Use for quick recovery—stop/restart container without host reboot."
-    echo ""
-    echo "**Security Best Practices (2025 Trends):**"
+    echo "**Security Best Practices:**"
     echo "- Scan images: Use Docker Scout (\`docker scout <image>\`) for vulnerabilities."
     echo "- Least privilege: Run as non-root (\`--user <uid>\`); avoid privileged mode."
-    echo "- In CCDC: Monitor logs (\`docker logs <name>\`); align with MITRE ATT&CK (e.g., prevent execution via seccomp profiles). Simulate attacks on containers during prep."
-    echo "- Sources: Docker Docs (docker.com), National CCDC Rules (nationalccdc.org), MWCCDC Pack."
-    echo "For more, run \`docker --help\` or visit docs.docker.com. Test in lab to avoid competition pitfalls!"
+    echo "For more, run \`docker --help\` or visit docs.docker.com."
 }
 
 # --- Install Docker ---

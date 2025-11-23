@@ -3,9 +3,9 @@
 # Description: Installs/uninstalls and configures FTP (vsftpd), SFTP (via OpenSSH), or TFTP (tftpd-hpa/tftp-server) servers.
 #              Prompts the user to select install or uninstall, then one service per run. Checks if the service is already installed/available;
 #              if so, notifies and skips/exits as appropriate. If all services are installed at the start (for install mode), alerts and exits.
-#              Supports Debian/Ubuntu (apt) and Fedora/CentOS (dnf) for compatibility with CCDC VMs as per Team Pack.
+#              Supports Debian/Ubuntu (apt) and Fedora/CentOS (dnf) for compatibility with standard VMs.
 #              Services are started and enabled automatically on install; stopped and disabled on uninstall. Default configurations are used; team should harden
-#              further (e.g., firewall rules via Palo Alto, user restrictions).
+#              further (e.g., firewall rules, user restrictions).
 #              On install of FTP/SFTP, prompts for and creates credentials, saves them to /etc/fts_credentials.conf, and displays in view mode.
 #
 # Dependencies: None beyond standard package managers.
@@ -13,7 +13,7 @@
 #        Follow on-screen prompts to select install/uninstall, then service.
 # Notes: 
 # - Run as root.
-# - In CCDC, expose services via Palo Alto NAT if needed (e.g., to public IPs like 172.25.20+team#.x).
+# - Expose services via firewall rules if needed (e.g., to public IPs).
 # - TFTP defaults to /srv/tftp or /var/lib/tftpboot; place files there.
 # - SFTP uses SSH port 22; ensure no conflicts with existing SSH.
 # - FTP on port 21; anonymous access disabled by default in vsftpd (but can be enabled with caution).
@@ -24,46 +24,8 @@
 
 set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# TeamPack Compliance Notice
-# Server installation scripts must be run only in authorized lab/team environments.
-# Running server installers on networks or systems you do not control may violate
-# competition rules and acceptable use policies. Confirm you are authorized.
-# ------------------------------------------------------------------------------
-teampack_confirm() {
-    echo ""
-    echo "IMPORTANT: This script configures server services. Only run on authorized team/lab systems."
-    read -p "I confirm I will only run this on my team/lab systems (type YES to continue): " _confirm
-    if [[ "$_confirm" != "YES" ]]; then
-        echo "Confirmation not received. Exiting."
-        exit 1
-    fi
-}
-
-# Run TeamPack confirmation
-teampack_confirm
-
-# --- ASCII Banner ---
-echo -e "\033[1;32m"
-cat << "EOF"
-/====================================================================\
-||___________.__ .__                                                ||
-||\_   _____/|__||  |    ____                                       ||
-|| |    __)  |  ||  |  _/ __ \                                      ||
-|| |     \   |  ||  |__\  ___/                                      ||
-|| \___  /   |__||____/ \___  >                                     ||
-||     \/                   \/                                      ||
-||                                                                  ||
-||___________                                  _____                ||
-||\__    ___/_______ _____     ____    _______/ ____\ ____ _______  ||
-||  |    |   \_  __ \\__  \   /    \  /  ___/\   __\_/ __ \\_  __ \ ||
-||  |    |    |  | \/ / __ \_|   |  \ \___ \  |  |  \  ___/ |  | \/ ||
-||  |____|    |__|   (____  /|___|  //____  > |__|   \___  >|__|    ||
-||                        \/      \/      \/             \/         ||
-\====================================================================/  
-EOF
-echo -e "\033[0m"
-echo "File Transfer Server Installer/Uninstaller - For CCDC Team Prep"
+# --- Simple Banner ---
+echo "File Transfer Server Installer/Uninstaller"
 echo "-------------------------------------------------------------"
 
 # --- Configuration & Colors ---
@@ -148,8 +110,14 @@ detect_pkg_manager() {
         UPDATE_CMD="dnf makecache --refresh"
         QUERY_CMD="rpm -q"
         REMOVE_CMD="dnf remove -y"
+    elif command -v yum &> /dev/null; then
+        PKG_MANAGER="yum"
+        INSTALL_CMD="yum install -y"
+        UPDATE_CMD="yum makecache"
+        QUERY_CMD="rpm -q"
+        REMOVE_CMD="yum remove -y"
     else
-        log_error "Unsupported package manager. Only apt (Debian/Ubuntu) and dnf (Fedora/CentOS) are supported."
+        log_error "Unsupported package manager. Only apt (Debian/Ubuntu), dnf (Fedora/CentOS), and yum are supported."
     fi
     log_info "Detected package manager: $PKG_MANAGER"
 }
@@ -713,7 +681,7 @@ main() {
     detect_nologin_shell
     prompt_mode
     log_info "${GREEN}--- Script Complete ---${NC}"
-    log_info "Remember to configure firewall rules (e.g., via Palo Alto) and harden services for CCDC security."
+    log_info "Remember to configure firewall rules and harden services."
 }
 
 main "$@"

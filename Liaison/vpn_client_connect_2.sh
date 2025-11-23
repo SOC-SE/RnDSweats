@@ -2,27 +2,6 @@
 
 set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# TeamPack Compliance Notice
-# This script is intended for use only against systems that you own or
-# are explicitly authorized to test (your team lab / competition VMs).
-# By continuing you confirm you will NOT use this tool to connect to or test
-# other teams, public infrastructure, or systems you do not control.
-# Refer to the MWCCDC Team Pack rules for permitted activity.
-# ------------------------------------------------------------------------------
-teampack_confirm() {
-    echo ""
-    echo "IMPORTANT: This script must only be used against systems you own or are authorized to test."
-    read -p "I confirm I will only run this against my team/lab systems (type YES to continue): " _confirm
-    if [[ "$_confirm" != "YES" ]]; then
-        echo "Confirmation not received. Exiting."
-        exit 1
-    fi
-}
-
-# Run TeamPack confirmation
-teampack_confirm
-
 # ==============================================================================
 # File: vpn_client_connect_2.sh
 # Description: VPN Client Connection Manager for connecting to remote VPN servers.
@@ -37,20 +16,11 @@ teampack_confirm
 # Notes:
 # - Run as root for VPN interface management.
 # - Ensure server information is correct before connecting.
-# - For CCDC: Verify firewall rules allow VPN traffic.
+# - Verify firewall rules allow VPN traffic.
 # - Test connections in a safe environment first.
 # ==============================================================================
 
-# --- ASCII Banner ---
-echo -e "\033[1;32m"
-cat << "EOF"
-__     ______  _   _    ____                            _   _ 
-\ \   / /  _ \| \ | |  / ___|___  _ __  _ __   ___  ___| |_| |
- \ \ / /| |_) |  \| | | |   / _ \| '_ \| '_ \ / _ \/ __| __| |
-  \ V / |  __/| |\  | | |__| (_) | | | | | | |  __/ (__| |_|_|
-   \_/  |_|   |_| \_|  \____\___/|_| |_|_| |_|\___|\___|\__(_)
-EOF
-echo -e "\033[0m"
+# --- Simple Banner ---
 echo "VPN Client Connection Manager"
 echo "----------------------------"
 
@@ -85,8 +55,12 @@ detect_pkg_manager() {
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
         UPDATE_CMD="dnf check-update"
+    elif command -v yum >/dev/null 2>&1; then
+        PKG_MANAGER="yum"
+        INSTALL_CMD="yum install -y"
+        UPDATE_CMD="yum check-update"
     else
-        log_error "Unsupported package manager (apt or dnf)."
+        log_error "Unsupported package manager (apt, dnf, or yum)."
     fi
     log_info "Detected: $PKG_MANAGER"
 }

@@ -1,28 +1,72 @@
 #!/bin/bash
 
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# TeamPack Compliance Notice
-# This script is intended for use only against systems that you own or
-# are explicitly authorized to test (your team lab / competition VMs).
-# By continuing you confirm you will NOT use this tool to attack or scan
-# other teams, public infrastructure, or systems you do not control.
-# Refer to the MWCCDC Team Pack rules for permitted activity.
-# ------------------------------------------------------------------------------
-teampack_confirm() {
-    echo ""
-    echo "IMPORTANT: This script must only be used against systems you own or are authorized to test."
-    read -p "I confirm I will only run this against my team/lab systems (type YES to continue): " _confirm
-    if [ "$_confirm" != "YES" ]; then
-        log_error "TeamPack usage not confirmed. Exiting."
-    fi
+# --- Styling & Logging -------------------------------------------------------
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+RESET='\033[0m'
+
+LOG_ROOT="${VPN_NEXUS_LOG_DIR:-/var/log/vpn_nexus}"
+LOG_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+if ! mkdir -p "$LOG_ROOT" 2>/dev/null; then
+    LOG_ROOT="/tmp/vpn_nexus"
+    mkdir -p "$LOG_ROOT"
+fi
+LOG_FILE="${LOG_ROOT}/install_${LOG_TIMESTAMP}.log"
+if ! touch "$LOG_FILE" 2>/dev/null; then
+    LOG_FILE="/tmp/vpn_installer_${LOG_TIMESTAMP}.log"
+    touch "$LOG_FILE" 2>/dev/null || echo "" > "$LOG_FILE"
+fi
+
+log_info() {
+    printf '%b[INFO]%b %s\n' "$GREEN" "$RESET" "$1"
+    printf '[INFO] %s\n' "$1" >> "$LOG_FILE"
 }
+
+log_warn() {
+    printf '%b[WARN]%b %s\n' "$YELLOW" "$RESET" "$1"
+    printf '[WARN] %s\n' "$1" >> "$LOG_FILE"
+}
+
+log_error() {
+    printf '%b[ERROR]%b %s\n' "$RED" "$RESET" "$1" >&2
+    printf '[ERROR] %s\n' "$1" >> "$LOG_FILE"
+    exit 1
+}
+
+spinner() {
+    local pid=$1
+    local spin='|/-\\'
+    local delay=0.15
+    local i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        printf '\r%b[%c] Working...%b' "$YELLOW" "${spin:i%4:1}" "$RESET"
+        sleep "$delay"
+        i=$((i + 1))
+    done
+    printf '\r%*s\r' 40 ''
+}
+
+# --- Globals -----------------------------------------------------------------
+OPENVPN_SERVICE_UNIT=""
+PKG_MANAGER=""
+INSTALL_CMD=""
+UPDATE_CMD=""
+UPGRADE_CMD=""
+REMOVE_CMD=""
+QUICK_MODE=false
+declare -a VPN_FLAGS=()
 
 ensure_openvpn_service_unit() {
     if [ -n "$OPENVPN_SERVICE_UNIT" ]; then
         return 0
-    }
+    fi
 
     local output
     output=$(systemctl list-unit-files "openvpn-server@.service" 2>/dev/null || true)
@@ -135,8 +179,14 @@ detect_pkg_manager() {
         UPDATE_CMD="dnf makecache --refresh"
         UPGRADE_CMD="dnf upgrade -y"
         REMOVE_CMD="dnf remove -y"
+    elif command -v yum >/dev/null 2>&1; then
+        PKG_MANAGER="yum"
+        INSTALL_CMD="yum install -y"
+        UPDATE_CMD="yum makecache"
+        UPGRADE_CMD="yum upgrade -y"
+        REMOVE_CMD="yum remove -y"
     else
-        log_error "Unsupported package manager (apt or dnf required)."
+        log_error "Unsupported package manager (apt, dnf, or yum required)."
     fi
     log_info "Detected package manager: $PKG_MANAGER"
 }
@@ -299,8 +349,7 @@ prompt_choice() {
     $func || log_warn "$action $vpn completed with warnings."
 }
 
-# Update system (optional, but enable
-
+# Update system (optional, intentionally skipped for speed)
 update_system() { log_info "Skipping updates for efficiency."; }
 
 # Install OpenVPN with client gen
@@ -319,7 +368,7 @@ install_openvpn() {
 
       cd /etc/openvpn/easy-rsa >/dev/null 2>>"$err_file" || exit 1
       export EASYRSA_BATCH=1
-      export EASYRSA_REQ_CN="MWCCDC-CA"
+      export EASYRSA_REQ_CN="VPN-CA"
       ./easyrsa init-pki >/dev/null 2>>"$err_file" || { echo "PKI init failed." >>"$err_file"; exit 1; }
       ./easyrsa build-ca nopass >/dev/null 2>>"$err_file" || { echo "CA build failed." >>"$err_file"; exit 1; }
 
@@ -365,8 +414,8 @@ EOF
       fi
     ) &
     local pid=$!
-    spinner $pid
-    wait $pid
+    spinner "$pid"
+    wait "$pid"
     local exit_status=$?
     local err_content=""
     [ -f "$err_file" ] && err_content=$(cat "$err_file")
@@ -453,8 +502,8 @@ EOF
       systemctl enable wg-quick@wg0 >/dev/null 2>>"$err_file" || { echo "Failed to enable wg-quick@wg0." >>"$err_file"; exit 1; }
     ) &
     local pid=$!
-    spinner $pid
-    wait $pid
+    spinner "$pid"
+    wait "$pid"
     local exit_status=$?
     rm -f "$err_file"
     [ $exit_status -ne 0 ] && log_error "WireGuard installation failed."
@@ -482,53 +531,55 @@ show_wireguard_instructions() {
 install_softether() {
     backup_configs
     log_info "Installing SoftEther..."
-        printf "Downloading and installing SoftEther... "
-        local err_file=$(mktemp)
-        (
-            local softether_url="https://www.softether-download.com/files/softether/v4.43-9799-beta-2024.04.17-tree/Linux/SoftEther_VPN_Server/64bit_-_Intel_x64_or_AMD64/softether-vpnserver-v4.43-9799-beta-2024.04.17-linux-x64-64bit.tar.gz"
-            local archive="/tmp/softether.tar.gz"
-            rm -rf /tmp/vpnserver
+    printf "Downloading and installing SoftEther... "
+    local err_file
+    err_file=$(mktemp)
+    (
+        set -e
+        local softether_url="https://www.softether-download.com/files/softether/v4.43-9799-beta-2024.04.17-tree/Linux/SoftEther_VPN_Server/64bit_-_Intel_x64_or_AMD64/softether-vpnserver-v4.43-9799-beta-2024.04.17-linux-x64-64bit.tar.gz"
+        local archive="/tmp/softether.tar.gz"
 
-            cd /tmp
-            wget --no-check-certificate "$softether_url" -O "$archive" >/dev/null 2>>"$err_file" || { echo "Download failed." >>"$err_file"; exit 1; }
-            tar xzf "$archive" >/dev/null 2>>"$err_file" || { echo "Extraction failed." >>"$err_file"; exit 1; }
-            cd vpnserver >/dev/null 2>>"$err_file" || exit 1
+        rm -rf /tmp/vpnserver
+        cd /tmp || exit 1
+        wget --no-check-certificate "$softether_url" -O "$archive"
+        tar xzf "$archive"
+        cd vpnserver || exit 1
+        printf '1\n1\n1\n' | make
 
-            printf '1\n1\n1\n' | make >/dev/null 2>>"$err_file" || { echo "Compilation failed." >>"$err_file"; exit 1; }
+        mkdir -p /usr/local/vpnserver
+        cp -r * /usr/local/vpnserver/
+        chmod 755 /usr/local/vpnserver/vpnserver /usr/local/vpnserver/vpncmd
 
-            mkdir -p /usr/local/vpnserver >/dev/null 2>>"$err_file" || { echo "Failed to create install directory." >>"$err_file"; exit 1; }
-            cp -r * /usr/local/vpnserver/ >/dev/null 2>>"$err_file" || { echo "Failed to copy binaries." >>"$err_file"; exit 1; }
-            chmod 755 /usr/local/vpnserver/vpnserver /usr/local/vpnserver/vpncmd >/dev/null 2>>"$err_file" || true
+        configure_softether_service_unit
+        systemctl enable --now vpnserver
 
-            configure_softether_service_unit
-            systemctl enable --now vpnserver >/dev/null 2>>"$err_file" || { echo "Failed to start vpnserver service." >>"$err_file"; exit 1; }
-
-            rm -f "$archive"
-                    rm -rf /tmp/vpnserver
-        ) &
+        rm -f "$archive"
+        rm -rf /tmp/vpnserver
+    ) >>"$err_file" 2>&1 &
     local pid=$!
-    spinner $pid
-    wait $pid
+    spinner "$pid"
+    wait "$pid"
     local exit_status=$?
-        local err_content=$(cat "$err_file")
-        rm -f "$err_file"
-        if [ $exit_status -ne 0 ]; then
-                echo ""
-                echo -e "${RED}Error during SoftEther installation:${NC}"
-                echo "$err_content"
-                log_error "SoftEther installation failed."
-        fi
-        echo ""
-
-        log_info "SoftEther installed and running (service: vpnserver). Immediately change the admin password with: vpncmd /SERVER localhost /CMD ServerPasswordSet"
+    local err_content=""
+    if [ -s "$err_file" ]; then
+        err_content=$(cat "$err_file")
+    fi
+    rm -f "$err_file"
+    if [ $exit_status -ne 0 ]; then
+        printf '\n%bError during SoftEther installation:%b\n' "$RED" "$RESET"
+        [ -n "$err_content" ] && printf '%s\n' "$err_content"
+        log_error "SoftEther installation failed."
+    fi
+    printf '\n'
+    log_info "SoftEther installed and running (service: vpnserver). Immediately change the admin password with: vpncmd /SERVER localhost /CMD ServerPasswordSet"
 }
 
 uninstall_softether() {
-        systemctl disable --now vpnserver >/dev/null 2>&1 || true
-        rm -rf /usr/local/vpnserver >/dev/null 2>&1 || true
-        rm -f /etc/systemd/system/vpnserver.service >/dev/null 2>&1 || true
-        systemctl daemon-reload >/dev/null 2>&1 || true
-        log_info "SoftEther uninstalled."
+    systemctl disable --now vpnserver >/dev/null 2>&1 || true
+    rm -rf /usr/local/vpnserver >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/vpnserver.service >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    log_info "SoftEther uninstalled."
 }
 
 show_softether_instructions() {
@@ -543,7 +594,7 @@ show_softether_instructions() {
 
 # Network Config
 setup_network_config() {
-    log_info "Setting up network for CCDC..."
+    log_info "Setting up network..."
     if ! grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null; then
         echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
     fi
@@ -554,27 +605,27 @@ setup_network_config() {
     
     # Firewall (with duplicate check)
     if command -v ufw &> /dev/null; then
-        ufw --force enable >> $LOG_FILE 2>&1 || true
-        ufw allow 22/tcp >> $LOG_FILE 2>&1 || true
-        ufw allow 1194/udp >> $LOG_FILE 2>&1 || true
-        ufw allow 51820/udp >> $LOG_FILE 2>&1 || true
-        ufw allow 443/tcp >> $LOG_FILE 2>&1 || true
-        ufw reload >> $LOG_FILE 2>&1 || true
+        ufw --force enable >> "$LOG_FILE" 2>&1 || true
+        ufw allow 22/tcp >> "$LOG_FILE" 2>&1 || true
+        ufw allow 1194/udp >> "$LOG_FILE" 2>&1 || true
+        ufw allow 51820/udp >> "$LOG_FILE" 2>&1 || true
+        ufw allow 443/tcp >> "$LOG_FILE" 2>&1 || true
+        ufw reload >> "$LOG_FILE" 2>&1 || true
     elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-service=openvpn >> $LOG_FILE 2>&1 || true
-        firewall-cmd --permanent --add-port=51820/udp >> $LOG_FILE 2>&1 || true
-        firewall-cmd --permanent --add-port=443/tcp >> $LOG_FILE 2>&1 || true
-        firewall-cmd --reload >> $LOG_FILE 2>&1 || true
+        firewall-cmd --permanent --add-service=openvpn >> "$LOG_FILE" 2>&1 || true
+        firewall-cmd --permanent --add-port=51820/udp >> "$LOG_FILE" 2>&1 || true
+        firewall-cmd --permanent --add-port=443/tcp >> "$LOG_FILE" 2>&1 || true
+        firewall-cmd --reload >> "$LOG_FILE" 2>&1 || true
     else
-        $INSTALL_CMD ufw >> $LOG_FILE 2>&1 || true
+        $INSTALL_CMD ufw >> "$LOG_FILE" 2>&1 || true
         # Re-run if installed
     fi
     
     # NAT with duplicate removal
     if command -v iptables >/dev/null 2>&1; then
         iptables -t nat -D POSTROUTING -o "$ext_interface" -j MASQUERADE 2>/dev/null || true
-    iptables -D FORWARD -i tun+ -j ACCEPT 2>/dev/null || true
-    iptables -D FORWARD -i wg+ -j ACCEPT 2>/dev/null || true
+        iptables -D FORWARD -i tun+ -j ACCEPT 2>/dev/null || true
+        iptables -D FORWARD -i wg+ -j ACCEPT 2>/dev/null || true
 
         iptables -t nat -A POSTROUTING -o "$ext_interface" -j MASQUERADE
         iptables -A FORWARD -i tun+ -j ACCEPT
@@ -587,7 +638,7 @@ setup_network_config() {
         log_warn "iptables not found; skipping NAT configuration. Configure manually if required."
     fi
     
-    log_info "Network config complete. Verify Palo Alto NAT."
+    log_info "Network config complete."
 }
 
 show_active_services() {
@@ -616,8 +667,7 @@ show_active_services() {
             local wg_status
             wg_status=$(wg show wg0 2>/dev/null || true)
             if [ -n "$wg_status" ]; then
-                printf '  %s
-' "$wg_status"
+                printf '  %s\n' "$wg_status"
             fi
         else
             echo "- WireGuard: INSTALLED (interface wg0 down). Start with: wg-quick up wg0"
@@ -722,8 +772,7 @@ run_vpn_diagnostics() {
 
 show_integration_help() {
     log_info "Integration & Testing Help"
-    echo "For CCDC: Ensure firewalls allow VPN ports, test connections from external."
-    echo "Integrate with Palo Alto NAT if needed."
+    echo "Ensure firewalls allow VPN ports, test connections from external."
     echo "Test multi-device connectivity."
 }
 
@@ -775,7 +824,7 @@ main() {
     check_root
     detect_pkg_manager
     fix_dpkg
-    echo "VPN Installer started: $(date)" | tee -a $LOG_FILE
+    echo "VPN Installer started: $(date)" | tee -a "$LOG_FILE"
     update_system
     install_dependencies
     setup_network_config

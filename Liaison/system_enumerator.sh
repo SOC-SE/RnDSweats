@@ -2,32 +2,13 @@
 
 set -euo pipefail
 
-# ------------------------------------------------------------------------------
-# TeamPack Compliance Notice
-# Enumeration of systems should only be performed on systems you own or are
-# explicitly authorized to analyze (team/lab VMs). Running enumeration against
-# other teams or external systems is prohibited. Type YES to confirm.
-# ------------------------------------------------------------------------------
-teampack_confirm() {
-    echo ""
-    echo "IMPORTANT: Only enumerate systems you are authorized to test."
-    read -p "I confirm I will only run this on my team/lab systems (type YES to continue): " _confirm
-    if [[ "$_confirm" != "YES" ]]; then
-        echo "Confirmation not received. Exiting."
-        exit 1
-    fi
-}
-
-# Run TeamPack confirmation
-teampack_confirm
-
 # ==============================================================================
 # File: System_Enumerator.sh
-# Description: Performs advanced enumeration on a Linux machine for CCDC competitions.
+# Description: Performs advanced enumeration on a Linux machine.
 #              Prompts the user to select categories of information to gather, such as system overview, users, network, processes, logs, etc.
 #              Gathers verbose details for injects, incident reporting, and threat hunting. Checks for key indicators like suspicious processes,
 #              open ports, cron jobs, installed packages, and potential security issues. Outputs to console and optionally saves to a report file.
-#              Supports Debian/Ubuntu (apt) and Fedora/CentOS (dnf) for compatibility with CCDC VMs.
+#              Supports Debian/Ubuntu (apt) and Fedora/CentOS (dnf).
 #              Designed to align with Perfect Box Framework (PBF) elements like System Pruning, Log Aggregation, IDS, and threat hunting.
 #
 # Dependencies: Standard Linux tools (e.g., ps, netstat/ss, awk, grep). Optional: chkrootkit or rkhunter for rootkit detection (prompts if not installed).
@@ -35,7 +16,7 @@ teampack_confirm
 #        Follow on-screen prompts to select enumeration categories.
 # Notes: 
 # - Run as root for full access (e.g., to /etc/shadow, raw sockets).
-# - In CCDC, use this to baseline systems, detect red team artifacts, and generate reports for injects.
+# - Use this to baseline systems, detect red team artifacts, and generate reports.
 # - Outputs are timestamped and can be exported to /root/enum_report.txt for easy sharing.
 # - For threat hunting: Looks for common persistence mechanisms (e.g., cron, unusual users, listening ports).
 # ==============================================================================
@@ -50,7 +31,7 @@ cat << "EOF"
 |_____|_| |_|\__,_|_| |_| |_|     |_|   |_/___| 
 EOF
 echo -e "\033[0m"
-echo "System Enumerator - For CCDC Threat Hunting and Reporting"
+echo "System Enumerator"
 echo "---------------------------------------------------------"
 
 # --- Configuration & Colors ---
@@ -224,7 +205,7 @@ enum_filesystem() {
     log_info "Gathering File System and Integrity Info..."
     append_to_report "=== File System and Integrity ($TIMESTAMP) ==="
     
-    # SUID files: Targeted paths for speed (common escalation vectors in CCDC)
+    # SUID files: Targeted paths for speed (common escalation vectors)
     local suid_cmd="find /bin /usr/bin /usr/local/bin /sbin /usr/sbin /etc -perm -4000 -type f"
     count_and_log "$suid_cmd" "SUID files"
     
@@ -242,7 +223,7 @@ enum_filesystem() {
             log_warn "AIDE integrity check returned a non-zero status; review the output above."
         fi
     else 
-        log_warn "AIDE not installed for File Integrity Monitoring (FIM). In MWCCDC, consider installing for baseline comparisons: apt install aide (Debian) or dnf/yum install aide (Fedora/CentOS)."
+        log_warn "AIDE not installed for File Integrity Monitoring (FIM). Consider installing for baseline comparisons: apt install aide (Debian) or dnf/yum install aide (Fedora/CentOS)."
     fi
     log_info "File system info complete."
 }
@@ -294,7 +275,7 @@ enum_security() {
             log_warn "rkhunter returned a non-zero status; review scan output."
         fi
     else 
-        log_warn "No rootkit scanner (chkrootkit/rkhunter) found. For MWCCDC threat hunting, install one: apt install chkrootkit (Debian) or dnf/yum install rkhunter (Fedora/CentOS)."
+        log_warn "No rootkit scanner (chkrootkit/rkhunter) found. For threat hunting, install one: apt install chkrootkit (Debian) or dnf/yum install rkhunter (Fedora/CentOS)."
     fi
     log_info "Security info complete."
 }
@@ -351,7 +332,7 @@ main() {
     detect_pkg_manager
     prompt_mode
     log_info "${GREEN}--- Script Complete ---${NC}"
-    log_info "Use this report for CCDC injects, incident reporting, or threat hunting. Review for anomalies like unknown users, open ports, or suspicious processes."
+    log_info "Use this report for incident reporting or threat hunting. Review for anomalies like unknown users, open ports, or suspicious processes."
 }
 
 main "$@"

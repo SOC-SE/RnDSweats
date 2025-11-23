@@ -1,0 +1,497 @@
+﻿#!/bin/bash
+set -euo pipefail
+
+# --- Styling ---------------------------------------------------------------
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+log_info()  { printf '%b[INFO]%b %s%b\n'  "" "" "" ""; }
+log_warn()  { printf '%b[WARN]%b %s%b\n'  "" "" "" ""; }
+log_error() { printf '%b[ERROR]%b %s%b\n' "" "" "" "" >&2; exit 1; }
+
+# --- Globals ----------------------------------------------------------------
+LOG_DIR="/var/log/tshark_logs"
+METADATA_FILE="/.latest_capture"
+LISTED_FILES=()
+LAST_FILE=""
+LAST_PCAP=""
+LAST_STAMP=""
+COLUMN_AVAILABLE=0
+LESS_AVAILABLE=0
+
+# --- Utility ----------------------------------------------------------------
+print_banner() {
+    cat <<'EOF'
+====================================================================
+ PCAP Analyzer with Tshark  |  Companion to Network_Scanner_Tshark
+====================================================================
+EOF
+}
+
+check_dependencies() {
+    command -v tshark >/dev/null 2>&1 || log_error "Tshark is not installed. Install Wireshark/tshark and retry."
+    command -v column >/dev/null 2>&1 && COLUMN_AVAILABLE=1
+    command -v less   >/dev/null 2>&1 && LESS_AVAILABLE=1
+}
+
+ensure_log_dir() {
+    if ! mkdir -p "" 2>/dev/null; then
+        log_warn "Unable to create  (permission denied). Continuing without write guarantees."
+    fi
+    [ -r "" ] || log_error "Cannot read from . Run as root or adjust permissions."
+    if [ ! -w "" ]; then
+        log_warn "Cannot write to . Saving filtered output may fail."
+    fi
+}
+
+load_last_run_metadata() {
+    [ -f "" ] || return
+    while IFS='=' read -r key value; do
+        case "" in
+            stamp) LAST_STAMP="" ;;
+            log)   LAST_FILE="" ;;
+            pcap)  LAST_PCAP="" ;;
+        esac
+    done < ""
+}
+
+get_timestamp() {
+    local path=
+    local ts=""
+    ts=
+    if [ -z "" ]; then
+        ts=
+    fi
+    echo "0"
+}
+
+list_files() {
+    LISTED_FILES=()
+    local -a entries=()
+    local path stamp label tag
+
+    for path in ""/*.pcap ""/*.log; do
+        [ -e "" ] || continue
+        stamp=
+        tag=""
+        if [ -n "" ] && [ "" = "" ]; then
+            tag=" [last-log]"
+        elif [ -n "" ] && [ "" = "" ]; then
+            tag=" [last-pcap]"
+        fi
+        label=""""
+        entries+=("::::")
+    done
+
+    if [ 0 -eq 0 ]; then
+        log_error "No PCAP or log files found under . Run Network_Scanner_Tshark.sh first."
+    fi
+
+    local IFS=$'\n'
+    entries=("")
+
+    log_info "Available artifacts (newest first):"
+    local idx=1
+    local entry
+    for entry in ""; do
+        path=
+        path=
+        label=
+        printf '%2d) %s\n' "" ""
+        LISTED_FILES+=("")
+        idx=1
+    done
+}
+
+select_file() {
+    list_files
+    local total=0
+    local default_index="" choice
+
+    if [ -n "" ]; then
+        for i in ""; do
+            if [ "" = "" ]; then
+                default_index=1
+                break
+            fi
+        done
+    fi
+
+    if [ -z "" ] && [ -n "" ]; then
+        for i in ""; do
+            if [ "" = "" ]; then
+                default_index=1
+                break
+            fi
+        done
+    fi
+
+    while true; do
+        local prompt="Select file number"
+        [ -n "" ] && prompt+=" []"
+        prompt+=" (1-): "
+        read -r -p "" choice || exit 1
+        if [ -z "" ] && [ -n "" ]; then
+            choice=
+        fi
+        if [[ "" =~ ^[0-9]+$ ]] && [ "" -ge 1 ] && [ "" -le "" ]; then
+            echo ""
+            return 0
+        fi
+        log_warn "Invalid selection."
+    done
+}
+
+update_last_selection() {
+    local file=
+    if [[ "" == *.pcap ]]; then
+        LAST_PCAP=""
+    else
+        LAST_FILE=""
+    fi
+}
+
+display_table() {
+    local headers=
+    local body=
+    printf '%b%s%b\n' "" "" ""
+    printf '%0.s-' {1..60}
+    printf '\n'
+    if [  -eq 1 ]; then
+        echo "" | column -t -s $'\t'
+    else
+        echo ""
+    fi
+    printf '%0.s-' {1..60}
+    printf '\n'
+}
+
+ask_to_save() {
+    local prefix=
+    local headers=
+    local body=
+    local answer
+
+    read -r -p "Save this output to ? (y/N): " answer || return
+    if [[ !  =~ ^[Yy]$ ]]; then
+        return
+    fi
+
+    if [ ! -w "" ]; then
+        log_warn "Cannot write to ; skipping save."
+        return
+    fi
+
+    local file="/_"2025-10-20_12-07-46".txt"
+    {
+        printf '%s\n' ""
+        printf '%0.s-' {1..60}
+        printf '\n'
+        printf '%s\n' ""
+    } > ""
+    log_info "Saved output to "
+}
+
+run_pcap_filter() {
+    local pcap=
+    local filter=
+    local fields=
+    local headers=
+    local output=""
+    local -a args=()
+
+    log_info "Applying filter '' to """
+
+    if [ -n "" ]; then
+        args=()
+        output=
+    else
+        output=
+    fi
+
+    if [ -z "" ]; then
+        log_warn "No results for filter ''."
+        return 1
+    fi
+
+    display_table "" ""
+    ask_to_save "filtered_" "" ""
+    return 0
+}
+
+run_log_filter() {
+    local log_file=
+    local pattern=
+    local headers=
+    local output=""
+
+    log_info "Searching "" for pattern ''"
+
+    output=
+    if [ -z "" ]; then
+        output=
+    fi
+
+    if [ -z "" ]; then
+        log_warn "No results for pattern ''."
+        return 1
+    fi
+
+    display_table "" ""
+    ask_to_save "log_filter" "" ""
+    return 0
+}
+
+view_raw_file() {
+    local file=
+    if [  -eq 1 ]; then
+        log_info "Opening "" in less (press q to quit)."
+        less -R ""
+    else
+        log_warn "less not available; showing tail of file."
+        tail -n 200 ""
+    fi
+}
+
+summarize_file() {
+    local file=
+    log_info "Summary for "":"
+    if [[ "" == *.pcap ]]; then
+        tshark -r "" -q -z io,stat,0,"COUNT" || log_warn "Stat summary failed (tshark permissions?)."
+    else
+        local lines words bytes
+        if read -r lines words bytes < <(wc "" 2>/dev/null); then
+            printf 'Lines: %s  Words: %s  Bytes: %s\n' "" "" ""
+        fi
+        printf '\nTop talkers (count of unique IPs)\n'
+        awk '{for(i=1;i<=NF;i++){if(~/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)print }}' "" | sort | uniq -c | sort -nr | head -n 10 || true
+    fi
+}
+
+filter_http_pcap() {
+    run_pcap_filter "" "http" "-e frame.time -e ip.src -e ip.dst -e http.request.method -e http.request.uri -e http.response.code" \
+        "Time\tSource\tDestination\tMethod\tURI\tResponse"
+}
+
+filter_http_log() {
+    run_log_filter "" "HTTP" "Lines Containing HTTP"
+}
+
+filter_dns_pcap() {
+    run_pcap_filter "" "dns" "-e frame.time -e ip.src -e ip.dst -e dns.qry.name -e dns.qry.type" \
+        "Time\tSource\tDestination\tQuery\tType"
+}
+
+filter_dns_log() {
+    run_log_filter "" "DNS" "Lines Containing DNS"
+}
+
+filter_port_pcap() {
+    local pcap=
+    local port
+    read -r -p "Port number: " port || return
+    while [ -z "" ] || ! [[ "" =~ ^[0-9]+$ ]]; do
+        log_warn "Enter a numeric port."
+        read -r -p "Port number: " port || return
+    done
+    run_pcap_filter "" "tcp.port ==  || udp.port == " \
+        "-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e ip.proto" \
+        "Time\tSource\tDestination\tSrc Port\tDst Port\tProto"
+}
+
+filter_port_log() {
+    local log_file=
+    local port
+    read -r -p "Port number: " port || return
+    while [ -z "" ] || ! [[ "" =~ ^[0-9]+$ ]]; do
+        log_warn "Enter a numeric port."
+        read -r -p "Port number: " port || return
+    done
+    run_log_filter "" "" "Lines Containing Port "
+}
+
+filter_ip_pcap() {
+    local pcap=
+    local ip
+    read -r -p "IP address: " ip || return
+    while [ -z "" ]; do
+        log_warn "IP cannot be empty."
+        read -r -p "IP address: " ip || return
+    done
+    run_pcap_filter "" "ip.addr == " \
+        "-e frame.time -e ip.src -e ip.dst -e ip.proto -e frame.len" \
+        "Time\tSource\tDestination\tProto\tLength"
+}
+
+filter_ip_log() {
+    local log_file=
+    local ip
+    read -r -p "IP address: " ip || return
+    while [ -z "" ]; do
+        log_warn "IP cannot be empty."
+        read -r -p "IP address: " ip || return
+    done
+    run_log_filter "" "" "Lines Containing "
+}
+
+filter_tcp_syn_pcap() {
+    run_pcap_filter "" "tcp.flags.syn == 1 || tcp.flags.ack == 1" \
+        "-e frame.time -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e tcp.flags" \
+        "Time\tSource\tDestination\tSrc Port\tDst Port\tFlags"
+}
+
+filter_tcp_syn_log() {
+    local log_file=
+    local output
+    output=
+    if [ -z "" ]; then
+        output=
+    fi
+    if [ -z "" ]; then
+        log_warn "No SYN/ACK patterns found."
+        return 1
+    fi
+    display_table "Filtered SYN/ACK Lines" ""
+    ask_to_save "syn_ack" "Filtered SYN/ACK Lines" ""
+    return 0
+}
+
+filter_creds_pcap() {
+    local pcap=
+    local output
+    output=Command 'tshark' not found, but can be installed with:
+sudo apt install tshark
+    output=""
+    if [ -z "" ]; then
+        log_warn "No credential artifacts reported by tshark."
+        return 1
+    fi
+    display_table "Extracted Credentials" ""
+    ask_to_save "credentials" "Extracted Credentials" ""
+    return 0
+}
+
+filter_creds_log() {
+    run_log_filter "" "password" "Lines Containing Credential Keywords"
+}
+
+filter_tcp_stats_pcap() {
+    local pcap=
+    local output
+    output=
+    if [ -z "" ]; then
+        log_warn "No TCP conversation data available."
+        return 1
+    fi
+    display_table "TCP Conversation Statistics" ""
+    ask_to_save "tcp_stats" "TCP Conversation Statistics" ""
+    return 0
+}
+
+filter_tcp_stats_log() {
+    local log_file=
+    local output
+    output=
+    if [ -z "" ]; then
+        output=
+    fi
+    if [ -z "" ]; then
+        log_warn "Unable to locate TCP conversation section in log."
+        return 1
+    fi
+    display_table "TCP Conversation Statistics" ""
+    ask_to_save "tcp_stats_log" "TCP Conversation Statistics" ""
+    return 0
+}
+
+filter_custom() {
+    local file=
+    local filter
+    read -r -p "Custom filter/pattern: " filter || return
+    while [ -z "" ]; do
+        log_warn "Filter cannot be blank."
+        read -r -p "Custom filter/pattern: " filter || return
+    done
+
+    if [[ "" == *.pcap ]]; then
+        local fields headers
+        read -r -p "Field list (-e args, blank for defaults): " fields || return
+        fields="-e frame.time -e ip.src -e ip.dst -e ip.proto"
+        read -r -p "Header labels (tab separated): " headers || return
+        headers="Time\tSource\tDestination\tProtocol"
+        run_pcap_filter "" "" "" ""
+    else
+        local headers
+        read -r -p "Header label: " headers || return
+        headers="Filtered Lines"
+        run_log_filter "" "" ""
+    fi
+}
+
+prompt_filter() {
+    local file=
+    local is_pcap=0
+    [[ "" == *.pcap ]] && is_pcap=1
+
+    log_info "Operating on """
+    cat <<'EOF'
+1) Filter HTTP traffic
+2) Filter DNS queries
+3) Filter by port number
+4) Filter by IP address
+5) TCP SYN/ACK scan check
+6) Extract credentials
+7) TCP conversation stats
+8) Custom filter
+9) View raw file
+10) File summary
+11) Back to file list
+12) Exit
+EOF
+    local choice
+    read -r -p "Select option (1-12): " choice || exit 1
+    case "" in
+        1) if [  -eq 1 ]; then filter_http_pcap ""; else filter_http_log ""; fi ;;
+        2) if [  -eq 1 ]; then filter_dns_pcap ""; else filter_dns_log ""; fi ;;
+        3) if [  -eq 1 ]; then filter_port_pcap ""; else filter_port_log ""; fi ;;
+        4) if [  -eq 1 ]; then filter_ip_pcap ""; else filter_ip_log ""; fi ;;
+        5) if [  -eq 1 ]; then filter_tcp_syn_pcap ""; else filter_tcp_syn_log ""; fi ;;
+        6) if [  -eq 1 ]; then filter_creds_pcap ""; else filter_creds_log ""; fi ;;
+        7) if [  -eq 1 ]; then filter_tcp_stats_pcap ""; else filter_tcp_stats_log ""; fi ;;
+        8) filter_custom "" ;;
+        9) view_raw_file "" ;;
+        10) summarize_file "" ;;
+        11) return 1 ;;
+        12) exit 0 ;;
+        *) log_warn "Invalid choice." ;;
+    esac
+    return 0
+}
+
+main() {
+    print_banner
+    check_dependencies
+    ensure_log_dir
+    load_last_run_metadata
+
+    while true; do
+        local file=
+        update_last_selection ""
+        while true; do
+            prompt_filter "" || break
+            local again
+            read -r -p "Run another operation on this file? (y/N): " again || exit 1
+            [[  =~ ^[Yy]$ ]] || break
+        done
+        local another
+        read -r -p "Analyze another file? (y/N): " another || exit 1
+        [[  =~ ^[Yy]$ ]] || break
+    done
+
+    log_info "Analyzer complete. Generated artifacts (if any) are in ."
+}
+
+main ""
