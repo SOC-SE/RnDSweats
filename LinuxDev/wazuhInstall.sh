@@ -3,7 +3,10 @@ set -e # Exit immediately if a command exits with a non-zero status.
 
 # Wazuh Master Installation Script for Oracle Linux 9
 # Target Version: 4.14.1
-# Fix: Hardcodes internal comms to 127.0.0.1 to prevent IP/Cert mismatches.
+# Fixes: 
+#   - Prevents duplicate certificate generation error
+#   - Forces IPv4 (127.0.0.1) for internal backend communication
+#   - Fixes missing Filebeat module
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -25,10 +28,15 @@ rm -rf /var/lib/wazuh-indexer /var/lib/wazuh-manager /var/lib/wazuh-dashboard /v
 rm -rf /usr/share/wazuh-indexer /usr/share/wazuh-manager /usr/share/wazuh-dashboard /usr/share/filebeat
 rm -rf /var/log/wazuh-indexer /var/log/wazuh-manager /var/log/wazuh-dashboard /var/log/filebeat
 
-# Always wipe temp dir to ensure clean cert generation
-echo "Wiping temp directory..."
-rm -rf $INSTALL_DIR
-mkdir -p $INSTALL_DIR
+# Only wipe temp dir if certs don't exist to save time
+# We check for the DIRECTORY now, not just a file, to avoid the tool error
+if [ -d "$INSTALL_DIR/wazuh-certificates" ]; then
+    echo "Preserving existing certificates..."
+else
+    echo "Wiping temp directory..."
+    rm -rf $INSTALL_DIR
+    mkdir -p $INSTALL_DIR
+fi
 
 echo "Installing necessary tools..."
 dnf install -y coreutils curl unzip wget libcap tar gnupg openssl
@@ -50,12 +58,17 @@ EOF
 echo "--- [3/8] Generating SSL Certificates ---"
 cd $INSTALL_DIR
 
-echo "Generating new certificates..."
-curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/wazuh-certs-tool.sh
-curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/config.yml
+# Improved Check: If directory exists, skip generation to avoid error
+if [ -d "wazuh-certificates" ]; then
+    echo "Certificates directory found. Skipping generation."
+else
+    echo "Generating new certificates..."
+    curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/wazuh-certs-tool.sh
+    curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/config.yml
 
-# Use 127.0.0.1 for all internal nodes to ensure certs match localhost
-cat > config.yml <<EOF
+    # Force 127.0.0.1 for all internal components
+    # This ensures the certs match the localhost IP we force later
+    cat > config.yml <<EOF
 nodes:
   indexer:
     - name: node-1
@@ -67,8 +80,10 @@ nodes:
     - name: dashboard
       ip: 127.0.0.1
 EOF
-bash wazuh-certs-tool.sh -A
+    bash wazuh-certs-tool.sh -A
+fi
 
+# Final verification
 if [ ! -f "wazuh-certificates/node-1.pem" ]; then
     echo "ERROR: Certificates were not generated correctly."
     exit 1
@@ -89,7 +104,7 @@ chmod 500 /etc/wazuh-indexer/certs
 chmod 400 /etc/wazuh-indexer/certs/*
 chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
 
-# Config (Explicit 127.0.0.1)
+# Config (Strictly 127.0.0.1)
 cat > /etc/wazuh-indexer/opensearch.yml <<EOF
 network.host: 127.0.0.1
 node.name: node-1
@@ -153,8 +168,10 @@ dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-# Configure Filebeat
-curl -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
+# Configure Filebeat (Retry Logic)
+curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
+
+# Point Filebeat to 127.0.0.1 explicitly
 sed -i "s/output.elasticsearch.hosts: \[\"127.0.0.1:9200\"\]/output.elasticsearch.hosts: \[\"127.0.0.1:9200\"\]\n  protocol: https\n  ssl.certificate_authorities: \[\"\/etc\/filebeat\/certs\/root-ca.pem\"\]\n  ssl.certificate: \"\/etc\/filebeat\/certs\/filebeat.pem\"\n  ssl.key: \"\/etc\/filebeat\/certs\/filebeat-key.pem\"\n  ssl.verification_mode: none/" /etc/filebeat/filebeat.yml
 
 mkdir -p /etc/filebeat/certs
@@ -177,7 +194,7 @@ if [ -f "$CURRENT_DIR/wazuh-template.json" ]; then
     cp "$CURRENT_DIR/wazuh-template.json" /etc/filebeat/wazuh-template.json
 else
     echo "Local wazuh-template.json not found. Attempting download..."
-    curl -so /etc/filebeat/wazuh-template.json https://raw.githubusercontent.com/wazuh/wazuh/v$WAZUH_VERSION/extensions/elasticsearch/7.x/wazuh-template.json
+    curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/wazuh-template.json https://raw.githubusercontent.com/wazuh/wazuh/v$WAZUH_VERSION/extensions/elasticsearch/7.x/wazuh-template.json
 fi
 chmod go+r /etc/filebeat/wazuh-template.json
 
@@ -218,7 +235,7 @@ chmod 500 /etc/wazuh-dashboard/certs
 chmod 400 /etc/wazuh-dashboard/certs/*
 chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 
-# Configure Dashboard (Force IPv4)
+# Configure Dashboard (Hardcoded 127.0.0.1 for backend)
 cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
 server.host: 0.0.0.0
 server.port: 443
@@ -243,7 +260,7 @@ systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
 
 echo "--- INSTALLATION COMPLETE ---"
-# Grab IP again just for the message
+# Grab IP for display only
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "Access Dashboard at: https://$SERVER_IP"
 echo "Username: admin"
