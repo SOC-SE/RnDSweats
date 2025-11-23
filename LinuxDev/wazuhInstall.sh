@@ -13,6 +13,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Fixes Dashboard "Not Ready" by matching curl behavior (Basic Auth only)
 #   - Fixes internal_users.yml corruption (only changes admin pass)
 #   - Removed unsupported opensearch.compatibility setting
+#   - Fixes "No matching indices" by removing client certs from Filebeat (Basic Auth only)
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -222,8 +223,6 @@ output.elasticsearch:
   username: "admin"
   password: "$WAZUH_PASSWORD"
   ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
-  ssl.certificate: "/etc/filebeat/certs/filebeat.pem"
-  ssl.key: "/etc/filebeat/certs/filebeat-key.pem"
   ssl.verification_mode: none
 EOF
 
@@ -268,8 +267,6 @@ filebeat setup --index-management \
   -E output.elasticsearch.username=admin \
   -E output.elasticsearch.password="$WAZUH_PASSWORD" \
   -E output.elasticsearch.ssl.certificate_authorities=["/etc/filebeat/certs/root-ca.pem"] \
-  -E output.elasticsearch.ssl.certificate="/etc/filebeat/certs/filebeat.pem" \
-  -E output.elasticsearch.ssl.key="/etc/filebeat/certs/filebeat-key.pem" \
   -E output.elasticsearch.ssl.verification_mode=none
 
 systemctl enable filebeat
