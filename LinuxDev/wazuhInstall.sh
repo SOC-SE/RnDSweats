@@ -73,13 +73,13 @@ if [ ! -f "wazuh-certificates/node-1.pem" ]; then
 nodes:
   indexer:
     - name: node-1
-      ip: $SERVER_IP
+      ip: 127.0.0.1
   server:
     - name: wazuh-1
-      ip: $SERVER_IP
+      ip: 127.0.0.1
   dashboard:
     - name: dashboard
-      ip: $SERVER_IP
+      ip: 127.0.0.1
 EOF
     bash wazuh-certs-tool.sh -A
 else
@@ -108,7 +108,7 @@ chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
 
 # Config (Explicit IPv4)
 cat > /etc/wazuh-indexer/opensearch.yml <<EOF
-network.host: $SERVER_IP
+network.host: 127.0.0.1
 node.name: node-1
 cluster.initial_master_nodes: ["node-1"]
 plugins.security.ssl.transport.pemcert_filepath: certs/indexer.pem
@@ -131,7 +131,7 @@ systemctl enable wazuh-indexer
 systemctl start wazuh-indexer
 
 echo "Waiting for Indexer to initialize..."
-until curl -k -s https://$SERVER_IP:9200 >/dev/null; do sleep 5; echo "Waiting..."; done
+until curl -k -s https://127.0.0.1:9200 >/dev/null; do sleep 5; echo "Waiting..."; done
 
 # Initialize Security
 export JAVA_HOME=/usr/share/wazuh-indexer/jdk/
@@ -143,7 +143,7 @@ export JAVA_HOME=/usr/share/wazuh-indexer/jdk/
   -key /etc/wazuh-indexer/certs/admin-key.pem \
   -p 9200 \
   -icl \
-  -h $SERVER_IP
+  -h 127.0.0.1
 
 # Change default admin password
 echo "Changing admin password..."
@@ -160,7 +160,7 @@ sed -i "s|hash:.*|hash: \"$HASH\"|" /etc/wazuh-indexer/opensearch-security/inter
   -key /etc/wazuh-indexer/certs/admin-key.pem \
   -p 9200 \
   -icl \
-  -h $SERVER_IP
+  -h 127.0.0.1
 
 # --- [5/8] Wazuh Manager & Filebeat ---
 echo "--- [5/8] Installing Manager & Filebeat ---"
@@ -172,7 +172,7 @@ systemctl start wazuh-manager
 
 # Configure Filebeat
 curl -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
-sed -i "s/output.elasticsearch.hosts: \[\"127.0.0.1:9200\"\]/output.elasticsearch.hosts: \[\"$SERVER_IP:9200\"\]\n  protocol: https\n  ssl.certificate_authorities: \[\"\/etc\/filebeat\/certs\/root-ca.pem\"\]\n  ssl.certificate: \"\/etc\/filebeat\/certs\/filebeat.pem\"\n  ssl.key: \"\/etc\/filebeat\/certs\/filebeat-key.pem\"\n  ssl.verification_mode: none/" /etc/filebeat/filebeat.yml
+sed -i "s/output.elasticsearch.hosts: \[\"127.0.0.1:9200\"\]/output.elasticsearch.hosts: \[\"127.0.0.1:9200\"\]\n  protocol: https\n  ssl.certificate_authorities: \[\"\/etc\/filebeat\/certs\/root-ca.pem\"\]\n  ssl.certificate: \"\/etc\/filebeat\/certs\/filebeat.pem\"\n  ssl.key: \"\/etc\/filebeat\/certs\/filebeat-key.pem\"\n  ssl.verification_mode: none/" /etc/filebeat/filebeat.yml
 
 mkdir -p /etc/filebeat/certs
 cp wazuh-certificates/wazuh-1.pem /etc/filebeat/certs/filebeat.pem
@@ -210,7 +210,7 @@ filebeat setup --index-management \
   -E setup.template.json.name=wazuh \
   -E setup.ilm.overwrite=true \
   -E setup.ilm.enabled=false \
-  -E output.elasticsearch.hosts=["$SERVER_IP:9200"] \
+  -E output.elasticsearch.hosts=["127.0.0.1:9200"] \
   -E output.elasticsearch.protocol=https \
   -E output.elasticsearch.username=admin \
   -E output.elasticsearch.password="$WAZUH_PASSWORD" \
@@ -239,7 +239,7 @@ chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
 server.host: 0.0.0.0
 server.port: 443
-opensearch.hosts: https://$SERVER_IP:9200
+opensearch.hosts: https://127.0.0.1:9200
 opensearch.ssl.verificationMode: certificate
 opensearch.requestHeadersAllowlist: ["securitytenant","Authorization"]
 opensearch_security.multitenancy.enabled: false
