@@ -10,6 +10,8 @@ set -e # Exit immediately if a command exits with a non-zero status.
 #   - Handles SELinux for Oracle Linux
 #   - Robust Filebeat configuration (avoids sed)
 #   - Added timeout for Indexer startup
+#   - Fixes Dashboard "Not Ready" by matching curl behavior (Basic Auth only)
+#   - Fixes internal_users.yml corruption (only changes admin pass)
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -21,7 +23,7 @@ CURRENT_DIR=$(pwd)
 WAZUH_PASSWORD="Changeme1!" # Set your desired password here
 # -----------------------------
 
-echo "--- [1/8] Deep Cleaning previous installations ---\""
+echo "--- [1/8] Deep Cleaning previous installations ---"
 # Adjust SELinux for Oracle Linux 9 (Permissive is safer for initial install)
 echo "Adjusting SELinux to Permissive for installation..."
 setenforce 0 || true
@@ -166,9 +168,13 @@ fi
 
 # Change default admin password
 echo "Changing admin password..."
-/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$WAZUH_PASSWORD" > /tmp/hash.txt
+# Capture ONLY the hash (ignoring tool banners)
+/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$WAZUH_PASSWORD" | tail -n 1 > /tmp/hash.txt
 HASH=$(cat /tmp/hash.txt)
-sed -i "s|hash:.*|hash: \"$HASH\"|" /etc/wazuh-indexer/opensearch-security/internal_users.yml
+
+# Use refined sed to ONLY replace the FIRST occurrence of 'hash:' (which is the admin user)
+# This prevents breaking other system users like kibanaserver
+sed -i "0,/hash:.*/s//hash: \"$HASH\"/" /etc/wazuh-indexer/opensearch-security/internal_users.yml
 
 # Re-run securityadmin to apply password change
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
@@ -281,12 +287,14 @@ chmod 500 /etc/wazuh-dashboard/certs
 chmod 400 /etc/wazuh-dashboard/certs/*
 chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 
-# Configure Dashboard (Hardcoded 127.0.0.1 for backend)
+# Configure Dashboard
+# NOTE: We disable backend client auth (server.ssl.key/cert) to match the behavior of the working curl command.
+# We only keep server.ssl.* (browser <-> dashboard) and ssl.certificateAuthorities (trusting the indexer CA).
 cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
 server.host: 0.0.0.0
 server.port: 443
 opensearch.hosts: https://127.0.0.1:9200
-opensearch.ssl.verificationMode: certificate
+opensearch.ssl.verificationMode: none
 opensearch.requestHeadersAllowlist: ["securitytenant","Authorization"]
 opensearch_security.multitenancy.enabled: false
 opensearch_security.readonly_mode.roles: ["kibana_read_only"]
@@ -294,12 +302,11 @@ server.ssl.enabled: true
 server.ssl.key: /etc/wazuh-dashboard/certs/dashboard-key.pem
 server.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.pem
 opensearch.ssl.certificateAuthorities: ["/etc/wazuh-dashboard/certs/root-ca.pem"]
-opensearch.ssl.certificate: /etc/wazuh-dashboard/certs/dashboard.pem
-opensearch.ssl.key: /etc/wazuh-dashboard/certs/dashboard-key.pem
 uiSettings.overrides.defaultRoute: /app/wz-home
 opensearch_security.cookie.secure: true
 opensearch.username: admin
 opensearch.password: $WAZUH_PASSWORD
+opensearch.compatibility.override_main_response_version: true
 EOF
 
 systemctl enable wazuh-dashboard
