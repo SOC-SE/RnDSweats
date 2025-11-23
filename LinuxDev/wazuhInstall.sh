@@ -3,8 +3,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 
 # Wazuh Master Installation Script for Oracle Linux 9
 # Target Version: 4.14.1
-# Feature: Uses local wazuh-template.json if available.
-# Feature: Auto-detects server IP and uses custom password.
+# Fix: Hardcodes internal comms to 127.0.0.1 to prevent IP/Cert mismatches.
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -16,15 +15,6 @@ CURRENT_DIR=$(pwd)
 WAZUH_PASSWORD="Changeme1!" # Set your desired password here
 # -----------------------------
 
-# --- Auto-detect Server IP ---
-SERVER_IP=$(hostname -I | awk '{print $1}')
-echo "Detected Server IP: $SERVER_IP"
-
-if [ -z "$SERVER_IP" ]; then
-    echo "Error: Could not detect server IP. Exiting."
-    exit 1
-fi
-
 echo "--- [1/8] Deep Cleaning previous installations ---"
 systemctl stop wazuh-dashboard wazuh-indexer wazuh-manager filebeat elasticsearch kibana 2>/dev/null || true
 dnf remove -y wazuh-indexer wazuh-manager wazuh-dashboard filebeat elasticsearch kibana 2>/dev/null || true
@@ -35,14 +25,10 @@ rm -rf /var/lib/wazuh-indexer /var/lib/wazuh-manager /var/lib/wazuh-dashboard /v
 rm -rf /usr/share/wazuh-indexer /usr/share/wazuh-manager /usr/share/wazuh-dashboard /usr/share/filebeat
 rm -rf /var/log/wazuh-indexer /var/log/wazuh-manager /var/log/wazuh-dashboard /var/log/filebeat
 
-# Only wipe temp dir if certs don't exist to save time
-if [ -d "$INSTALL_DIR/wazuh-certificates" ]; then
-    echo "Preserving existing certificates..."
-else
-    echo "Wiping temp directory..."
-    rm -rf $INSTALL_DIR
-    mkdir -p $INSTALL_DIR
-fi
+# Always wipe temp dir to ensure clean cert generation
+echo "Wiping temp directory..."
+rm -rf $INSTALL_DIR
+mkdir -p $INSTALL_DIR
 
 echo "Installing necessary tools..."
 dnf install -y coreutils curl unzip wget libcap tar gnupg openssl
@@ -64,12 +50,12 @@ EOF
 echo "--- [3/8] Generating SSL Certificates ---"
 cd $INSTALL_DIR
 
-if [ ! -f "wazuh-certificates/node-1.pem" ]; then
-    echo "Generating new certificates..."
-    curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/wazuh-certs-tool.sh
-    curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/config.yml
+echo "Generating new certificates..."
+curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/wazuh-certs-tool.sh
+curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/config.yml
 
-    cat > config.yml <<EOF
+# Use 127.0.0.1 for all internal nodes to ensure certs match localhost
+cat > config.yml <<EOF
 nodes:
   indexer:
     - name: node-1
@@ -81,10 +67,7 @@ nodes:
     - name: dashboard
       ip: 127.0.0.1
 EOF
-    bash wazuh-certs-tool.sh -A
-else
-    echo "Certificates found. Skipping generation."
-fi
+bash wazuh-certs-tool.sh -A
 
 if [ ! -f "wazuh-certificates/node-1.pem" ]; then
     echo "ERROR: Certificates were not generated correctly."
@@ -106,7 +89,7 @@ chmod 500 /etc/wazuh-indexer/certs
 chmod 400 /etc/wazuh-indexer/certs/*
 chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
 
-# Config (Explicit IPv4)
+# Config (Explicit 127.0.0.1)
 cat > /etc/wazuh-indexer/opensearch.yml <<EOF
 network.host: 127.0.0.1
 node.name: node-1
@@ -260,6 +243,8 @@ systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
 
 echo "--- INSTALLATION COMPLETE ---"
+# Grab IP again just for the message
+SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "Access Dashboard at: https://$SERVER_IP"
 echo "Username: admin"
 echo "Password: $WAZUH_PASSWORD"
