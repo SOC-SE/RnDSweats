@@ -9,13 +9,25 @@ set -e # Exit immediately if a command exits with a non-zero status.
 WAZUH_MAJOR="4.14"       # Used for URLs
 WAZUH_VERSION="4.14.1"   # Used for Package Pinning
 INSTALL_DIR="/root/wazuh-install-temp"
-mkdir -p $INSTALL_DIR
 
-echo "--- [1/7] Cleaning up previous failed installations ---"
-# Stop and remove potential conflicting services
+echo "--- [1/7] Deep Cleaning previous installations ---"
+# 1. Stop all services
 systemctl stop wazuh-dashboard wazuh-indexer wazuh-manager filebeat elasticsearch kibana 2>/dev/null || true
+
+# 2. Remove packages
 dnf remove -y wazuh-indexer wazuh-manager wazuh-dashboard filebeat elasticsearch kibana 2>/dev/null || true
-rm -rf /etc/wazuh-indexer /etc/wazuh-manager /etc/wazuh-dashboard /etc/filebeat /var/lib/wazuh-indexer
+
+# 3. Remove ALL configuration, data, and log directories (The "Thorough" part)
+echo "Removing config, data, and log directories..."
+rm -rf /etc/wazuh-indexer /etc/wazuh-manager /etc/wazuh-dashboard /etc/filebeat
+rm -rf /var/lib/wazuh-indexer /var/lib/wazuh-manager /var/lib/wazuh-dashboard /var/lib/filebeat
+rm -rf /usr/share/wazuh-indexer /usr/share/wazuh-manager /usr/share/wazuh-dashboard /usr/share/filebeat
+rm -rf /var/log/wazuh-indexer /var/log/wazuh-manager /var/log/wazuh-dashboard /var/log/filebeat
+
+# 4. FIX FOR YOUR ERROR: Wipe the temporary install directory
+echo "Wiping temporary install directory..."
+rm -rf $INSTALL_DIR
+mkdir -p $INSTALL_DIR
 
 echo "--- [2/7] Setting up Repositories ---"
 rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
