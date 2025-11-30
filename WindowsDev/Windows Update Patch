@@ -1,0 +1,124 @@
+## Patches common tactics for disabling Windows updates 
+#requires -RunAsAdministrator
+$ProgressPreference = 'SilentlyContinue'
+
+Write-Host "========================================="
+Write-Host "   WINDOWS UPDATE RESTORE (FAST MODE)"
+Write-Host "========================================="
+Write-Host ""
+
+# -------------------------------
+# 1. Stop Windows Update Services
+# -------------------------------
+$services = "wuauserv","bits","cryptsvc","dosvc"
+
+Write-Host "[1/7] Stopping Windows Update services..." -ForegroundColor Cyan
+foreach ($svc in $services) {
+    try {
+        Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+        Write-Host "  Stopped: $svc"
+    } catch {}
+}
+
+# ---------------------------------------
+# 2. Reset Windows Update Policy Registry
+# ---------------------------------------
+Write-Host "[2/7] Resetting Windows Update registry policies..." -ForegroundColor Cyan
+
+$policyPaths = @(
+    "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate",
+    "HKLM:\Software\Policies\Microsoft\Windows\WindowsUpdate\AU",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\WindowsUpdate",
+    "HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
+    "HKLM:\SYSTEM\Internet Communication Management\Internet Communication"
+)
+
+foreach ($path in $policyPaths) {
+    if (Test-Path $path) {
+        try {
+            Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "  Cleared: $path"
+        } catch {}
+    }
+}
+
+# -------------------------------------
+# 3. Clear SoftwareDistribution Folder
+# -------------------------------------
+Write-Host "[3/7] Clearing SoftwareDistribution folder..." -ForegroundColor Cyan
+
+$sd = "C:\Windows\SoftwareDistribution"
+if (Test-Path $sd) {
+    try {
+        Remove-Item -Recurse -Force "$sd\*" -ErrorAction SilentlyContinue
+        Write-Host "  SoftwareDistribution reset."
+    } catch {
+        Write-Host "  WARNING: Some files could not be deleted."
+    }
+}
+
+# ------------------------------
+# 4. Clear Catroot2 (WU metadata)
+# ------------------------------
+Write-Host "[4/7] Resetting Catroot2 folder..." -ForegroundColor Cyan
+
+$catroot = "C:\Windows\System32\catroot2"
+if (Test-Path $catroot) {
+    try {
+        Remove-Item -Recurse -Force "$catroot\*" -ErrorAction SilentlyContinue
+        Write-Host "  Catroot2 reset."
+    } catch {
+        Write-Host "  WARNING: Some Catroot2 files could not be removed."
+    }
+}
+
+# ---------------------------------
+# 5. Re-register Windows Update DLLs
+# ---------------------------------
+Write-Host "[5/7] Re-registering Windows Update components..." -ForegroundColor Cyan
+
+$dlls = @(
+    "wuapi.dll","wuaueng.dll","wups.dll","wups2.dll","wuwebv.dll",
+    "jscript.dll","msxml3.dll","msxml6.dll"
+)
+
+foreach ($dll in $dlls) {
+    $path = "$env:SystemRoot\System32\$dll"
+    if (Test-Path $path) {
+        try {
+            & regsvr32.exe /s $path
+            Write-Host "  Registered: $dll"
+        } catch {}
+    }
+}
+
+# ---------------------------------------------
+# 6. Enable & Start All Windows Update Services
+# ---------------------------------------------
+Write-Host "[6/7] Enabling and starting Windows Update services..." -ForegroundColor Cyan
+
+foreach ($svc in $services) {
+    try {
+        Set-Service -Name $svc -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name $svc -ErrorAction SilentlyContinue
+        Write-Host "  Started: $svc"
+    } catch {}
+}
+
+# ------------------------------
+# 7. Force Windows Update Detect
+# ------------------------------
+Write-Host "[7/7] Forcing immediate update detection..." -ForegroundColor Cyan
+try {
+    $update = New-Object -ComObject Microsoft.Update.AutoUpdate
+    $update.DetectNow()
+    Write-Host "  Update scan triggered." -ForegroundColor Green
+} catch {
+    Write-Host "  (COM scan not supported on this OS — safe to ignore.)" -ForegroundColor Yellow
+}
+
+Write-Host ""
+Write-Host "========================================="
+Write-Host " Windows Update Restore Completed"
+Write-Host "========================================="
+Write-Host "Reboot recommended." -ForegroundColor Yellow
