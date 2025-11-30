@@ -224,7 +224,7 @@ echo "Configuring Manager connection to Indexer..."
 /var/ossec/bin/wazuh-keystore -f indexer -k password -v "$WAZUH_PASSWORD"
 
 #Make sure the manager is looking at the right spots for the indexer and that SSL verification is off
-sed -i "s|<host>127.0.0.1</host>|<host>https://127.0.0.1:9200</host>|g" /var/ossec/etc/ossec.conf
+sed -i "s|<host>https://0.0.0.0:9200</host>|<host>https://127.0.0.1:9200</host>|g" /var/ossec/etc/ossec.conf
 if grep -q "<ssl_verification>" /var/ossec/etc/ossec.conf; then
     # It exists, so we replace yes with no
     sed -i "s|<ssl_verification>yes</ssl_verification>|<ssl_verification>no</ssl_verification>|g" /var/ossec/etc/ossec.conf
