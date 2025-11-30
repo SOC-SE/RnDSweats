@@ -16,12 +16,10 @@ WAZUH_MAJOR="4.14"
 WAZUH_VERSION="4.14.1"
 INSTALL_DIR="/root/wazuh-install-temp"
 CURRENT_DIR=$(pwd)
-
-# --- CUSTOMIZABLE VARIABLES ---
 WAZUH_PASSWORD="Changeme1!" # Set your desired password here
 # -----------------------------
 
-echo "--- [1/8] Deep Cleaning previous installations ---"
+echo "--- [1/8] Cleaning any previous installations ---"
 # Adjust SELinux for Oracle Linux 9 (Permissive is safer for initial install)
 echo "Adjusting SELinux to Permissive for installation..."
 setenforce 0 || true
@@ -121,7 +119,6 @@ chmod 400 /etc/wazuh-indexer/certs/*
 chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
 
 # Config (Strictly 127.0.0.1)
-# CRITICAL FIX: Added compatibility.override_main_response_version
 cat > /etc/wazuh-indexer/opensearch.yml <<EOF
 network.host: 127.0.0.1
 node.name: node-1
@@ -204,7 +201,7 @@ dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-# [CRITICAL FIX] Force Set Wazuh API Password using Python "God Mode"
+# Force Set Wazuh API Password using Python 
 echo "Setting Wazuh API credentials via internal Python..."
 sleep 10 # Wait for manager to stabilize
 
@@ -212,13 +209,29 @@ sleep 10 # Wait for manager to stabilize
 import sys
 try:
     from wazuh.security import update_user
-    # User ID 1 is always the default 'wazuh' API user
     update_user(user_id="1", password="$WAZUH_PASSWORD")
     print("SUCCESS: Wazuh API password updated via Python.")
 except Exception as e:
     print(f"ERROR: Failed to update password: {e}")
     sys.exit(1)
 EOF
+
+echo "Configuring Manager connection to Indexer..."
+
+# 1. Add Indexer credentials to the Manager's Keystore
+# This allows the Manager to authenticate with the Database using the admin user
+/var/ossec/bin/wazuh-keystore -f indexer -k username -v admin
+/var/ossec/bin/wazuh-keystore -f indexer -k password -v "$WAZUH_PASSWORD"
+
+#Make sure the manager is looking at the right spots for the indexer and that SSL verification is off
+sed -i "s|<host>127.0.0.1</host>|<host>https://127.0.0.1:9200</host>|g" /var/ossec/etc/ossec.conf
+if grep -q "<ssl_verification>" /var/ossec/etc/ossec.conf; then
+    # It exists, so we replace yes with no
+    sed -i "s|<ssl_verification>yes</ssl_verification>|<ssl_verification>no</ssl_verification>|g" /var/ossec/etc/ossec.conf
+else
+    # It does NOT exist (default state), so we insert it after the <ssl> tag
+    sed -i '/<ssl>/a \      <ssl_verification>no</ssl_verification>' /var/ossec/etc/ossec.conf
+fi
 
 # Restart Manager to reload credentials from the database
 systemctl restart wazuh-manager
@@ -267,7 +280,6 @@ output.elasticsearch:
   ssl.verification_mode: none
 EOF
 
-# CRITICAL FIX: Enforce permissions on filebeat.yml
 chmod 600 /etc/filebeat/filebeat.yml
 
 mkdir -p /etc/filebeat/certs
@@ -362,11 +374,9 @@ opensearch.password: $WAZUH_PASSWORD
 EOF
 
 # [FIX] Configure Dashboard Plugin to API Connection (wazuh.yml)
-# This fixes the AxiosError by telling the UI how to talk to the API
 echo "Configuring Dashboard Plugin API connection..."
 mkdir -p /usr/share/wazuh-dashboard/data/wazuh/config
 
-# CRITICAL FIX: allow_insecure_connection added
 cat > /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml <<EOF
 hosts:
   - default:
@@ -380,7 +390,6 @@ EOF
 
 chmod 600 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
 
-# CRITICAL FIX: Recursive chown to allow 'downloads' creation
 chown -R wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data/wazuh
 
 systemctl enable wazuh-dashboard
