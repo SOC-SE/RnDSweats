@@ -1,0 +1,122 @@
+# Get-WindowsSecurityAudit.ps1
+# This script collects system inventory and security-relevant information on a Windows system,
+
+# --- Global Variables ---
+# Change: Output file path is now set to the current user's Desktop.
+$ReportPath = "$env:USERPROFILE\Desktop\WindowsSecurityAudit_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+$AuditDate = Get-Date -Format "ddd MMM dd hh:mm:ss tt zzz yyyy"
+$Hostname = hostname
+$CurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+
+# --- Helper Function for Formatting ---
+function Write-Header {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Title
+    )
+    "==================================================================" | Out-File $ReportPath -Append
+    "$Title" | Out-File $ReportPath -Append
+    "==================================================================" | Out-File $ReportPath -Append
+}
+
+function Write-Section {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Title,
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$ContentScript
+    )
+    "`n" | Out-File $ReportPath -Append
+    "$Title" | Out-File $ReportPath -Append
+    "--------------------------------------" | Out-File $ReportPath -Append
+    Invoke-Command $ContentScript | Out-File $ReportPath -Append
+}
+
+# --- Main Script Execution ---
+
+# 1. Start Report
+"MASTER SECURITY AUDIT REPORT" | Out-File $ReportPath
+"Date: $AuditDate" | Out-File $ReportPath -Append
+"Hostname: $Hostname" | Out-File $ReportPath -Append
+Write-Header -Title "System Inventory - Security Assessment"
+
+# 2. System Inventory
+$CPUInfo = Get-CimInstance -ClassName Win32_Processor
+$RAMInfo = Get-CimInstance -ClassName Win32_ComputerSystem
+$OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem
+$DiskInfo = Get-CimInstance -ClassName Win32_DiskDrive | Select-Object Name, Model, @{Name='SizeGB';Expression={[math]::Round($_.Size / 1GB)}}
+$IPInfo = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notlike '*Loopback*' -and $_.IPAddress -notlike '169.254.*' }
+
+Write-Section -Title "$Hostname Summary" -ContentScript {
+    [PSCustomObject]@{
+        Hostname = $Hostname
+        IPAddress = $($IPInfo | Select-Object -ExpandProperty IPAddress -First 1)
+        OperatingSystem = $($OSInfo.Caption)
+        ScriptUser = $CurrentUser
+    } | Format-List | Out-String
+}
+
+Write-Section -Title "Hardware Resources" -ContentScript {
+    [PSCustomObject]@{
+        CPUModel = $($CPUInfo | Select-Object -ExpandProperty Name -First 1)
+        CPUCores = $($CPUInfo | Measure-Object -Property NumberOfCores -Sum).Sum
+        TotalRAM = [math]::Round($RAMInfo.TotalPhysicalMemory / 1MB)
+    } | Format-List | Out-String
+}
+
+Write-Section -Title "Storage Devices" -ContentScript {
+    $DiskInfo | Format-Table -AutoSize
+}
+
+# 3. Open Ports and PIDs (Netstat Equivalent)
+Write-Section -Title "Open Ports and PIDs" -ContentScript {
+    # Get-NetTCPConnection provides better info than netstat
+    Get-NetTCPConnection | 
+    Select-Object -Property State, 
+                  @{Name='LocalAddress:Port'; Expression={"$($_.LocalAddress):$($_.LocalPort)"}},
+                  @{Name='RemoteAddress:Port'; Expression={"$($_.RemoteAddress):$($_.RemotePort)"}},
+                  @{Name='ProcessName'; Expression={ (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName }},
+                  @{Name='PID'; Expression={$_.OwningProcess}} |
+    Sort-Object LocalPort |
+    Format-Table -AutoSize
+}
+
+# 4. Local Users and Admin Access
+Write-Section -Title "Local Users and Group Membership" -ContentScript {
+    $LocalUsers = Get-LocalUser | Select-Object Name, SID, Enabled, Description
+    $AdminGroup = Get-LocalGroupMember -Name 'Administrators' -ErrorAction SilentlyContinue
+    
+    "--- All Local Users ---"
+    $LocalUsers | Format-Table -AutoSize
+    
+    "`n--- Members of 'Administrators' Group (Admin Users) ---"
+    if ($AdminGroup) {
+        $AdminGroup | Select-Object Name, ObjectClass, PrincipalSource | Format-Table -AutoSize
+    } else {
+        "No members found (script may not have necessary permissions)."
+    }
+}
+
+# 5. Scheduled Tasks (Cron Equivalent)
+Write-Section -Title "Scheduled Task Enumeration - Security Assessment" -ContentScript {
+    Get-ScheduledTask | 
+    Where-Object { $_.State -eq 'Ready' -or $_.State -eq 'Running' } | 
+    Select-Object TaskName, State, @{Name='Action'; Expression={ $_.Actions.Execute + " " + $_.Actions.Arguments }}, Author | 
+    Format-Table -AutoSize
+}
+
+# 6. Active Services
+Write-Section -Title "Service Enumeration - Security Assessment (Running Services)" -ContentScript {
+    Get-Service | 
+    Where-Object { $_.Status -eq 'Running' } | 
+    Select-Object Name, DisplayName, Status, StartType | 
+    Format-Table -AutoSize
+}
+
+# 7. Finalize Report
+"`n==================================================================" | Out-File $ReportPath -Append
+"AUDIT COMPLETE" | Out-File $ReportPath -Append
+"Report saved to: $ReportPath" | Out-File $ReportPath -Append
+
+# 8. Output to Console (Optional - can be removed if only saving to file)
+Get-Content $ReportPath
