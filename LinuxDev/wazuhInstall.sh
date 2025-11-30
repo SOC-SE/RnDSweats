@@ -148,7 +148,8 @@ plugins.security.allow_default_init_securityindex: true
 plugins.security.authcz.admin_dn:
   - CN=admin,OU=Wazuh,O=Wazuh,L=California,C=US
 plugins.security.nodes_dn:
-  - CN=node-1,OU=Wazuh,O=Wazuh,L=California,C=US
+  - CN=node-1,OU=Wazuh,O=Wazuh,L=Chicago,C=US
+compatibility.override_main_response_version: true
 EOF
 
 systemctl daemon-reload
