@@ -167,6 +167,15 @@ except Exception as e:
 
 chown -R "$SALT_USER:$SALT_USER" "$INSTALL_DIR"
 
+
+log "Setting up Custom Scripts..."
+mkdir -p /srv/salt
+if [ -d "../SaltyBoxes/CustomScripts/" ]; then
+    cp -r ../SaltyBoxes/CustomScripts/* /srv/salt/
+else
+    warn "CustomScripts folder not found in parent directory. Skipping copy."
+fi
+
 log "Installing Node.js dependencies..."
 cd "$INSTALL_DIR"
 npm install --unsafe-perm
@@ -190,13 +199,7 @@ WantedBy=multi-user.target
 EOF
 
 # --- 8. Move custom scripts ---
-log "Setting up Custom Scripts..."
-mkdir -p /srv/salt
-if [ -d "../SaltyBoxes/CustomScripts/" ]; then
-    cp -r ../SaltyBoxes/CustomScripts/* /srv/salt/
-else
-    warn "CustomScripts folder not found in parent directory. Skipping copy."
-fi
+
 
 # --- 9. Configure SELinux (RHEL/OL specific) ---
 configure_selinux() {
