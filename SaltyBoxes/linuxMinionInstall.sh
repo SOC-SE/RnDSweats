@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ==============================================================================
-# Salt Minion Manual Installer (No Bootstrap)
-# Targets: Salt 3007 LTS (Unified Version)
-# Supported: Ubuntu 20.04+, Debian 11+, RHEL/Rocky/Alma/Oracle 8+
+# Salt Minion Manual Installer (Broadcom/Onedir)
+# Targets: Salt 3007 LTS
+# Supported: Ubuntu 20.04/22.04/24.04, Debian 11+, RHEL/Fedora/Rocky 8/9
 # ==============================================================================
 
 SCRIPT_TITLE="Salt Minion Manual Installer"
@@ -29,6 +29,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # --- 2. User Input ---
+# Default IP is set to 172.20.242.20. User can just hit Enter.
 read -p "Enter Salt Master IP [Default: $DEFAULT_MASTER_IP]: " INPUT_IP
 SALT_MASTER_IP=${INPUT_IP:-$DEFAULT_MASTER_IP}
 log "Using Master IP: $SALT_MASTER_IP"
@@ -43,12 +44,12 @@ log "Using Minion ID: $MINION_ID"
 log "Cleaning up any existing service states..."
 systemctl stop salt-minion 2>/dev/null || true
 
-# --- 4. OS Detection & Repo Setup (Manual Method) ---
+# --- 4. OS Detection & Repo Setup ---
 log "Detecting OS and configuring repositories for Salt 3007..."
 
 if command -v apt-get &> /dev/null; then
     # ==========================================
-    # Debian / Ubuntu Logic
+    # Debian / Ubuntu Logic (Broadcom Onedir)
     # ==========================================
     PKG_MGR="apt-get"
     
@@ -56,30 +57,26 @@ if command -v apt-get &> /dev/null; then
     $PKG_MGR update -y > /dev/null
     $PKG_MGR install -y curl gnupg2 > /dev/null
 
-    # 2. Setup Keyrings (Broadcom Key)
+    # 2. Setup Keyrings
     mkdir -p /etc/apt/keyrings
+    # Remove old key if exists to ensure we have the latest
+    rm -f /etc/apt/keyrings/salt-archive-keyring.pgp
     curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null
     
-    # 3. Detect Architecture and Codename
+    # 3. Detect Architecture
     ARCH=$(dpkg --print-architecture)
-    # Robust codename detection
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        CODENAME=$VERSION_CODENAME
-    fi
-    if [ -z "$CODENAME" ]; then
-        CODENAME=$(lsb_release -cs)
-    fi
     
-    log "Detected System: Debian/Ubuntu ($CODENAME) [$ARCH]"
+    log "Detected System: Debian/Ubuntu [$ARCH]"
 
-    # 4. Write Sources List (Pointing to Salt 3007)
-    echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$ARCH] https://packages.broadcom.com/artifactory/saltproject-deb/ stable/3007 $CODENAME main" | tee /etc/apt/sources.list.d/salt.list > /dev/null
+    # 4. Write Sources List (Corrected for Broadcom)
+    # Note: We do NOT use the codename (e.g. jammy) in the path anymore. 
+    # The suite is simply 'stable' for the Broadcom Onedir repo.
+    echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$ARCH] https://packages.broadcom.com/artifactory/saltproject-deb/ stable main" | tee /etc/apt/sources.list.d/salt.list > /dev/null
     
-    # 5. Pin Priority (Ensure we don't pick up old OS packages)
+    # 5. Pin Priority (Force version 3007 to avoid unexpected upgrades)
     cat <<EOF > /etc/apt/preferences.d/salt-pin-1001
 Package: salt-*
-Pin: origin packages.broadcom.com
+Pin: version 3007.*
 Pin-Priority: 1001
 EOF
 
@@ -89,22 +86,27 @@ EOF
 
 elif command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     # ==========================================
-    # RHEL / CentOS / Rocky / Alma Logic
+    # RHEL / Fedora / Rocky / Alma Logic
     # ==========================================
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
     # 1. Detect RHEL Version
     if [ -f /etc/os-release ]; then
         . /etc/os-release
-        EL_VERSION=$(echo $VERSION_ID | cut -d. -f1)
+        # For Fedora, we treat it like RHEL 9 for the repo URL usually, or detect specific version
+        if [[ "$ID" == "fedora" ]]; then
+             EL_VERSION="9" # Fedora works well with EL9 packages usually
+        else
+             EL_VERSION=$(echo $VERSION_ID | cut -d. -f1)
+        fi
     else
         EL_VERSION=$(rpm -E %rhel)
     fi
     
-    log "Detected System: RHEL/EL Version $EL_VERSION"
+    log "Detected System: RHEL/Fedora/EL Version $EL_VERSION"
 
     # 2. Install Salt Repo RPM
-    # We install the repo RPM directly from Broadcom to configure the .repo file automatically
+    # This automatically configures the .repo file for 3007
     REPO_RPM_URL="https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${EL_VERSION}/x86_64/3007/salt-repo-3007-${EL_VERSION}.noarch.rpm"
     
     log "Installing Repo RPM..."
@@ -115,7 +117,7 @@ elif command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     INSTALL_CMD="$PKG_MGR install -y salt-minion"
 
 else
-    error "Unsupported OS. Only apt (Debian/Ubuntu) and dnf/yum (RHEL/CentOS) are supported."
+    error "Unsupported OS. Only apt (Debian/Ubuntu) and dnf/yum (RHEL/Fedora) are supported."
 fi
 
 # --- 5. Installation ---
@@ -124,8 +126,8 @@ eval $INSTALL_CMD || error "Failed to install salt-minion."
 
 # --- 6. Service Handling (The Ubuntu Fix) ---
 log "Stopping service for configuration..."
-# STOP immediately. This prevents the "start failure" loop on Ubuntu/Debian
-# that happens when the package starts unconfigured.
+# STOP immediately. Ubuntu/Debian packages often auto-start the service 
+# in a broken state before config is applied.
 systemctl stop salt-minion
 systemctl disable salt-minion 2>/dev/null || true
 
@@ -145,8 +147,8 @@ systemctl start salt-minion
 log "Waiting for initialization (5s)..."
 sleep 5
 
-# Ubuntu/Debian often fail DNS resolution or binding on the very first start 
-# after install. This forced restart clears that state.
+# Ubuntu/Debian often fail DNS resolution or binding on the very first start.
+# This forced restart clears that state and ensures a clean connection.
 log "Performing stability restart..."
 systemctl restart salt-minion
 
