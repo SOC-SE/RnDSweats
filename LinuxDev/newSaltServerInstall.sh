@@ -30,6 +30,8 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+git clone https://github.com/KySchwartz/Salt-GUI --branch=master
+
 if [ ! -d "$SOURCE_DIR" ]; then
     error "Directory '$SOURCE_DIR' not found in current location."
     echo "Please run this script from the directory containing the Salt-GUI folder."
