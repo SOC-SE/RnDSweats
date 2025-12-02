@@ -1,11 +1,13 @@
 #!/bin/bash
 
 # ==============================================================================
-# Automated Salt-GUI Deployment Script (Bootstrap Edition)
+# Automated Salt-GUI Deployment Script (Corrected Manual Repo)
 # ==============================================================================
 #
-# Installs and configures the Salt master and API using the official Bootstrap
-# script to ensure perfect repo setup and version matching (3007).
+# Installs Salt 3007 using the same reliable logic as linuxMinionInstall.sh.
+# - Fixes the "braodcom" typo.
+# - Removes crypto policies.
+# - Removes interface binding.
 #
 # Samuel Brucker 2025-2026
 #
@@ -37,7 +39,7 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Service Cleanup (Clean slate)
+# Service Cleanup
 log "Cleaning up existing services..."
 systemctl stop salt-gui salt-minion salt-master salt-api 2>/dev/null || true
 
@@ -45,79 +47,89 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 [ -z "$SERVER_IP" ] && SERVER_IP="localhost" && warn "Could not detect IP. Defaulting to localhost."
 log "Detected Server IP: $SERVER_IP"
 
-# ------------------------------------------------------------------
-# STEP 1: Run Salt Bootstrap (Installs Repo + Master + Minion)
-# ------------------------------------------------------------------
-# ------------------------------------------------------------------
-log "Preparing to install Salt Master & Minion (Version 3007)..."
-
-BOOTSTRAP_URL="https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh"
-
-
-if curl -L -o bootstrap-salt.sh --connect-timeout 10 --max-time 35 "$BOOTSTRAP_URL"; then
-    log "Download successful via Curl."
-    log "Running Bootstrap to install Salt Master, API, and Minion (Version 3007)..."
-    # -M: Install Master
-    # -W: Install API
-    # -P: Allow Pip-based installation if needed
-    # -x python3: Force Python 3
-    # stable 3007: Pin to the 3007.x branch
-    sh bootstrap-salt.sh -M -W -P -x python3 stable 3007
-else
-    warn "Curl download failed (Firewall blocked?). Falling back to Git Clone method..."
-
-    log "Installing Git for fallback..."
-    if command -v dnf &> /dev/null; then
-        dnf install -y git
-    elif command -v yum &> /dev/null; then
-        yum install -y git
-    elif command -v apt-get &> /dev/null; then
-        apt-get update && apt-get install -y git
-    fi
-
-    log "Cloning Salt Bootstrap Repository..."
-    rm -rf salt-bootstrap # Cleanup previous attempts
-    git clone https://github.com/saltstack/salt-bootstrap.git
-    
-    cd salt-bootstrap
-    log "Running Bootstrap from Git Source..."
-    sh bootstrap-salt.sh -M -W -P -x python3 stable 3007
-    cd ..
-    rm -rf salt-bootstrap
-fi
-# ------------------------------------------------------------------
-# STEP 2: Install Salt API & Dependencies (Post-Bootstrap)
-# ------------------------------------------------------------------
-log "Installing Salt API and GUI dependencies..."
+log "Detecting package manager and installing dependencies..."
 
 if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
-    $PKG_MGR install -y policycoreutils-python-utils
+    # Detect EL Version (Logic borrowed from linuxMinionInstall.sh)
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        if [[ "$ID" == "fedora" ]]; then
+             EL_VERSION="9" 
+        else
+             EL_VERSION=$(echo $VERSION_ID | cut -d. -f1)
+        fi
+    else
+        EL_VERSION=$(rpm -E %rhel)
+    fi
+    log "Detected Enterprise Linux Version: $EL_VERSION"
+
+    $PKG_MGR install -y epel-release || true
     
-    # Install Node.js for the GUI
+    # --- STEP 1: REMOVE OLD REPOS ---
+    log "Removing old/conflicting Salt repositories..."
+    rpm -e --nodeps salt-repo 2>/dev/null || true
+    rm -f /etc/yum.repos.d/salt.repo
+    $PKG_MGR clean all
+
+    # --- STEP 2: INSTALL SALT 3007 REPO (Corrected URL) ---
+    log "Installing Salt 3007 Repository (Broadcom)..."
+    
+    # URL Logic matching your working minion script
+    REPO_URL="https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${EL_VERSION}/x86_64/3007/salt-repo-3007-${EL_VERSION}.noarch.rpm"
+    
+    log "Fetching Repo RPM from: $REPO_URL"
+    $PKG_MGR install -y "$REPO_URL" || error "Failed to install Repo RPM. Check internet connection."
+    
+    $PKG_MGR makecache
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
-    $PKG_MGR install -y nodejs npm python3-pip
+    
+    log "Upgrading/Installing Salt Components..."
+    # 'upgrade' ensures we move from 3005 -> 3007
+    $PKG_MGR upgrade -y salt-master salt-minion salt-api salt-ssh
+    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
 
 elif command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
     
+    log "Configuring Salt 3007 Repository (Debian/Ubuntu)..."
+    $PKG_MGR update
+    $PKG_MGR install -y curl gnupg2
+
+    mkdir -p /etc/apt/keyrings
+    rm -f /etc/apt/keyrings/salt-archive-keyring.pgp
+    
+    # Fetch Broadcom/Salt Key
+    curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null
+    
+    ARCH=$(dpkg --print-architecture)
+    
+    # Add Repo
+    echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$ARCH] https://packages.broadcom.com/artifactory/saltproject-deb/ stable main" | tee /etc/apt/sources.list.d/salt.list > /dev/null
+    
+    # Pin to 3007 to ensure version match
+    cat <<EOF > /etc/apt/preferences.d/salt-pin-1001
+Package: salt-*
+Pin: version 3007.*
+Pin-Priority: 1001
+EOF
+    
+    $PKG_MGR update
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    $PKG_MGR install -y nodejs build-essential
+    $PKG_MGR install -y nodejs build-essential salt-master salt-minion salt-api salt-ssh
     $PKG_MGR install -y python3-cherrypy3 || pip3 install cherrypy
 else
     error "No supported package manager found."
     exit 1
 fi
 
-# ------------------------------------------------------------------
-# STEP 3: Configure User & Salt Master
-# ------------------------------------------------------------------
 log "Configuring system user '$SALT_USER'..."
 if ! id "$SALT_USER" &>/dev/null; then
     useradd -m -s /bin/bash "$SALT_USER"
 fi
 echo "$SALT_USER:$SALT_PASS" | chpasswd
+
 
 log "Configuring Salt Master and API (Monolithic Config)..."
 
@@ -160,9 +172,6 @@ log "Configuring Local Salt Minion..."
 echo "master: localhost" > /etc/salt/minion.d/master.conf
 echo "salt-master-gui" > /etc/salt/minion_id
 
-# ------------------------------------------------------------------
-# STEP 4: Deploy GUI & Start Services
-# ------------------------------------------------------------------
 log "Deploying Salt-GUI from $SOURCE_DIR to $INSTALL_DIR..."
 
 rm -rf "$INSTALL_DIR"
