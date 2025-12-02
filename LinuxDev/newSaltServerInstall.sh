@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Automated Salt-GUI Deployment Script (Updated)
+# Automated Salt-GUI Deployment Script (Final Competition Version)
 # ==============================================================================
 
 set -e
@@ -13,6 +13,7 @@ SALT_USER="saltgui"
 SALT_PASS="PlzNoHackThisAccountItsUseless!"
 API_PORT=8881
 GUI_PORT=3000
+MASTER_CONF="/etc/salt/master"
 
 # --- Colors ---
 GREEN='\033[0;32m'
@@ -24,28 +25,34 @@ log() { echo -e "${GREEN}[INFO] $1${NC}"; }
 warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
 error() { echo -e "${RED}[ERROR] $1${NC}"; }
 
-# --- 1. Pre-flight Checks ---
+# --- 1. Pre-flight Checks & Cleanup ---
 if [[ $EUID -ne 0 ]]; then
    error "This script must be run as root."
    exit 1
 fi
 
-git clone https://github.com/KySchwartz/Salt-GUI --branch=master
+# Service Cleanup: Stop existing services to prevent conflicts during install
+log "Cleaning up existing services..."
+if systemctl is-active --quiet salt-gui; then systemctl stop salt-gui; fi
+if systemctl is-active --quiet salt-minion; then systemctl stop salt-minion; fi
+if systemctl is-active --quiet salt-master; then systemctl stop salt-master; fi
+if systemctl is-active --quiet salt-api; then systemctl stop salt-api; fi
+
+# Clone repo if not present (optional, based on your previous script)
+if [ ! -d "$SOURCE_DIR" ]; then
+    log "Source directory not found. Cloning from Git..."
+    git clone https://github.com/KySchwartz/Salt-GUI --branch=master
+fi
 
 if [ ! -d "$SOURCE_DIR" ]; then
-    error "Directory '$SOURCE_DIR' not found in current location."
-    echo "Please run this script from the directory containing the Salt-GUI folder."
+    error "Directory '$SOURCE_DIR' still not found. Please ensure Salt-GUI is present."
     exit 1
 fi
 
-# Detect Server IP (for config.json)
+# Detect Server IP
 SERVER_IP=$(hostname -I | awk '{print $1}')
-if [ -z "$SERVER_IP" ]; then
-    SERVER_IP="localhost"
-    warn "Could not detect IP address. Defaulting to localhost."
-else
-    log "Detected Server IP: $SERVER_IP"
-fi
+[ -z "$SERVER_IP" ] && SERVER_IP="localhost" && warn "Could not detect IP. Defaulting to localhost."
+log "Detected Server IP: $SERVER_IP"
 
 # --- 2. Install Dependencies (OS Agnostic) ---
 log "Detecting package manager and installing dependencies..."
@@ -55,9 +62,8 @@ if command -v dnf &> /dev/null; then
     $PKG_MGR install -y epel-release || true
     $PKG_MGR install -y https://repo.saltproject.io/salt/py3/redhat/salt-repo-latest.el9.noarch.rpm || true
     $PKG_MGR makecache
-    # Try installing Node 18, fall back if needed
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh
+    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
 
 elif command -v yum &> /dev/null; then
     PKG_MGR="yum"
@@ -65,42 +71,39 @@ elif command -v yum &> /dev/null; then
     $PKG_MGR install -y https://repo.saltproject.io/salt/py3/redhat/salt-repo-latest.el9.noarch.rpm || true
     $PKG_MGR makecache
     curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh
+    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
 
 elif command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
     $PKG_MGR update
     $PKG_MGR install -y curl gnupg2
-    
-    # Bootstrap Salt (safer for varied Debian/Ubuntu/Mint versions)
     curl -fsSL https://bootstrap.saltproject.io -o install_salt.sh
     sh install_salt.sh -M -P -x python3
-    
-    # Install Node.js
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
     $PKG_MGR install -y nodejs build-essential salt-api
-    
-    # Ensure cherrypy
     $PKG_MGR install -y python3-cherrypy3 || pip3 install cherrypy
 else
-    error "No supported package manager found (dnf, yum, apt)."
+    error "No supported package manager found."
     exit 1
 fi
 
 # --- 3. Configure System User ---
 log "Configuring system user '$SALT_USER'..."
-if id "$SALT_USER" &>/dev/null; then
-    echo "$SALT_USER:$SALT_PASS" | chpasswd
-else
+if ! id "$SALT_USER" &>/dev/null; then
     useradd -m -s /bin/bash "$SALT_USER"
-    echo "$SALT_USER:$SALT_PASS" | chpasswd
 fi
+echo "$SALT_USER:$SALT_PASS" | chpasswd
 
 # --- 4. Configure Salt Master & API ---
 log "Configuring Salt Master and API..."
 
 MASTER_CONF_DIR="/etc/salt/master.d"
 mkdir -p "$MASTER_CONF_DIR"
+
+# Run Master as Root (Fixes permission issues for competitions)
+log "Configuring Salt Master to run as root..."
+sed -i '/^#*user: /d' "$MASTER_CONF"
+echo "user: root" >> "$MASTER_CONF"
 
 # External Auth (PAM)
 cat <<EOF > "$MASTER_CONF_DIR/auth.conf"
@@ -113,12 +116,18 @@ external_auth:
       - '@jobs'
 EOF
 
-# API Config (CherryPy) - SSL Disabled, Exposed to 0.0.0.0
+# API Config (CherryPy)
+# Added netapi_enable_clients to ensure 'local', 'runner', and 'wheel' client types work
 cat <<EOF > "$MASTER_CONF_DIR/api.conf"
 rest_cherrypy:
   port: $API_PORT
   host: 0.0.0.0
   disable_ssl: True
+
+netapi_enable_clients:
+  - local
+  - runner
+  - wheel
 EOF
 
 # --- 5. Configure Salt Minion (Local) ---
@@ -129,48 +138,37 @@ echo "id: salt-master-gui" > /etc/salt/minion_id
 # --- 6. Deploy GUI Application ---
 log "Deploying Salt-GUI from $SOURCE_DIR to $INSTALL_DIR..."
 
-# Clean old install if exists
 rm -rf "$INSTALL_DIR"
-# Copy directory
 cp -r "$SOURCE_DIR" "$INSTALL_DIR"
 
 # Configure config.json
-# We use jq if available, otherwise python one-liner to edit JSON safely, or simple sed replacement
 CONFIG_FILE="$INSTALL_DIR/config.json"
-
 log "Updating config.json with Server IP ($SERVER_IP)..."
-# Using python for reliable JSON manipulation without requiring jq installation
+
 python3 -c "
 import json
 import sys
-
 config_path = '$CONFIG_FILE'
 try:
     with open(config_path, 'r') as f:
         data = json.load(f)
-    
     # Update values
     data['proxyURL'] = ''
     data['saltAPIUrl'] = 'http://0.0.0.0:$API_PORT'
     data['username'] = '$SALT_USER'
     data['password'] = '$SALT_PASS'
     data['eauth'] = 'pam'
-    
     with open(config_path, 'w') as f:
         json.dump(data, f, indent=2)
-    print('Config updated successfully.')
 except Exception as e:
     print(f'Error updating config: {e}')
     sys.exit(1)
 "
 
-# Set Permissions
 chown -R "$SALT_USER:$SALT_USER" "$INSTALL_DIR"
 
-# Install Node Modules
 log "Installing Node.js dependencies..."
 cd "$INSTALL_DIR"
-# Run as user to avoid root-owned node_modules issues, or run as root with --unsafe-perm
 npm install --unsafe-perm
 
 # --- 7. Create Systemd Service ---
@@ -191,7 +189,45 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
-# --- 8. Start Services ---
+# --- 8. Move custom scripts ---
+log "Setting up Custom Scripts..."
+mkdir -p /srv/salt
+if [ -d "../SaltyBoxes/CustomScripts" ]; then
+    cp -r ../SaltyBoxes/CustomScripts/* /srv/salt/
+else
+    warn "CustomScripts folder not found in parent directory. Skipping copy."
+fi
+
+# --- 9. Configure SELinux (RHEL/OL specific) ---
+configure_selinux() {
+    # Only run if dnf/yum is present (RedHat family)
+    if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
+        log "Checking SELinux configuration..."
+        
+        # Check if SELinux is enforcing
+        if sestatus | grep "Current mode:" | grep -q "enforcing"; then
+            log "SELinux is enforcing. Applying rules..."
+            
+            # Allow GUI Port (default 3000)
+            if ! semanage port -l | grep http_port_t | grep -qw "$GUI_PORT"; then
+                log "Adding SELinux rule for port $GUI_PORT..."
+                semanage port -a -t http_port_t -p tcp "$GUI_PORT" || warn "Failed to add port $GUI_PORT context."
+            else
+                log "Port $GUI_PORT already allowed."
+            fi
+
+            # Allow Node.js/HTTPD scripts to connect to network (needed to talk to Salt API)
+            setsebool -P daemons_enable_cluster_mode 1 || warn "Could not set daemons_enable_cluster_mode."
+            setsebool -P httpd_can_network_connect 1 || true 
+        else
+            log "SELinux is not enforcing. Skipping configuration."
+        fi
+    fi
+}
+
+configure_selinux
+
+# --- 10. Start Services & Accept Keys ---
 log "Starting Services..."
 systemctl daemon-reload
 systemctl enable --now salt-master
@@ -199,8 +235,15 @@ systemctl enable --now salt-minion
 systemctl enable --now salt-api
 systemctl enable --now salt-gui
 
-# Restart minion to pick up new master config
+# Restart minion to ensure it connects to the now-running master
 systemctl restart salt-minion
+
+log "Waiting for local minion to contact master..."
+sleep 5
+
+log "Accepting local minion key..."
+# Accepts the specific key we configured earlier
+salt-key -y -a "salt-master-gui" || warn "Key 'salt-master-gui' not found yet. You may need to accept it in the GUI."
 
 log "Deployment Complete!"
 echo "--------------------------------------------------------"
