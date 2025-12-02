@@ -1,13 +1,15 @@
 #!/bin/bash
 
 # ==============================================================================
-# Salt Minion Universal Installer (Linux) - Revised
-# Targets: Debian/Ubuntu & RHEL/CentOS/Rocky/Alma
-# Version: Salt 3007 LTS (Unified)
+# Salt Minion Universal Installer (Bootstrap Method)
+# Supported: Ubuntu 20.04/22.04+, CentOS 7, RHEL 8/9, Debian 10+
+# Version: Pins to Salt 3006 LTS (Max Compatibility for CentOS 7)
 # ==============================================================================
 
 SCRIPT_TITLE="Salt Minion Universal Installer"
 DEFAULT_MASTER_IP="172.20.242.20"
+# We pin to 3006 because it is the reliable LTS for CentOS 7
+SALT_VERSION="3006" 
 
 # --- Colors ---
 GREEN='\033[0;32m'
@@ -24,9 +26,16 @@ echo "# $SCRIPT_TITLE #"
 echo "#####################################################"
 
 # --- 1. Pre-Flight Checks ---
-
 if [ "$EUID" -ne 0 ]; then
-    error "This script must be run with root privileges. Try: sudo ./saltMinionLinux.sh"
+    error "This script must be run with root privileges. Try: sudo $0"
+fi
+
+# Ensure curl is installed (needed for bootstrap)
+if ! command -v curl &> /dev/null; then
+    log "Installing curl..."
+    if command -v apt-get &> /dev/null; then apt-get update && apt-get install -y curl
+    elif command -v yum &> /dev/null; then yum install -y curl
+    fi
 fi
 
 # --- 2. User Input ---
@@ -43,86 +52,33 @@ if [ -z "$MINION_ID" ]; then
 fi
 log "Using Minion ID: $MINION_ID"
 
-# --- 3. OS Detection & Repo Setup (Unified to 3007) ---
+# --- 3. Clean Previous Installs ---
+log "Cleaning up any existing service states..."
+systemctl stop salt-minion 2>/dev/null || true
+# We do NOT remove packages, as the bootstrap handles upgrades/reinstalls gracefully.
 
-log "Detecting OS and configuring repositories..."
+# --- 4. Installation (Via Official Bootstrap) ---
+log "Downloading Salt Bootstrap..."
+curl -o bootstrap-salt.sh -L https://bootstrap.saltproject.io
 
-if command -v apt-get &> /dev/null; then
-    # --- Debian / Ubuntu ---
-    PKG_FAMILY="DEB"
-    PKG_MGR="apt-get"
-    
-    # Install prerequisites
-    $PKG_MGR update -y > /dev/null
-    $PKG_MGR install -y curl gnupg2 > /dev/null
+log "Running Bootstrap (Installing Salt $SALT_VERSION)..."
+# Flags:
+# -P: Allow pip installation if needed (fallback)
+# -x python3: Force Python 3
+# stable $SALT_VERSION: Install specific stable version
+sh bootstrap-salt.sh -P -x python3 stable $SALT_VERSION
 
-    # Setup Keyrings
-    mkdir -p /etc/apt/keyrings
-    
-    # Download Salt 3007 Signing Key
-    curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null
-    
-    # Create Sources List (Hardcoded to 3007 LTS to ensure version match with RHEL)
-    # We create the file manually to ensure it points to the correct architecture and release
-    ARCH=$(dpkg --print-architecture)
-    CODENAME=$(lsb_release -cs 2>/dev/null || cat /etc/os-release | grep VERSION_CODENAME | cut -d= -f2)
-    
-    if [ -z "$CODENAME" ]; then error "Could not detect OS Codename."; fi
-
-    echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$ARCH] https://packages.broadcom.com/artifactory/saltproject-deb/ stable/3007 $CODENAME main" | tee /etc/apt/sources.list.d/salt.list > /dev/null
-    
-    # Pinning priority to ensure we prefer this repo
-    cat <<EOF > /etc/apt/preferences.d/salt-pin-1001
-Package: salt-*
-Pin: origin packages.broadcom.com
-Pin-Priority: 1001
-EOF
-
-    $PKG_MGR update -y
-    INSTALL_CMD="$PKG_MGR install -y salt-minion"
-
-elif command -v dnf &> /dev/null || command -v yum &> /dev/null; then
-    # --- RHEL / CentOS / Rocky / Alma ---
-    PKG_FAMILY="RPM"
-    if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
-    
-    # Detect RHEL Version (7, 8, 9)
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        EL_VERSION=$(echo $VERSION_ID | cut -d. -f1)
-    else
-        EL_VERSION=$(rpm -E %rhel)
-    fi
-    
-    log "Detected RHEL/EL Version: $EL_VERSION"
-    
-    # Install Salt 3007 Repo RPM specifically
-    REPO_URL="https://repo.saltproject.io/salt/py3/redhat/salt-repo-3007.el${EL_VERSION}.noarch.rpm"
-    
-    log "Installing Repo RPM from: $REPO_URL"
-    $PKG_MGR install -y "$REPO_URL"
-    
-    $PKG_MGR clean expire-cache
-    INSTALL_CMD="$PKG_MGR install -y salt-minion"
-
-else
-    error "Unsupported Package Manager. Only apt, dnf, and yum are supported."
+if [ $? -ne 0 ]; then
+    error "Bootstrap installation failed. Check network or logs above."
 fi
 
-# --- 4. Installation ---
-
-log "Installing Salt Minion package..."
-eval $INSTALL_CMD || error "Failed to install salt-minion."
-
-# --- 5. Service Handling (The Ubuntu Fix) ---
+# --- 5. Configuration & Ubuntu Fix ---
 
 log "Stopping service for configuration..."
-# STOP the service immediately. This prevents the "start failure" loop on Ubuntu
-# that happens when the package starts with an unconfigured master.
+# CRITICAL: Stop service immediately. Ubuntu starts it unconfigured, which causes
+# the process to hang or fail if we try to restart it too quickly.
 systemctl stop salt-minion
-systemctl disable salt-minion 2>/dev/null || true
-
-# --- 6. Configuration ---
+sleep 2
 
 log "Configuring /etc/salt/minion.d/master.conf..."
 mkdir -p /etc/salt/minion.d
@@ -131,39 +87,34 @@ echo "master: $SALT_MASTER_IP" > /etc/salt/minion.d/master.conf
 log "Setting Minion ID to $MINION_ID..."
 echo "$MINION_ID" > /etc/salt/minion_id
 
-# --- 7. Service Start & Verification ---
-
-log "Enabling and Starting Salt Minion..."
+# --- 6. Service Start (The "Double Restart" Fix) ---
+log "Starting Salt Minion..."
 systemctl enable salt-minion
 systemctl start salt-minion
 
-# Wait for potential first-start failure or initialization
-log "Waiting for service initialization (5s)..."
+log "Waiting for initialization (5s)..."
 sleep 5
 
-# The "Double Restart" Fix
-# Ubuntu minions often fail the first bind or DNS lookup if network isn't fully ready
-# or if the package install started a rogue process. We explicitly restart now.
-log "Performing stability restart..."
+# Ubuntu/Debian often fail DNS resolution or binding on the very first start 
+# after install. This forced restart clears that state.
+log "Performing stability restart (Ubuntu/Debian fix)..."
 systemctl restart salt-minion
 
 # Verify Status
 if systemctl is-active --quiet salt-minion; then
     log "Service is ACTIVE."
 else
-    warn "Service is not active yet. Retrying one last time..."
+    warn "Service NOT active. Retrying one last time..."
     sleep 5
     systemctl restart salt-minion
     if systemctl is-active --quiet salt-minion; then
         log "Service is ACTIVE after retry."
     else
-        # Don't exit, just warn, so we can still copy tools
-        warn "Service failed to start. Check 'systemctl status salt-minion' manually."
+        warn "Service failed to start. Run 'systemctl status salt-minion' to debug."
     fi
 fi
 
-# --- 8. Post-Install Tasks ---
-
+# --- 7. Post-Install Tasks ---
 if [ -d "../Tools" ]; then
     log "Copying tools to /etc/runtl..."
     mkdir -p /etc/runtl
@@ -172,12 +123,15 @@ else
     warn "../Tools directory not found. Skipping tool copy."
 fi
 
+# Cleanup bootstrap file
+rm -f bootstrap-salt.sh
+
 echo ""
 echo "#####################################################"
 echo "# MINION SETUP COMPLETE" 
 echo "#####################################################"
 echo "Minion ID: $MINION_ID"
 echo "Master IP: $SALT_MASTER_IP"
-echo "Version:   Salt 3007 (LTS)"
+echo "Version:   Salt $SALT_VERSION (LTS)"
 echo "Status:    $(systemctl is-active salt-minion)"
 echo "#####################################################"
