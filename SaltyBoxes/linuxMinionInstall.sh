@@ -1,12 +1,14 @@
 #!/bin/bash
 
 # ==============================================================================
-# Salt Minion Manual Installer (Broadcom/Onedir)
+# Salt Minion Manual Installer (Universal SHA-1 Fix Edition)
 # Targets: Salt 3007 LTS
 # Supported: Ubuntu 20.04/22.04/24.04, Debian 11+, RHEL/Fedora/Rocky 8/9
 # ==============================================================================
 #
-#   Installation script to install the Salt Minion on most Linux machines (Debian and Redhat based)
+#   Installation script to install the Salt Minion on most Linux machines.
+#   Includes fixes for SHA-1 permissions on both RHEL (Crypto Policy) 
+#   and Debian/Ubuntu (OpenSSL SECLEVEL).
 #
 #   Samuel Brucker 2025-2026
 #
@@ -50,6 +52,15 @@ log "Detecting OS and configuring repositories for Salt 3007..."
 if command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
     
+    # --- DEBIAN/UBUNTU CRYPTO FIX ---
+    # Ubuntu 24.04+ blocks SHA-1 by default via OpenSSL config.
+    # We lower SECLEVEL from 2 to 1 to allow SHA-1 (matching RHEL's DEFAULT:SHA1 policy).
+    if grep -q "SECLEVEL=2" /etc/ssl/openssl.cnf; then
+        log "Lowering OpenSSL Security Level to allow SHA-1..."
+        sed -i 's/SECLEVEL=2/SECLEVEL=1/g' /etc/ssl/openssl.cnf
+    fi
+    # --------------------------------
+    
     $PKG_MGR update -y > /dev/null
     $PKG_MGR install -y curl gnupg2 > /dev/null
 
@@ -76,6 +87,13 @@ EOF
 
 elif command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
+    
+    # --- RHEL/FEDORA CRYPTO POLICY FIX ---
+    if command -v update-crypto-policies &> /dev/null; then
+        log "Enabling SHA-1 Crypto Policy for Salt compatibility..."
+        update-crypto-policies --set DEFAULT:SHA1
+    fi
+    # -------------------------------------
     
     if [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -109,24 +127,16 @@ eval $INSTALL_CMD || error "Failed to install salt-minion."
 
 # Ubuntu Fix. Yay. 
 log "Stopping service for configuration..."
-# STOP immediately. Ubuntu/Debian packages often auto-start the service 
-# in a broken state before config is applied.
 systemctl stop salt-minion
 systemctl disable salt-minion 2>/dev/null || true
 
 log "Configuring /etc/salt/minion.d/master.conf..."
 mkdir -p /etc/salt/minion.d
+# Revert to standard config (no hash_type enforcement) since we are allowing SHA1 at OS level
 echo "master: $SALT_MASTER_IP" > /etc/salt/minion.d/master.conf
 
 log "Setting Minion ID to $MINION_ID..."
 echo "$MINION_ID" > /etc/salt/minion_id
-
-log "Configuring /etc/salt/minion.d/master.conf..."
-mkdir -p /etc/salt/minion.d
-cat <<EOF > /etc/salt/minion.d/master.conf
-master: $SALT_MASTER_IP
-hash_type: sha256
-EOF
 
 log "Enabling and Starting Salt Minion..."
 systemctl enable salt-minion
@@ -151,7 +161,6 @@ else
         log "Service is ACTIVE after retry."
     else
         warn "Service failed to start. Run 'systemctl status salt-minion' to debug."
-        # Don't exit, assume user might fix config later
     fi
 fi
 
@@ -169,6 +178,6 @@ echo "# MINION SETUP COMPLETE"
 echo "#####################################################"
 echo "Minion ID: $MINION_ID"
 echo "Master IP: $SALT_MASTER_IP"
-echo "Version:   Salt 3007 (LTS)"
+echo "Crypto:    SHA-1 Permitted (SECLEVEL=1)"
 echo "Status:    $(systemctl is-active salt-minion)"
 echo "#####################################################"
