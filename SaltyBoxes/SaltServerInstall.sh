@@ -22,7 +22,7 @@ set -e
 SOURCE_DIR="../SaltyBoxes/Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
 # might be worth changing this in a comp. This default should be half decent, but no promises
-SALT_USER="depuser"
+SALT_USER="hiblueteam"
 SALT_PASS="PlzNoHackThisAccountItsUseless!"
 API_PORT=8881
 GUI_PORT=3000
@@ -97,6 +97,7 @@ echo "$SALT_USER:$SALT_PASS" | chpasswd
 log "Configuring Salt Master and API..."
 
 MASTER_CONF_DIR="/etc/salt/master.d"
+MASTER_CONF="/etc/salt/master"
 mkdir -p "$MASTER_CONF_DIR"
 
 # Run Salt Master as root. Yes, this could be an issue. No, I'm not changing it.
@@ -105,14 +106,21 @@ mkdir -p "$MASTER_CONF_DIR"
 # but that opens up the possibility of another tool needing it. This is just the easiest way to make sure that doesn't happen,
 # and my personal risk tolerance is happy with this decision.
 log "Configuring Salt Master to run as root..."
-sed -i '/^#*user: /d' "$MASTER_CONF"
-echo "user: root" >> "$MASTER_CONF"
+# Check if file exists to avoid potential errors 
+if [ -f "$MASTER_CONF" ]; then
+    sed -i '/^#*user: /d' "$MASTER_CONF"
+    echo "user: root" >> "$MASTER_CONF"
+else
+    warn "$MASTER_CONF not found. Creating it..."
+    echo "user: root" > "$MASTER_CONF"
+fi
 
 cat <<EOF > "$MASTER_CONF_DIR/auth.conf"
 external_auth:
   pam:
     $SALT_USER:
-      - .*
+      - '*':
+        - .*
       - '@wheel'
       - '@runner'
       - '@jobs'
