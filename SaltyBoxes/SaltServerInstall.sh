@@ -48,6 +48,16 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 [ -z "$SERVER_IP" ] && SERVER_IP="localhost" && warn "Could not detect IP. Defaulting to localhost."
 log "Detected Server IP: $SERVER_IP"
 
+# --- FIX: Crypto Policy for Oracle Linux 9 / RHEL 9 ---
+# "KeyError: session" often means the Master rejected the auth due to crypto mismatch.
+# We use LEGACY here to ensure maximum compatibility with the Minion's handshake.
+if command -v update-crypto-policies &> /dev/null; then
+    log "Applying Crypto Policy Fix (LEGACY) for SaltStack compatibility..."
+    update-crypto-policies --set LEGACY
+else
+    warn "update-crypto-policies not found. Skipping. (This is expected on non-RHEL/EL systems)"
+fi
+
 log "Detecting package manager and installing dependencies..."
 
 if command -v dnf &> /dev/null; then
@@ -56,7 +66,8 @@ if command -v dnf &> /dev/null; then
     $PKG_MGR install -y https://repo.saltproject.io/salt/py3/redhat/salt-repo-latest.el9.noarch.rpm || true
     $PKG_MGR makecache
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
+    # Added pip and gcc to build crypto libs if needed
+    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils gcc python3-devel
 
 elif command -v yum &> /dev/null; then
     PKG_MGR="yum"
@@ -64,7 +75,7 @@ elif command -v yum &> /dev/null; then
     $PKG_MGR install -y https://repo.saltproject.io/salt/py3/redhat/salt-repo-latest.el9.noarch.rpm || true
     $PKG_MGR makecache
     curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
+    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils gcc python3-devel
 
 elif command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
@@ -79,6 +90,10 @@ else
     error "No supported package manager found."
     exit 1
 fi
+
+log "Installing Python Crypto Compatibility Libraries..."
+# This is a critical fix for 'KeyError: session' on EL9 Masters
+pip3 install pycryptodomex --upgrade || warn "Failed to install pycryptodomex. Salt may have issues with encryption."
 
 log "Configuring system user '$SALT_USER'..."
 if ! id "$SALT_USER" &>/dev/null; then
@@ -102,6 +117,9 @@ sed -i '/# --- SALT GUI AUTOMATED CONFIG START ---/,/# --- SALT GUI AUTOMATED CO
 
 cat <<EOF >> "$MASTER_CONF"
 # --- SALT GUI AUTOMATED CONFIG START ---
+
+# Ensure we bind to all interfaces so remote minions can connect
+interface: 0.0.0.0
 
 netapi_enable_clients:
   - local
