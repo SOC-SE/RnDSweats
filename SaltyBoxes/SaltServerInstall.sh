@@ -76,23 +76,27 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     
     # We write the file directly so we don't depend on the 'salt-repo' RPM existing
     cat <<EOF > /etc/yum.repos.d/salt.repo
-[salt-3007]
-name=Salt Project 3007
-baseurl=https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${EL_VERSION}/x86_64/3007
-enabled=1
+[salt-repo-3007-sts]
+name=Salt Repo for Salt v3007 STS
+baseurl=https://packages.broadcom.com/artifactory/saltproject-rpm/
+skip_if_unavailable=True
+priority=10
+enabled=0
+enabled_metadata=1
 gpgcheck=1
+exclude=*3006* *3008* *3009* *3010*
 gpgkey=https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public
 EOF
     
     log "Repository file created at /etc/yum.repos.d/salt.repo"
-    
+    $PKG_MGR clean expire-cache
+    $PKG_MGR config-manager --set-disable salt-repo-*
+    $PKG_MGR config-manager --set-enabled salt-repo-3007-sts
     $PKG_MGR makecache
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
     
     log "Upgrading/Installing Salt Components..."
-    # 'upgrade' ensures we move from 3005 -> 3007 if installed
-    $PKG_MGR upgrade -y salt-master salt-minion salt-api salt-ssh
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
+    $PKG_MGR install -y nodejs npm python3-pip salt-master-3007.5 salt-api-3007.5 salt-minion-3007.5 policycoreutils-python-utils
 
 elif command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
