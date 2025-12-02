@@ -121,6 +121,13 @@ echo "master: $SALT_MASTER_IP" > /etc/salt/minion.d/master.conf
 log "Setting Minion ID to $MINION_ID..."
 echo "$MINION_ID" > /etc/salt/minion_id
 
+log "Configuring /etc/salt/minion.d/master.conf..."
+mkdir -p /etc/salt/minion.d
+cat <<EOF > /etc/salt/minion.d/master.conf
+master: $SALT_MASTER_IP
+hash_type: sha256
+EOF
+
 log "Enabling and Starting Salt Minion..."
 systemctl enable salt-minion
 systemctl start salt-minion

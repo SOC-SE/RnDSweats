@@ -51,9 +51,9 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
     #Set encryption protocol. Thanks OL9 for being a PITA.
-    update-crypto-policies --set DEFAULT:SHA1
+    #update-crypto-policies --set DEFAULT:SHA1
 
-    
+
     # Detect EL Version (Logic borrowed from linuxMinionInstall.sh)
     if [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -158,6 +158,7 @@ sed -i '/# --- SALT GUI AUTOMATED CONFIG START ---/,/# --- SALT GUI AUTOMATED CO
 
 cat <<EOF >> "$MASTER_CONF"
 # --- SALT GUI AUTOMATED CONFIG START ---
+hash_type: sha256
 
 netapi_enable_clients:
   - local
