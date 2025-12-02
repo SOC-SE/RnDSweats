@@ -50,6 +50,10 @@ log "Detecting package manager and installing dependencies..."
 if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
+    #Set encryption protocol. Thanks OL9 for being a PITA.
+    update-crypto-policies --set DEFAULT:SHA1
+
+    
     # Detect EL Version (Logic borrowed from linuxMinionInstall.sh)
     if [ -f /etc/os-release ]; then
         . /etc/os-release
