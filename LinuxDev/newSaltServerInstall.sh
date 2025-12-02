@@ -150,7 +150,7 @@ try:
         data = json.load(f)
     
     # Update values
-    data['proxyURL'] = 'http://0.0.0.0:$GUI_PORT'
+    data['proxyURL'] = ''
     data['saltAPIUrl'] = 'http://0.0.0.0:$API_PORT'
     data['username'] = '$SALT_USER'
     data['password'] = '$SALT_PASS'
