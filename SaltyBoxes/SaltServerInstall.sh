@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # ==============================================================================
-# Automated Salt-GUI Deployment Script (Final Competition Version)
+# Automated Salt-GUI Deployment Script (Bootstrap Edition)
 # ==============================================================================
 #
-# Installs and configures the Salt master and API, as well as the custom SaltGUI
-# 
+# Installs and configures the Salt master and API using the official Bootstrap
+# script to ensure perfect repo setup and version matching (3007).
+#
 # Samuel Brucker 2025-2026
 #
 
@@ -31,13 +32,12 @@ log() { echo -e "${GREEN}[INFO] $1${NC}"; }
 warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
 error() { echo -e "${RED}[ERROR] $1${NC}"; }
 
-
 if [[ $EUID -ne 0 ]]; then
    error "This script must be run as root."
    exit 1
 fi
 
-# Service Cleanup
+# Service Cleanup (Clean slate)
 log "Cleaning up existing services..."
 systemctl stop salt-gui salt-minion salt-master salt-api 2>/dev/null || true
 
@@ -45,73 +45,53 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 [ -z "$SERVER_IP" ] && SERVER_IP="localhost" && warn "Could not detect IP. Defaulting to localhost."
 log "Detected Server IP: $SERVER_IP"
 
-log "Detecting package manager and installing dependencies..."
+# ------------------------------------------------------------------
+# STEP 1: Run Salt Bootstrap (Installs Repo + Master + Minion)
+# ------------------------------------------------------------------
+log "Downloading Salt Bootstrap Script..."
+curl -o bootstrap-salt.sh -L https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh
 
-if command -v dnf &> /dev/null; then
-    PKG_MGR="dnf"
-    $PKG_MGR install -y epel-release || true
+log "Running Bootstrap to install Salt Master & Minion (Version 3007)..."
+# -M: Install Master
+# -W: Install API
+# -P: Allow Pip-based installation if needed
+# -x python3: Force Python 3
+# stable 3007: Pin to the 3007.x branch
+sh bootstrap-salt.sh -M -W -P -x python3 stable 3007
+
+# ------------------------------------------------------------------
+# STEP 2: Install Salt API & Dependencies (Post-Bootstrap)
+# ------------------------------------------------------------------
+log "Installing Salt API and GUI dependencies..."
+
+if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
+    if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
-    # --- RHEL/Oracle 9: Install Official Salt 3007 Repo ---
-    log "Installing Salt 3007 Repository (RHEL/EL9)..."
-    $PKG_MGR install -y https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/9/x86_64/3007/salt-repo-3007-9.noarch.rpm || true
+    $PKG_MGR install -y policycoreutils-python-utils
     
-    $PKG_MGR makecache
+    # Install Node.js for the GUI
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
-
-elif command -v yum &> /dev/null; then
-    PKG_MGR="yum"
-    $PKG_MGR install -y epel-release || true
-    
-    # --- RHEL/CentOS 7/8: Install Official Salt 3007 Repo (Assuming EL9 for now based on context) ---
-    log "Installing Salt 3007 Repository (RHEL/EL)..."
-    $PKG_MGR install -y https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/9/x86_64/3007/salt-repo-3007-9.noarch.rpm || true
-    
-    $PKG_MGR makecache
-    curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
+    $PKG_MGR install -y nodejs npm python3-pip
 
 elif command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
     
-    log "Configuring Salt 3007 Repository (Debian/Ubuntu)..."
-    $PKG_MGR update
-    $PKG_MGR install -y curl gnupg2
-
-    mkdir -p /etc/apt/keyrings
-    # Remove old key if exists
-    rm -f /etc/apt/keyrings/salt-archive-keyring.pgp
-    
-    # Fetch Broadcom/Salt Key
-    curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null
-    
-    ARCH=$(dpkg --print-architecture)
-    
-    # Add Repo
-    echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$ARCH] https://packages.broadcom.com/artifactory/saltproject-deb/ stable main" | tee /etc/apt/sources.list.d/salt.list > /dev/null
-    
-    # Pin to 3007 to ensure version match
-    cat <<EOF > /etc/apt/preferences.d/salt-pin-1001
-Package: salt-*
-Pin: version 3007.*
-Pin-Priority: 1001
-EOF
-    
-    $PKG_MGR update
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    $PKG_MGR install -y nodejs build-essential salt-master salt-minion salt-api salt-ssh
+    $PKG_MGR install -y nodejs build-essential
     $PKG_MGR install -y python3-cherrypy3 || pip3 install cherrypy
 else
     error "No supported package manager found."
     exit 1
 fi
 
+# ------------------------------------------------------------------
+# STEP 3: Configure User & Salt Master
+# ------------------------------------------------------------------
 log "Configuring system user '$SALT_USER'..."
 if ! id "$SALT_USER" &>/dev/null; then
     useradd -m -s /bin/bash "$SALT_USER"
 fi
 echo "$SALT_USER:$SALT_PASS" | chpasswd
-
 
 log "Configuring Salt Master and API (Monolithic Config)..."
 
@@ -154,6 +134,9 @@ log "Configuring Local Salt Minion..."
 echo "master: localhost" > /etc/salt/minion.d/master.conf
 echo "salt-master-gui" > /etc/salt/minion_id
 
+# ------------------------------------------------------------------
+# STEP 4: Deploy GUI & Start Services
+# ------------------------------------------------------------------
 log "Deploying Salt-GUI from $SOURCE_DIR to $INSTALL_DIR..."
 
 rm -rf "$INSTALL_DIR"
@@ -212,24 +195,6 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 EOF
-
-configure_selinux() {
-    if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
-        log "Checking SELinux configuration..."
-        if sestatus | grep "Current mode:" | grep -q "enforcing"; then
-            log "SELinux is enforcing. Applying rules..."
-            if ! semanage port -l | grep http_port_t | grep -qw "$GUI_PORT"; then
-                semanage port -a -t http_port_t -p tcp "$GUI_PORT" || warn "Failed to add port $GUI_PORT context."
-            fi
-            setsebool -P daemons_enable_cluster_mode 1 || warn "Could not set daemons_enable_cluster_mode."
-            setsebool -P httpd_can_network_connect 1 || true 
-        else
-            log "SELinux is not enforcing. Skipping configuration."
-        fi
-    fi
-}
-
-configure_selinux
 
 log "Starting Services..."
 systemctl daemon-reload
