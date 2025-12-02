@@ -11,21 +11,19 @@
 # Just about 100% of the credit for the development of the SaltGUI goes to Kyle Schwartz
 # Their LinkedIn; go say hi and compliment them if you use this tool: https://www.linkedin.com/in/kyle-schwartz-643542271/
 #
-#
-# Idea for the future: Dockerize the server so this script isn't necessary?? Installing docker wouldn't be that much faster than running this, if at all.
-# Personally, I'm more familiar with how this runs as a regular systemd service and more confident in my ability to fix/tweak it mid-comp when needed than if
-# it were a docker service. However, dockerizing the server would make it extremely flexible..... If I get time, might look into it. Both options would be nice.
-#
 
 set -e
 
 SOURCE_DIR="../SaltyBoxes/Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
-# might be worth changing this in a comp. This default should be half decent, but no promises
-SALT_USER="hiblueteam"
+# Defaults
+SALT_USER="saltgui"
 SALT_PASS="PlzNoHackThisAccountItsUseless!"
 API_PORT=8881
 GUI_PORT=3000
+
+# Salt Master Config File Location
+MASTER_CONF="/etc/salt/master"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -42,16 +40,10 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Service Cleanup: Stop existing services to prevent conflicts during install
-# Just in case this is being ran a second time after a previous install. Can't be too careful. Well, you can, but no in this case. I promise.
+# Service Cleanup
 log "Cleaning up existing services..."
-if systemctl is-active --quiet salt-gui; then systemctl stop salt-gui; fi
-if systemctl is-active --quiet salt-minion; then systemctl stop salt-minion; fi
-if systemctl is-active --quiet salt-master; then systemctl stop salt-master; fi
-if systemctl is-active --quiet salt-api; then systemctl stop salt-api; fi
+systemctl stop salt-gui salt-minion salt-master salt-api 2>/dev/null || true
 
-# TBH not even necessary anymore, it was in a previous version of this script
-# I just like seeing the server's IP address lol. Helps me memorize it, so I'm leaving this in
 SERVER_IP=$(hostname -I | awk '{print $1}')
 [ -z "$SERVER_IP" ] && SERVER_IP="localhost" && warn "Could not detect IP. Defaulting to localhost."
 log "Detected Server IP: $SERVER_IP"
@@ -94,48 +86,42 @@ if ! id "$SALT_USER" &>/dev/null; then
 fi
 echo "$SALT_USER:$SALT_PASS" | chpasswd
 
-log "Configuring Salt Master and API..."
 
-MASTER_CONF_DIR="/etc/salt/master.d"
-MASTER_CONF="/etc/salt/master"
-mkdir -p "$MASTER_CONF_DIR"
+log "Configuring Salt Master and API (Monolithic Config)..."
 
-# Run Salt Master as root. Yes, this could be an issue. No, I'm not changing it.
-# Don't let it run as root and you will potentially have fun during comp with permission errors. Especially with
-# putting the deployment server specific scripts in /srv. Sure, it'd be easy to give the $SALT_USER permissions over it,
-# but that opens up the possibility of another tool needing it. This is just the easiest way to make sure that doesn't happen,
-# and my personal risk tolerance is happy with this decision.
-log "Configuring Salt Master to run as root..."
-# Check if file exists to avoid potential errors 
-if [ -f "$MASTER_CONF" ]; then
-    sed -i '/^#*user: /d' "$MASTER_CONF"
-    echo "user: root" >> "$MASTER_CONF"
-else
-    warn "$MASTER_CONF not found. Creating it..."
-    echo "user: root" > "$MASTER_CONF"
+# Ensure /etc/salt/master exists
+if [ ! -f "$MASTER_CONF" ]; then
+    touch "$MASTER_CONF"
 fi
 
-cat <<EOF > "$MASTER_CONF_DIR/auth.conf"
-external_auth:
-  pam:
-    $SALT_USER:
-      - '*':
-        - .*
-      - '@wheel'
-      - '@runner'
-      - '@jobs'
-EOF
+# Force User to Root
+sed -i '/^user:/d' "$MASTER_CONF"
+echo "user: root" >> "$MASTER_CONF"
 
-cat <<EOF > "$MASTER_CONF_DIR/api.conf"
-rest_cherrypy:
-  port: $API_PORT
-  host: 0.0.0.0
-  disable_ssl: True
+sed -i '/# --- SALT GUI AUTOMATED CONFIG START ---/,/# --- SALT GUI AUTOMATED CONFIG END ---/d' "$MASTER_CONF"
+
+cat <<EOF >> "$MASTER_CONF"
+# --- SALT GUI AUTOMATED CONFIG START ---
 
 netapi_enable_clients:
   - local
   - runner
   - wheel
+
+rest_cherrypy:
+  port: $API_PORT
+  host: 0.0.0.0
+  disable_ssl: True
+
+external_auth:
+  pam:
+    $SALT_USER:
+      - .*
+      - '@wheel'
+      - '@runner'
+      - '@jobs'
+
+# --- SALT GUI AUTOMATED CONFIG END ---
 EOF
 
 log "Configuring Local Salt Minion..."
@@ -172,8 +158,6 @@ except Exception as e:
 
 chown -R "$SALT_USER:$SALT_USER" "$INSTALL_DIR"
 
-
-# I should change the "CustomScripts" directory to something else, but I'm just so lazy tbh lol
 log "Setting up Custom Scripts..."
 mkdir -p /srv/salt
 if [ -d "../SaltyBoxes/CustomScripts/" ]; then
