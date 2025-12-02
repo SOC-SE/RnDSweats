@@ -11,7 +11,7 @@ SOURCE_DIR="./Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
 SALT_USER="saltgui"
 SALT_PASS="PlzNoHackThisAccountItsUseless!"
-API_PORT=8000
+API_PORT=8881
 GUI_PORT=3000
 
 # --- Colors ---
