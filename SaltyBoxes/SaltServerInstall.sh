@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # ==============================================================================
-# Automated Salt-GUI Deployment Script (Direct Config Edition)
+# Automated Salt-GUI Deployment Script (Direct Repo Config Edition)
 # ==============================================================================
 #
-# Installs Salt 3007 by directly writing the /etc/yum.repos.d/salt.repo file.
-# This fixes the "404 Not Found" error caused by missing/misnamed Repo RPMs.
+# Installs Salt 3007 by manually writing the repository configuration files.
+# This bypasses the broken/missing "Repo RPM" on the Broadcom server.
 #
 # Samuel Brucker 2025-2026
 #
@@ -50,7 +50,7 @@ log "Detecting package manager and installing dependencies..."
 if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
-    # Detect EL Version
+    # Detect EL Version (Logic borrowed from linuxMinionInstall.sh)
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         if [[ "$ID" == "fedora" ]]; then
@@ -74,6 +74,7 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     # --- STEP 2: WRITE REPO FILE DIRECTLY (Fixes 404 Error) ---
     log "Configuring Salt 3007 Repository (Manual Write)..."
     
+    # We write the file directly so we don't depend on the 'salt-repo' RPM existing
     cat <<EOF > /etc/yum.repos.d/salt.repo
 [salt-3007]
 name=Salt Project 3007
@@ -84,11 +85,12 @@ gpgkey=https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjec
 EOF
     
     log "Repository file created at /etc/yum.repos.d/salt.repo"
+    
     $PKG_MGR makecache
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
     
     log "Upgrading/Installing Salt Components..."
-    # 'upgrade' ensures we move from 3005 -> 3007
+    # 'upgrade' ensures we move from 3005 -> 3007 if installed
     $PKG_MGR upgrade -y salt-master salt-minion salt-api salt-ssh
     $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
 
