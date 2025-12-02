@@ -9,7 +9,7 @@
 # Samuel Brucker 2025-2026
 #
 # Just about 100% of the credit for the development of the SaltGUI goes to Kyle Schwartz
-# Their LinkedIn, go say hi and compliment them if you use this tool: https://www.linkedin.com/in/kyle-schwartz-643542271/
+# Their LinkedIn; go say hi and compliment them if you use this tool: https://www.linkedin.com/in/kyle-schwartz-643542271/
 #
 #
 # Idea for the future: Dockerize the server so this script isn't necessary?? Installing docker wouldn't be that much faster than running this, if at all.
