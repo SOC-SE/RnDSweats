@@ -61,9 +61,9 @@ rm -f /etc/salt/minion.d/master.conf
 rm -f /etc/salt/minion_id
 
 # --- 5. Remove System User ---
-if id "sysadmin" &>/dev/null; then
-    log "Removing user 'sysadmin'..."
-    userdel -r sysadmin || warn "Could not fully remove user sysadmin (might be logged in or running processes)."
+if id "saltgui" &>/dev/null; then
+    log "Removing user 'saltgui'..."
+    userdel -r saltgui || warn "Could not fully remove user sysadmin (might be logged in or running processes)."
 fi
 
 # --- 6. Uninstall Packages ---
