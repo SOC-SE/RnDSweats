@@ -48,17 +48,43 @@ log "Detected Server IP: $SERVER_IP"
 # ------------------------------------------------------------------
 # STEP 1: Run Salt Bootstrap (Installs Repo + Master + Minion)
 # ------------------------------------------------------------------
-log "Downloading Salt Bootstrap Script..."
-curl -o bootstrap-salt.sh -L https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh
+# ------------------------------------------------------------------
+log "Preparing to install Salt Master & Minion (Version 3007)..."
 
-log "Running Bootstrap to install Salt Master & Minion (Version 3007)..."
-# -M: Install Master
-# -W: Install API
-# -P: Allow Pip-based installation if needed
-# -x python3: Force Python 3
-# stable 3007: Pin to the 3007.x branch
-sh bootstrap-salt.sh -M -W -P -x python3 stable 3007
+BOOTSTRAP_URL="https://github.com/saltstack/salt-bootstrap/releases/latest/download/bootstrap-salt.sh"
 
+
+if curl -L -o bootstrap-salt.sh --connect-timeout 10 --max-time 35 "$BOOTSTRAP_URL"; then
+    log "Download successful via Curl."
+    log "Running Bootstrap to install Salt Master, API, and Minion (Version 3007)..."
+    # -M: Install Master
+    # -W: Install API
+    # -P: Allow Pip-based installation if needed
+    # -x python3: Force Python 3
+    # stable 3007: Pin to the 3007.x branch
+    sh bootstrap-salt.sh -M -W -P -x python3 stable 3007
+else
+    warn "Curl download failed (Firewall blocked?). Falling back to Git Clone method..."
+
+    log "Installing Git for fallback..."
+    if command -v dnf &> /dev/null; then
+        dnf install -y git
+    elif command -v yum &> /dev/null; then
+        yum install -y git
+    elif command -v apt-get &> /dev/null; then
+        apt-get update && apt-get install -y git
+    fi
+
+    log "Cloning Salt Bootstrap Repository..."
+    rm -rf salt-bootstrap # Cleanup previous attempts
+    git clone https://github.com/saltstack/salt-bootstrap.git
+    
+    cd salt-bootstrap
+    log "Running Bootstrap from Git Source..."
+    sh bootstrap-salt.sh -M -W -P -x python3 stable 3007
+    cd ..
+    rm -rf salt-bootstrap
+fi
 # ------------------------------------------------------------------
 # STEP 2: Install Salt API & Dependencies (Post-Bootstrap)
 # ------------------------------------------------------------------
