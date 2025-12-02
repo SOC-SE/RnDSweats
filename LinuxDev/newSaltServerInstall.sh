@@ -133,7 +133,7 @@ EOF
 # --- 5. Configure Salt Minion (Local) ---
 log "Configuring Local Salt Minion..."
 echo "master: localhost" > /etc/salt/minion.d/master.conf
-echo "id: salt-master-gui" > /etc/salt/minion_id
+echo "salt-master-gui" > /etc/salt/minion_id
 
 # --- 6. Deploy GUI Application ---
 log "Deploying Salt-GUI from $SOURCE_DIR to $INSTALL_DIR..."
@@ -192,7 +192,7 @@ EOF
 # --- 8. Move custom scripts ---
 log "Setting up Custom Scripts..."
 mkdir -p /srv/salt
-if [ -d "../SaltyBoxes/CustomScripts" ]; then
+if [ -d "../SaltyBoxes/CustomScripts/" ]; then
     cp -r ../SaltyBoxes/CustomScripts/* /srv/salt/
 else
     warn "CustomScripts folder not found in parent directory. Skipping copy."
