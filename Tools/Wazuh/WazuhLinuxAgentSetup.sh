@@ -20,13 +20,13 @@ echo
 cd $SCRIPT_DIR
 
 echo "Setting up Auditd"
-bash Auditd/auditdSetup.sh
+bash ../Auditd/auditdSetup.sh
 
 echo "Configuring Yara rules"
-bash Yara/yaraConfigure.sh
+bash ../Yara/yaraConfigure.sh
 
 echo "Setting up the Wazuh agent"
-bash Wazuh/linuxSetup.sh
+bash ../Wazuh/linuxSetup.sh
 
 
 
