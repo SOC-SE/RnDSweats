@@ -3,20 +3,16 @@
 # ==============================================================================
 # Salt Minion Manual Installer (Universal SHA-1 Fix Edition)
 # Targets: Salt 3007 LTS
-# Supported: Ubuntu 20.04/22.04/24.04, Debian 11+, RHEL/Fedora/Rocky 8/9
 # ==============================================================================
 #
-#   Installation script to install the Salt Minion on most Linux machines.
-#   Includes fixes for SHA-1 permissions on both RHEL (Crypto Policy) 
-#   and Debian/Ubuntu (OpenSSL SECLEVEL).
+#   Installation script to install the Salt Minion on most RHEL-like and Debian-like machines.
 #
 #   Samuel Brucker 2025-2026
 #
 
-SCRIPT_TITLE="Salt Minion Manual Installer"
+SCRIPT_TITLE="S"
 DEFAULT_MASTER_IP="172.20.242.20"
 
-# --- Colors ---
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -27,7 +23,7 @@ warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
 error() { echo -e "${RED}[ERROR] $1${NC}"; exit 1; }
 
 echo "#####################################################"
-echo "# $SCRIPT_TITLE #"
+echo "# Salt Minion  Installer #"
 echo "#####################################################"
 
 if [ "$EUID" -ne 0 ]; then
@@ -52,7 +48,6 @@ log "Detecting OS and configuring repositories for Salt 3007..."
 if command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
     
-    # --- DEBIAN/UBUNTU CRYPTO FIX ---
     # Ubuntu 24.04+ blocks SHA-1 by default via OpenSSL config.
     # We lower SECLEVEL from 2 to 1 to allow SHA-1 (matching RHEL's DEFAULT:SHA1 policy).
     if grep -q "SECLEVEL=2" /etc/ssl/openssl.cnf; then
@@ -88,12 +83,10 @@ EOF
 elif command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
-    # --- RHEL/FEDORA CRYPTO POLICY FIX ---
     if command -v update-crypto-policies &> /dev/null; then
         log "Enabling SHA-1 Crypto Policy for Salt compatibility..."
         update-crypto-policies --set DEFAULT:SHA1
     fi
-    # -------------------------------------
     
     if [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -150,7 +143,6 @@ sleep 5
 log "Performing stability restart..."
 systemctl restart salt-minion
 
-# Verify Status
 if systemctl is-active --quiet salt-minion; then
     log "Service is ACTIVE."
 else

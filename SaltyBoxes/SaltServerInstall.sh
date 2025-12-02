@@ -4,8 +4,8 @@
 # Automated Salt-GUI Deployment Script (Direct Repo Config Edition)
 # ==============================================================================
 #
-# Installs Salt 3007 by manually writing the repository configuration files.
-# This bypasses the broken/missing "Repo RPM" on the Broadcom server.
+# Installs the Salt Deployment server. This includes the Salt Master, API, a local Minion,
+# and the SaltGUI. Designed to run on RHEL-like and Debian-like systems. Tested on OL9.
 #
 # Samuel Brucker 2025-2026
 #
@@ -14,13 +14,10 @@ set -e
 
 SOURCE_DIR="../SaltyBoxes/Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
-# Defaults
 SALT_USER="hiblueteam"
 SALT_PASS="PlzNoHackThisAccountItsUseless!"
 API_PORT=8881
 GUI_PORT=3000
-
-# Salt Master Config File Location
 MASTER_CONF="/etc/salt/master"
 
 GREEN='\033[0;32m'
@@ -37,7 +34,7 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Service Cleanup
+
 log "Cleaning up existing services..."
 systemctl stop salt-gui salt-minion salt-master salt-api 2>/dev/null || true
 
@@ -53,8 +50,6 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     #Set encryption protocol. Thanks OL9 for being a PITA.
     update-crypto-policies --set DEFAULT:SHA1
 
-
-    # Detect EL Version (Logic borrowed from linuxMinionInstall.sh)
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         if [[ "$ID" == "fedora" ]]; then
@@ -69,16 +64,13 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
 
     $PKG_MGR install -y epel-release || true
     
-    # --- STEP 1: CLEAN UP OLD REPOS ---
     log "Removing old/conflicting Salt repositories..."
     rpm -e --nodeps salt-repo 2>/dev/null || true
     rm -f /etc/yum.repos.d/salt.repo
     $PKG_MGR clean all
 
-    # --- STEP 2: WRITE REPO FILE DIRECTLY (Fixes 404 Error) ---
     log "Configuring Salt 3007 Repository (Manual Write)..."
     
-    # We write the file directly so we don't depend on the 'salt-repo' RPM existing
     cat <<EOF > /etc/yum.repos.d/salt.repo
 [salt-repo-3007-sts]
 name=Salt Repo for Salt v3007 STS
@@ -105,6 +97,16 @@ EOF
 elif command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
     
+    # We lower SECLEVEL from 2 to 1 to allow SHA-1 (matching RHEL's DEFAULT:SHA1 policy).
+    if [ -f /etc/ssl/openssl.cnf ]; then
+        if grep -q "SECLEVEL=2" /etc/ssl/openssl.cnf; then
+            log "Lowering OpenSSL Security Level to allow SHA-1..."
+            sed -i 's/SECLEVEL=2/SECLEVEL=1/g' /etc/ssl/openssl.cnf
+        else
+            log "OpenSSL Security Level allows SHA-1 (or SECLEVEL not set to 2). Skipping."
+        fi
+    fi
+
     log "Configuring Salt 3007 Repository (Debian/Ubuntu)..."
     $PKG_MGR update
     $PKG_MGR install -y curl gnupg2
@@ -145,7 +147,6 @@ echo "$SALT_USER:$SALT_PASS" | chpasswd
 
 log "Configuring Salt Master and API (Monolithic Config)..."
 
-# Ensure /etc/salt/master exists
 if [ ! -f "$MASTER_CONF" ]; then
     touch "$MASTER_CONF"
 fi
@@ -250,7 +251,6 @@ systemctl enable --now salt-minion
 systemctl enable --now salt-api
 systemctl enable --now salt-gui
 
-# Restart minion to ensure it connects to the now-running master
 systemctl restart salt-minion
 
 log "Waiting for local minion to contact master..."
