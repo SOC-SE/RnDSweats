@@ -9,8 +9,8 @@ set -e
 # --- Configuration ---
 SOURCE_DIR="./Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
-SALT_USER="sysadmin"
-SALT_PASS="Changeme1!"
+SALT_USER="saltgui"
+SALT_PASS="PlzNoHackThisAccountItsUseless!"
 API_PORT=8000
 GUI_PORT=3000
 
@@ -150,8 +150,8 @@ try:
         data = json.load(f)
     
     # Update values
-    data['proxyURL'] = 'http://$SERVER_IP:$GUI_PORT'
-    data['saltAPIUrl'] = 'http://localhost:$API_PORT'
+    data['proxyURL'] = 'http://0.0.0.0:$GUI_PORT'
+    data['saltAPIUrl'] = 'http://0.0.0.0:$API_PORT'
     data['username'] = '$SALT_USER'
     data['password'] = '$SALT_PASS'
     data['eauth'] = 'pam'
