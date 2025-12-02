@@ -9,7 +9,7 @@ set -e
 # --- Configuration ---
 SOURCE_DIR="../SaltyBoxes/Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
-SALT_USER="saltgui"
+SALT_USER="depuser"
 SALT_PASS="PlzNoHackThisAccountItsUseless!"
 API_PORT=8881
 GUI_PORT=3000
