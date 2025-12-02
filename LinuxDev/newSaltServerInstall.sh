@@ -7,7 +7,7 @@
 set -e
 
 # --- Configuration ---
-SOURCE_DIR="./Salt-GUI"
+SOURCE_DIR="../SaltyBoxes/Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
 SALT_USER="saltgui"
 SALT_PASS="PlzNoHackThisAccountItsUseless!"
@@ -37,17 +37,6 @@ if systemctl is-active --quiet salt-gui; then systemctl stop salt-gui; fi
 if systemctl is-active --quiet salt-minion; then systemctl stop salt-minion; fi
 if systemctl is-active --quiet salt-master; then systemctl stop salt-master; fi
 if systemctl is-active --quiet salt-api; then systemctl stop salt-api; fi
-
-# Clone repo if not present (optional, based on your previous script)
-if [ ! -d "$SOURCE_DIR" ]; then
-    log "Source directory not found. Cloning from Git..."
-    git clone https://github.com/KySchwartz/Salt-GUI --branch=master
-fi
-
-if [ ! -d "$SOURCE_DIR" ]; then
-    error "Directory '$SOURCE_DIR' still not found. Please ensure Salt-GUI is present."
-    exit 1
-fi
 
 # Detect Server IP
 SERVER_IP=$(hostname -I | awk '{print $1}')
