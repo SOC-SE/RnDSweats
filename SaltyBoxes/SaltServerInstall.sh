@@ -1,13 +1,11 @@
 #!/bin/bash
 
 # ==============================================================================
-# Automated Salt-GUI Deployment Script (Corrected Manual Repo)
+# Automated Salt-GUI Deployment Script (Direct Config Edition)
 # ==============================================================================
 #
-# Installs Salt 3007 using the same reliable logic as linuxMinionInstall.sh.
-# - Fixes the "braodcom" typo.
-# - Removes crypto policies.
-# - Removes interface binding.
+# Installs Salt 3007 by directly writing the /etc/yum.repos.d/salt.repo file.
+# This fixes the "404 Not Found" error caused by missing/misnamed Repo RPMs.
 #
 # Samuel Brucker 2025-2026
 #
@@ -52,7 +50,7 @@ log "Detecting package manager and installing dependencies..."
 if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
-    # Detect EL Version (Logic borrowed from linuxMinionInstall.sh)
+    # Detect EL Version
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         if [[ "$ID" == "fedora" ]]; then
@@ -67,21 +65,25 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
 
     $PKG_MGR install -y epel-release || true
     
-    # --- STEP 1: REMOVE OLD REPOS ---
+    # --- STEP 1: CLEAN UP OLD REPOS ---
     log "Removing old/conflicting Salt repositories..."
     rpm -e --nodeps salt-repo 2>/dev/null || true
     rm -f /etc/yum.repos.d/salt.repo
     $PKG_MGR clean all
 
-    # --- STEP 2: INSTALL SALT 3007 REPO (Corrected URL) ---
-    log "Installing Salt 3007 Repository (Broadcom)..."
+    # --- STEP 2: WRITE REPO FILE DIRECTLY (Fixes 404 Error) ---
+    log "Configuring Salt 3007 Repository (Manual Write)..."
     
-    # URL Logic matching your working minion script
-    REPO_URL="https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${EL_VERSION}/x86_64/3007/salt-repo-3007-${EL_VERSION}.noarch.rpm"
+    cat <<EOF > /etc/yum.repos.d/salt.repo
+[salt-3007]
+name=Salt Project 3007
+baseurl=https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${EL_VERSION}/x86_64/3007
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public
+EOF
     
-    log "Fetching Repo RPM from: $REPO_URL"
-    $PKG_MGR install -y "$REPO_URL" || error "Failed to install Repo RPM. Check internet connection."
-    
+    log "Repository file created at /etc/yum.repos.d/salt.repo"
     $PKG_MGR makecache
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
     
