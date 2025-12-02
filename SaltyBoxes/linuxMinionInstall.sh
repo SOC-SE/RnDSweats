@@ -59,7 +59,7 @@ systemctl stop salt-minion 2>/dev/null || true
 
 # --- 4. Installation (Via Official Bootstrap) ---
 log "Downloading Salt Bootstrap..."
-curl -o bootstrap-salt.sh -L https://bootstrap.saltproject.io
+curl -o bootstrap-salt.sh -L https://raw.githubusercontent.com/saltstack/salt-bootstrap/refs/heads/develop/bootstrap-salt.sh
 
 log "Running Bootstrap (Installing Salt $SALT_VERSION)..."
 # Flags:
