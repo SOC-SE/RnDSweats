@@ -8,9 +8,6 @@
 # 
 # Samuel Brucker 2025-2026
 #
-# Just about 100% of the credit for the development of the SaltGUI goes to Kyle Schwartz
-# Their LinkedIn; go say hi and compliment them if you use this tool: https://www.linkedin.com/in/kyle-schwartz-643542271/
-#
 
 set -e
 
@@ -48,52 +45,66 @@ SERVER_IP=$(hostname -I | awk '{print $1}')
 [ -z "$SERVER_IP" ] && SERVER_IP="localhost" && warn "Could not detect IP. Defaulting to localhost."
 log "Detected Server IP: $SERVER_IP"
 
-# --- FIX: Crypto Policy for Oracle Linux 9 / RHEL 9 ---
-# "KeyError: session" often means the Master rejected the auth due to crypto mismatch.
-# We use LEGACY here to ensure maximum compatibility with the Minion's handshake.
-if command -v update-crypto-policies &> /dev/null; then
-    log "Applying Crypto Policy Fix (LEGACY) for SaltStack compatibility..."
-    update-crypto-policies --set LEGACY
-else
-    warn "update-crypto-policies not found. Skipping. (This is expected on non-RHEL/EL systems)"
-fi
-
 log "Detecting package manager and installing dependencies..."
 
 if command -v dnf &> /dev/null; then
     PKG_MGR="dnf"
     $PKG_MGR install -y epel-release || true
-    $PKG_MGR install -y https://repo.saltproject.io/salt/py3/redhat/salt-repo-latest.el9.noarch.rpm || true
+    
+    # --- RHEL/Oracle 9: Install Official Salt 3007 Repo ---
+    log "Installing Salt 3007 Repository (RHEL/EL9)..."
+    $PKG_MGR install -y https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/9/x86_64/3007/salt-repo-3007-9.noarch.rpm || true
+    
     $PKG_MGR makecache
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
-    # Added pip and gcc to build crypto libs if needed
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils gcc python3-devel
+    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
 
 elif command -v yum &> /dev/null; then
     PKG_MGR="yum"
     $PKG_MGR install -y epel-release || true
-    $PKG_MGR install -y https://repo.saltproject.io/salt/py3/redhat/salt-repo-latest.el9.noarch.rpm || true
+    
+    # --- RHEL/CentOS 7/8: Install Official Salt 3007 Repo (Assuming EL9 for now based on context) ---
+    log "Installing Salt 3007 Repository (RHEL/EL)..."
+    $PKG_MGR install -y https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/9/x86_64/3007/salt-repo-3007-9.noarch.rpm || true
+    
     $PKG_MGR makecache
     curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
-    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils gcc python3-devel
+    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-minion salt-api salt-ssh policycoreutils-python-utils
 
 elif command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
+    
+    log "Configuring Salt 3007 Repository (Debian/Ubuntu)..."
     $PKG_MGR update
     $PKG_MGR install -y curl gnupg2
-    curl -fsSL https://bootstrap.saltproject.io -o install_salt.sh
-    sh install_salt.sh -M -P -x python3
+
+    mkdir -p /etc/apt/keyrings
+    # Remove old key if exists
+    rm -f /etc/apt/keyrings/salt-archive-keyring.pgp
+    
+    # Fetch Broadcom/Salt Key
+    curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null
+    
+    ARCH=$(dpkg --print-architecture)
+    
+    # Add Repo
+    echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$ARCH] https://packages.broadcom.com/artifactory/saltproject-deb/ stable main" | tee /etc/apt/sources.list.d/salt.list > /dev/null
+    
+    # Pin to 3007 to ensure version match
+    cat <<EOF > /etc/apt/preferences.d/salt-pin-1001
+Package: salt-*
+Pin: version 3007.*
+Pin-Priority: 1001
+EOF
+    
+    $PKG_MGR update
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    $PKG_MGR install -y nodejs build-essential salt-api
+    $PKG_MGR install -y nodejs build-essential salt-master salt-minion salt-api salt-ssh
     $PKG_MGR install -y python3-cherrypy3 || pip3 install cherrypy
 else
     error "No supported package manager found."
     exit 1
 fi
-
-log "Installing Python Crypto Compatibility Libraries..."
-# This is a critical fix for 'KeyError: session' on EL9 Masters
-pip3 install pycryptodomex --upgrade || warn "Failed to install pycryptodomex. Salt may have issues with encryption."
 
 log "Configuring system user '$SALT_USER'..."
 if ! id "$SALT_USER" &>/dev/null; then
@@ -117,9 +128,6 @@ sed -i '/# --- SALT GUI AUTOMATED CONFIG START ---/,/# --- SALT GUI AUTOMATED CO
 
 cat <<EOF >> "$MASTER_CONF"
 # --- SALT GUI AUTOMATED CONFIG START ---
-
-# Ensure we bind to all interfaces so remote minions can connect
-interface: 0.0.0.0
 
 netapi_enable_clients:
   - local
@@ -208,20 +216,11 @@ EOF
 configure_selinux() {
     if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
         log "Checking SELinux configuration..."
-        
-        # Check if SELinux is enforcing
         if sestatus | grep "Current mode:" | grep -q "enforcing"; then
             log "SELinux is enforcing. Applying rules..."
-            
-            # Allow GUI Port (default 3000)
             if ! semanage port -l | grep http_port_t | grep -qw "$GUI_PORT"; then
-                log "Adding SELinux rule for port $GUI_PORT..."
                 semanage port -a -t http_port_t -p tcp "$GUI_PORT" || warn "Failed to add port $GUI_PORT context."
-            else
-                log "Port $GUI_PORT already allowed."
             fi
-
-            # Allow Node.js/HTTPD scripts to connect to network (aka, let the server actually work)
             setsebool -P daemons_enable_cluster_mode 1 || warn "Could not set daemons_enable_cluster_mode."
             setsebool -P httpd_can_network_connect 1 || true 
         else
