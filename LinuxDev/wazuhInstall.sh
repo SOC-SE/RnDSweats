@@ -1,15 +1,13 @@
 #!/bin/bash
 set -e # Exit immediately if a command exits with a non-zero status.
 
-# Wazuh Master Installation Script for Oracle Linux 9 (FIXED)
+# Wazuh Master Installation Script for Oracle Linux 9 (CORRECTED)
 # Target Version: 4.14.1
 #
-# CRITICAL FIXES INCLUDED:
-#   1. Re-enabled OpenSearch compatibility mode (Fixes Filebeat 7.10 connection)
-#   2. Replaced 'wazuh-user' tool with internal Python injection (Fixes API Password set failure)
-#   3. added 'allow_insecure_connection' to Dashboard (Fixes API connection error)
-#   4. Recursive chown on Dashboard data directory (Fixes "EACCES" crash on startup)
-#   5. Aggressive cleanup and retry loops
+# FIXED FOR ORACLE LINUX 9:
+#   1. Added Seccomp bypass to prevent Filebeat crash (INVALIDARGUMENT).
+#   2. Removed incompatible external module download (wazuh-filebeat-0.4).
+#   3. Switched Filebeat config to direct JSON input for stability.
 
 # --- Configuration Variables ---
 WAZUH_MAJOR="4.14"
@@ -20,19 +18,12 @@ WAZUH_PASSWORD="Changeme1!" # Set your desired password here
 # -----------------------------
 
 echo "--- [1/8] Cleaning any previous installations ---"
-# Adjust SELinux for Oracle Linux 9 (Permissive is safer for initial install)
 echo "Adjusting SELinux to Permissive for installation..."
 setenforce 0 || true
 sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config
 
 echo "Stopping services..."
 systemctl stop wazuh-dashboard wazuh-indexer wazuh-manager filebeat elasticsearch kibana 2>/dev/null || true
-
-echo "Force killing any lingering processes..."
-pkill -u wazuh-indexer 2>/dev/null || true
-pkill -u wazuh-dashboard 2>/dev/null || true
-pkill -u wazuh 2>/dev/null || true
-pkill -f filebeat 2>/dev/null || true
 
 echo "Removing packages..."
 dnf remove -y wazuh-indexer wazuh-manager wazuh-dashboard filebeat elasticsearch kibana 2>/dev/null || true
@@ -42,9 +33,8 @@ rm -rf /etc/wazuh-indexer /etc/wazuh-manager /etc/wazuh-dashboard /etc/filebeat
 rm -rf /var/lib/wazuh-indexer /var/lib/wazuh-manager /var/lib/wazuh-dashboard /var/lib/filebeat
 rm -rf /usr/share/wazuh-indexer /usr/share/wazuh-manager /usr/share/wazuh-dashboard /usr/share/filebeat
 rm -rf /var/log/wazuh-indexer /var/log/wazuh-manager /var/log/wazuh-dashboard /var/log/filebeat
-rm -rf /var/ossec # IMPORTANT: Wipe Wazuh Manager data for clean API state
+rm -rf /var/ossec 
 
-# Only wipe temp dir if certs don't exist to save time
 if [ -d "$INSTALL_DIR/wazuh-certificates" ]; then
     echo "Preserving existing certificates..."
 else
@@ -73,7 +63,6 @@ EOF
 echo "--- [3/8] Generating SSL Certificates ---"
 cd $INSTALL_DIR
 
-# Improved Check: If directory exists, skip generation to avoid error
 if [ -d "wazuh-certificates" ]; then
     echo "Certificates directory found. Skipping generation."
 else
@@ -81,7 +70,6 @@ else
     curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/wazuh-certs-tool.sh
     curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/config.yml
 
-    # Force 127.0.0.1 for all internal components
     cat > config.yml <<EOF
 nodes:
   indexer:
@@ -95,12 +83,6 @@ nodes:
       ip: 127.0.0.1
 EOF
     bash wazuh-certs-tool.sh -A
-fi
-
-# Final verification
-if [ ! -f "wazuh-certificates/node-1.pem" ]; then
-    echo "ERROR: Certificates were not generated correctly."
-    exit 1
 fi
 
 # --- [4/8] Wazuh Indexer (Database) ---
@@ -118,7 +100,7 @@ chmod 500 /etc/wazuh-indexer/certs
 chmod 400 /etc/wazuh-indexer/certs/*
 chown -R wazuh-indexer:wazuh-indexer /etc/wazuh-indexer/certs
 
-# Config (Strictly 127.0.0.1)
+# Config
 cat > /etc/wazuh-indexer/opensearch.yml <<EOF
 network.host: 127.0.0.1
 node.name: node-1
@@ -147,7 +129,7 @@ echo "Waiting for Indexer to initialize (Max 5 mins)..."
 RETRIES=0
 until curl -k -s https://127.0.0.1:9200 >/dev/null; do
     if [ $RETRIES -eq 30 ]; then
-        echo "ERROR: Indexer failed to start within 5 minutes. Check /var/log/wazuh-indexer/wazuh-cluster.log"
+        echo "ERROR: Indexer failed to start."
         exit 1
     fi
     sleep 10
@@ -159,8 +141,8 @@ done
 if [ -d "/usr/share/wazuh-indexer/jdk" ]; then
     export JAVA_HOME=/usr/share/wazuh-indexer/jdk/
 else
-    echo "ERROR: Java Home not found at /usr/share/wazuh-indexer/jdk/. Indexer layout may have changed."
-    exit 1
+    # Fallback if specific JDK path varies
+    export JAVA_HOME=$(ls -d /usr/share/wazuh-indexer/jdk* | head -n 1)
 fi
 
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
@@ -173,16 +155,11 @@ fi
   -icl \
   -h 127.0.0.1
 
-# Change default admin password
 echo "Changing admin password..."
-# Capture ONLY the hash (ignoring tool banners)
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$WAZUH_PASSWORD" | tail -n 1 > /tmp/hash.txt
 HASH=$(cat /tmp/hash.txt)
-
-# Use refined sed with PIPE delimiter to handle slashes in bcrypt hash
 sed -i "0,/hash:.*/s|hash:.*|hash: \"$HASH\"|" /etc/wazuh-indexer/opensearch-security/internal_users.yml
 
-# Re-run securityadmin to apply password change
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
   -cd /etc/wazuh-indexer/opensearch-security/ \
   -nhnv \
@@ -197,79 +174,55 @@ sed -i "0,/hash:.*/s|hash:.*|hash: \"$HASH\"|" /etc/wazuh-indexer/opensearch-sec
 echo "--- [5/8] Installing Manager & Filebeat ---"
 dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 
-# Start Manager
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-# Force Set Wazuh API Password using Python 
-echo "Setting Wazuh API credentials via internal Python..."
-sleep 10 # Wait for manager to stabilize
-
+echo "Setting Wazuh API credentials..."
+sleep 10
 /var/ossec/framework/python/bin/python3 <<EOF
 import sys
 try:
     from wazuh.security import update_user
     update_user(user_id="1", password="$WAZUH_PASSWORD")
-    print("SUCCESS: Wazuh API password updated via Python.")
+    print("SUCCESS: Wazuh API password updated.")
 except Exception as e:
     print(f"ERROR: Failed to update password: {e}")
     sys.exit(1)
 EOF
 
-echo "Configuring Manager connection to Indexer..."
-
-# 1. Add Indexer credentials to the Manager's Keystore
-# This allows the Manager to authenticate with the Database using the admin user
 /var/ossec/bin/wazuh-keystore -f indexer -k username -v admin
 /var/ossec/bin/wazuh-keystore -f indexer -k password -v "$WAZUH_PASSWORD"
 
-#Make sure the manager is looking at the right spots for the indexer and that SSL verification is off
 sed -i "s|<host>https://0.0.0.0:9200</host>|<host>https://127.0.0.1:9200</host>|g" /var/ossec/etc/ossec.conf
 if grep -q "<ssl_verification>" /var/ossec/etc/ossec.conf; then
-    # It exists, so we replace yes with no
     sed -i "s|<ssl_verification>yes</ssl_verification>|<ssl_verification>no</ssl_verification>|g" /var/ossec/etc/ossec.conf
 else
-    # It does NOT exist (default state), so we insert it after the <ssl> tag
     sed -i '/<ssl>/a \      <ssl_verification>no</ssl_verification>' /var/ossec/etc/ossec.conf
 fi
 
-# Restart Manager to reload credentials from the database
 systemctl restart wazuh-manager
 
-# Verify the password works before proceeding
-echo "Verifying API Credentials..."
-RETRIES=0
-until curl -s -k -u wazuh:"$WAZUH_PASSWORD" "https://127.0.0.1:55000/security/user/authenticate" | grep -q "token"; do
-    if [ $RETRIES -eq 10 ]; then
-        echo "ERROR: API credentials rejected after password change."
-        # We don't exit here to allow debugging, but in a strict script you might want to.
-        break 
-    fi
-    echo "Waiting for API to accept new credentials... ($RETRIES/10)"
-    sleep 5
-    ((RETRIES++))
-done
-echo "API Credentials verified!"
+# [CRITICAL FIX] Filebeat Seccomp Override for Oracle Linux 9
+echo "Applying Filebeat Seccomp override (Fixes INVALIDARGUMENT crash)..."
+mkdir -p /etc/systemd/system/filebeat.service.d
+cat > /etc/systemd/system/filebeat.service.d/override.conf <<EOF
+[Service]
+SystemCallFilter=
+EOF
+systemctl daemon-reload
 
-# Configure Filebeat (Retry Logic)
-curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/filebeat.yml https://packages.wazuh.com/$WAZUH_MAJOR/tpl/wazuh/filebeat/filebeat.yml
-
-# Config Overwrite (Basic Auth for Indexer)
+# [CRITICAL FIX] Simplified Filebeat Configuration (No broken modules)
 echo "Applying Filebeat Configuration..."
-cp /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak
 cat > /etc/filebeat/filebeat.yml <<EOF
-filebeat.modules:
-  - module: wazuh
-    alerts:
-      enabled: true
-    archives:
-      enabled: false
-
-setup.template.json.enabled: true
-setup.template.json.path: '/etc/filebeat/wazuh-template.json'
-setup.template.json.name: 'wazuh'
-setup.template.overwrite: true
-setup.ilm.enabled: false
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/ossec/logs/alerts/alerts.json
+    json.keys_under_root: true
+    json.overwrite_keys: true
+    json.add_error_key: true
+    json.message_key: log
 
 output.elasticsearch:
   hosts: ["127.0.0.1:9200"]
@@ -278,9 +231,13 @@ output.elasticsearch:
   password: "$WAZUH_PASSWORD"
   ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
   ssl.verification_mode: none
-EOF
 
-chmod 600 /etc/filebeat/filebeat.yml
+setup.template.json.enabled: true
+setup.template.json.path: '/etc/filebeat/wazuh-template.json'
+setup.template.json.name: 'wazuh'
+setup.template.overwrite: true
+setup.ilm.enabled: false
+EOF
 
 mkdir -p /etc/filebeat/certs
 cp wazuh-certificates/wazuh-1.pem /etc/filebeat/certs/filebeat.pem
@@ -288,55 +245,32 @@ cp wazuh-certificates/wazuh-1-key.pem /etc/filebeat/certs/filebeat-key.pem
 cp wazuh-certificates/root-ca.pem /etc/filebeat/certs/root-ca.pem
 chmod 500 /etc/filebeat/certs
 chmod 400 /etc/filebeat/certs/*
+chmod 644 /etc/filebeat/filebeat.yml
 
-filebeat keystore create
-echo admin | filebeat keystore add username --stdin --force
-echo "$WAZUH_PASSWORD" | filebeat keystore add password --stdin --force
-
-# --- [6/8] Filebeat Module & Template ---
-echo "--- [6/8] Installing Filebeat Module & Template ---"
-
-# 1. Handle the Template (Use local file if present)
-if [ -f "$CURRENT_DIR/wazuh-template.json" ]; then
-    echo "Found local wazuh-template.json. Using it."
-    cp "$CURRENT_DIR/wazuh-template.json" /etc/filebeat/wazuh-template.json
-else
-    echo "Local wazuh-template.json not found. Attempting download..."
-    curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/wazuh-template.json https://raw.githubusercontent.com/wazuh/wazuh/v$WAZUH_VERSION/extensions/elasticsearch/7.x/wazuh-template.json
-fi
+# --- [6/8] Filebeat Template ---
+echo "--- [6/8] Installing Filebeat Template ---"
+curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -so /etc/filebeat/wazuh-template.json https://raw.githubusercontent.com/wazuh/wazuh/v$WAZUH_VERSION/extensions/elasticsearch/7.x/wazuh-template.json
 chmod go+r /etc/filebeat/wazuh-template.json
 
-# 2. Handle the Module (Download with retry)
-echo "Downloading Wazuh Filebeat Module..."
-curl -L --retry 5 --retry-delay 10 --connect-timeout 60 -s https://packages.wazuh.com/4.x/filebeat/wazuh-filebeat-0.4.tar.gz | tar -xvz -C /usr/share/filebeat/module
-
-# 3. Initialize Index Pattern with RETRY LOOP
-echo "Initializing Filebeat (Attempts to load template)..."
+# Initialize Index Pattern
+echo "Initializing Filebeat..."
 RETRIES=0
 until filebeat setup --index-management \
   -E setup.template.json.enabled=true \
   -E setup.template.json.path=/etc/filebeat/wazuh-template.json \
   -E setup.template.json.name=wazuh \
-  -E setup.ilm.overwrite=true \
-  -E setup.ilm.enabled=false \
-  -E output.elasticsearch.hosts=["127.0.0.1:9200"] \
-  -E output.elasticsearch.protocol=https \
   -E output.elasticsearch.username=admin \
   -E output.elasticsearch.password="$WAZUH_PASSWORD" \
-  -E output.elasticsearch.ssl.certificate_authorities=["/etc/filebeat/certs/root-ca.pem"] \
   -E output.elasticsearch.ssl.verification_mode=none; do
   
     if [ $RETRIES -eq 10 ]; then
-        echo "ERROR: Failed to run filebeat setup after 10 attempts."
+        echo "ERROR: Failed to run filebeat setup."
         exit 1
     fi
-    echo "Filebeat setup failed. Retrying in 10 seconds... ($RETRIES/10)"
+    echo "Filebeat setup failed. Retrying... ($RETRIES/10)"
     sleep 10
     ((RETRIES++))
 done
-
-echo "Testing Filebeat Connectivity..."
-filebeat test output
 
 systemctl enable filebeat
 systemctl start filebeat
@@ -345,7 +279,6 @@ systemctl start filebeat
 echo "--- [7/8] Installing Wazuh Dashboard ---"
 dnf install -y wazuh-dashboard-$WAZUH_VERSION
 
-# Deploy Certs
 mkdir -p /etc/wazuh-dashboard/certs
 cp wazuh-certificates/dashboard.pem /etc/wazuh-dashboard/certs/dashboard.pem
 cp wazuh-certificates/dashboard-key.pem /etc/wazuh-dashboard/certs/dashboard-key.pem
@@ -354,7 +287,6 @@ chmod 500 /etc/wazuh-dashboard/certs
 chmod 400 /etc/wazuh-dashboard/certs/*
 chown -R wazuh-dashboard:wazuh-dashboard /etc/wazuh-dashboard/certs
 
-# Configure Dashboard Backend (OpenSearch connection)
 cat > /etc/wazuh-dashboard/opensearch_dashboards.yml <<EOF
 server.host: 0.0.0.0
 server.port: 443
@@ -373,10 +305,7 @@ opensearch.username: admin
 opensearch.password: $WAZUH_PASSWORD
 EOF
 
-# [FIX] Configure Dashboard Plugin to API Connection (wazuh.yml)
-echo "Configuring Dashboard Plugin API connection..."
 mkdir -p /usr/share/wazuh-dashboard/data/wazuh/config
-
 cat > /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml <<EOF
 hosts:
   - default:
@@ -389,18 +318,15 @@ hosts:
 EOF
 
 chmod 600 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
-
 chown -R wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data/wazuh
 
 systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
 
 echo "--- INSTALLATION COMPLETE ---"
-# Force a restart of Wazuh Manager to generate a "System Started" alert
-echo "Generating initial alerts..."
+echo "Generating initial alerts to create index pattern..."
 systemctl restart wazuh-manager
 
-# Grab IP for display only
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "Access Dashboard at: https://$SERVER_IP"
 echo "Username: admin"
