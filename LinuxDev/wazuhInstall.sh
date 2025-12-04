@@ -1,15 +1,21 @@
 #!/bin/bash
 set -e 
 
-# Wazuh Master Installation Script for Oracle Linux 9 (FINAL + OFFLINE FALLBACK)
+# Wazuh Master Installation Script for Oracle Linux 9 (GOLDEN MASTER)
 # Target Version: 4.14.1
+#
+# INCLUDES FIXES FOR:
+# 1. Oracle Linux fapolicyd/SELinux (Permissive)
+# 2. RHEL 9 Kernel Seccomp Crash (Systemd Override + App Config)
+# 3. Offline/Airgapped Template Fallback
+# 4. Correct Index Naming (wazuh-alerts-*)
 
 # --- Configuration ---
 WAZUH_MAJOR="4.14"
 WAZUH_VERSION="4.14.1"
 INSTALL_DIR="/root/wazuh-install-temp"
 WAZUH_PASSWORD="Changeme1!"
-CURRENT_DIR=$(pwd) # Saved to find local files if downloads fail
+CURRENT_DIR=$(pwd) 
 # ---------------------
 
 echo "--- [1/8] Cleaning & Prep ---"
@@ -140,12 +146,12 @@ else
 fi
 systemctl restart wazuh-manager
 
-# --- [6/8] FIXING FILEBEAT (SECCOMP + OFFLINE TEMPLATE) ---
-echo "Applying Seccomp Bypass..."
+# --- [6/8] FIXING FILEBEAT (CRITICAL CONFIG) ---
+echo "Applying Seccomp Bypass (Systemd Level)..."
 sed -i '/\[Service\]/a SystemCallFilter=' /usr/lib/systemd/system/filebeat.service
 systemctl daemon-reload
 
-echo "Setting filebeat.yml"
+echo "Applying Golden Filebeat Configuration..."
 cat > /etc/filebeat/filebeat.yml <<EOF
 filebeat.inputs:
   - type: log
@@ -164,12 +170,16 @@ output.elasticsearch:
   password: "$WAZUH_PASSWORD"
   ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
   ssl.verification_mode: none
+  index: "wazuh-alerts-4.x-%{+yyyy.MM.dd}"
 
 setup.template.json.enabled: true
 setup.template.json.path: '/etc/filebeat/wazuh-template.json'
 setup.template.json.name: 'wazuh'
+setup.template.name: 'wazuh'
+setup.template.pattern: 'wazuh-alerts-*'
 setup.template.overwrite: true
 setup.ilm.enabled: false
+seccomp.enabled: false
 EOF
 
 echo "Grabbing filebeat certs"
@@ -183,7 +193,6 @@ chmod 600 /etc/filebeat/filebeat.yml
 
 echo "Downloading filebeat wazuh template"
 # [NEW LOGIC] Try Curl, Fallback to Local
-echo "Attempting to download Wazuh Template..."
 TEMPLATE_URL="https://raw.githubusercontent.com/wazuh/wazuh/v$WAZUH_VERSION/extensions/elasticsearch/7.x/wazuh-template.json"
 
 if curl -L --retry 3 --connect-timeout 10 -so /etc/filebeat/wazuh-template.json "$TEMPLATE_URL"; then
@@ -198,7 +207,7 @@ fi
 
 chmod go+r /etc/filebeat/wazuh-template.json
 
-echo "Setting up filebeat index management and starting filebeat"
+echo "Setting up filebeat index management..."
 filebeat setup --index-management \
   -E setup.template.json.enabled=true \
   -E setup.template.json.path=/etc/filebeat/wazuh-template.json \
@@ -211,7 +220,7 @@ systemctl enable filebeat
 systemctl start filebeat
 
 # --- [7/8] Dashboard ---
-echo "downloading and configuring wazuh dashboard"
+echo "Installing Wazuh Dashboard..."
 dnf install -y wazuh-dashboard-$WAZUH_VERSION
 
 mkdir -p /etc/wazuh-dashboard/certs
@@ -254,7 +263,7 @@ EOF
 chmod 600 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
 chown -R wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data/wazuh
 
-echo "Starting wazuh dashboard"
+echo "Starting Wazuh Dashboard..."
 systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
 
