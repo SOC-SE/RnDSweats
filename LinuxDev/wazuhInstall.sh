@@ -126,19 +126,35 @@ dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-echo "Waiting for Wazuh Manager API..."
-# Wait up to 30 seconds for the API socket to be active
+echo "Waiting for Wazuh Manager API (Max 90s)..."
+# Wait up to 90 seconds for the API socket to be active
 count=0
-while [ $count -lt 30 ]; do
-    if grep -q "Wazuh is ready" /var/ossec/logs/api.log 2>/dev/null; then
+api_ready=0
+while [ $count -lt 90 ]; do
+    # Check if file exists AND contains the ready message
+    if [ -f /var/ossec/logs/api.log ] && grep -q "Wazuh is ready" /var/ossec/logs/api.log; then
         echo "Manager API is ready."
+        api_ready=1
         break
     fi
+    echo -n "."
     sleep 1
     ((count++))
 done
-# Safety buffer
-sleep 2
+echo "" # Newline
+
+# Explicitly fail if timeout reached to prevent Python crash
+if [ $api_ready -eq 0 ]; then
+    echo "ERROR: Manager API did not initialize in time."
+    echo "--- Last 10 lines of api.log ---"
+    tail -n 10 /var/ossec/logs/api.log 2>/dev/null
+    echo "--- Last 10 lines of ossec.log ---"
+    tail -n 10 /var/ossec/logs/ossec.log 2>/dev/null
+    exit 1
+fi
+
+# Safety buffer after 'Ready' message
+sleep 5
 
 /var/ossec/framework/python/bin/python3 <<EOF
 from wazuh.security import update_user
