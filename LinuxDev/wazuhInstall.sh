@@ -26,7 +26,7 @@ rm -rf $INSTALL_DIR
 mkdir -p $INSTALL_DIR
 
 echo "Installing tools..."
-dnf install -y coreutils curl unzip wget libcap tar gnupg openssl
+dnf install -y coreutils curl unzip wget libcap tar gnupg openssl lsof
 
 # --- [2/8] Repositories ---
 rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
@@ -133,12 +133,42 @@ EOF
 /var/ossec/bin/wazuh-keystore -f indexer -k password -v "$WAZUH_PASSWORD"
 
 sed -i "s|<host>https://0.0.0.0:9200</host>|<host>https://127.0.0.1:9200</host>|g" /var/ossec/etc/ossec.conf
-if ! grep -q "<ssl_verification>" /var/ossec/etc/ossec.conf; then
-    sed -i '/<ssl>/a \      <ssl_verification>no</ssl_verification>' /var/ossec/etc/ossec.conf
+#if ! grep -q "<ssl_verification>" /var/ossec/etc/ossec.conf; then
+#    sed -i '/<ssl>/a \      <ssl_verification>no</ssl_verification>' /var/ossec/etc/ossec.conf
+#else
+#    sed -i "s|<ssl_verification>yes</ssl_verification>|<ssl_verification>no</ssl_verification>|g" /var/ossec/etc/ossec.conf
+#fi
+
+echo "Applying correct permissions to Wazuh Manager files..."
+# CRITICAL FIX 1: Ensure wazuh user owns its config and keystore
+chown -R wazuh:wazuh /var/ossec/etc/
+chown -R wazuh:wazuh /var/ossec/queue/
+chmod 640 /var/ossec/etc/ossec.conf
+chmod 640 /var/ossec/etc/client.keys 2>/dev/null || true
+
+# CRITICAL FIX 2: The Port Sanitizer
+echo "Clearing Port 55000 to prevent API conflicts..."
+# 1. Stop the service normally first
+systemctl stop wazuh-manager || true
+
+# 2. Hunt for ANY process holding port 55000 (The Zombie Python)
+PID=$(lsof -t -i:55000)
+if [ -n "$PID" ]; then
+    echo "Found zombie API process (PID: $PID) on port 55000. Killing it..."
+    kill -9 $PID
 else
-    sed -i "s|<ssl_verification>yes</ssl_verification>|<ssl_verification>no</ssl_verification>|g" /var/ossec/etc/ossec.conf
+    echo "Port 55000 is clean."
 fi
-systemctl restart wazuh-manager
+
+# 3. Double check cleanup
+sleep 2
+
+echo "Starting Wazuh Manager (Clean Start)..."
+systemctl start wazuh-manager
+
+# Final wait to ensure stability before next section
+echo "Waiting for Manager to stabilize..."
+sleep 10
 
 # --- [6/8] FIXING FILEBEAT (SECCOMP + OFFLINE TEMPLATE) ---
 echo "Applying Seccomp Bypass..."
