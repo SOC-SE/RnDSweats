@@ -7,7 +7,7 @@
 # Variables
 MC_VERSION="1.7.10"
 SERVER_URL="https://launcher.mojang.com/v1/objects/952438ac4e01b4d115c5fc38f891710c4941df29/server.jar"
-LOG4J_URL="https://launcher.mojang.com/v1/objects/4bb89a97a66f570bddc5592c671d46345a060f08/log4j2_17-111.xml"
+LOG4J_URL="https://launcher.mojang.com/v1/objects/4bb89a97a66f350bc9f73b3ca8509632682aea2e/log4j2_17-111.xml"
 INSTALL_DIR="/opt/mc_server_1.7.10"
 MC_USER="mcadmin"
 RAM_AMOUNT="3G"
