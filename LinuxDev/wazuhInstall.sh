@@ -1,21 +1,15 @@
 #!/bin/bash
 set -e 
 
-# Wazuh Master Installation Script for Oracle Linux 9 (GOLDEN MASTER)
+# Wazuh Master Installation Script for Oracle Linux 9 (FINAL + OFFLINE FALLBACK)
 # Target Version: 4.14.1
-#
-# INCLUDES FIXES FOR:
-# 1. Oracle Linux fapolicyd/SELinux (Permissive)
-# 2. RHEL 9 Kernel Seccomp Crash (Systemd Override + App Config)
-# 3. Offline/Airgapped Template Fallback
-# 4. Correct Index Naming (wazuh-alerts-*)
 
 # --- Configuration ---
 WAZUH_MAJOR="4.14"
 WAZUH_VERSION="4.14.1"
 INSTALL_DIR="/root/wazuh-install-temp"
 WAZUH_PASSWORD="Changeme1!"
-CURRENT_DIR=$(pwd) 
+CURRENT_DIR=$(pwd) # Saved to find local files if downloads fail
 # ---------------------
 
 echo "--- [1/8] Cleaning & Prep ---"
@@ -126,36 +120,7 @@ dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-echo "Waiting for Wazuh Manager API (Max 90s)..."
-# Wait up to 90 seconds for the API socket to be active
-count=0
-api_ready=0
-while [ $count -lt 90 ]; do
-    # Check if file exists AND contains the ready message
-    if [ -f /var/ossec/logs/api.log ] && grep -q "Wazuh is ready" /var/ossec/logs/api.log; then
-        echo "Manager API is ready."
-        api_ready=1
-        break
-    fi
-    echo -n "."
-    sleep 1
-    ((count++))
-done
-echo "" # Newline
-
-# Explicitly fail if timeout reached to prevent Python crash
-if [ $api_ready -eq 0 ]; then
-    echo "ERROR: Manager API did not initialize in time."
-    echo "--- Last 10 lines of api.log ---"
-    tail -n 10 /var/ossec/logs/api.log 2>/dev/null
-    echo "--- Last 10 lines of ossec.log ---"
-    tail -n 10 /var/ossec/logs/ossec.log 2>/dev/null
-    exit 1
-fi
-
-# Safety buffer after 'Ready' message
 sleep 5
-
 /var/ossec/framework/python/bin/python3 <<EOF
 from wazuh.security import update_user
 try:
@@ -175,16 +140,12 @@ else
 fi
 systemctl restart wazuh-manager
 
-# --- [6/8] FIXING FILEBEAT (CRITICAL CONFIG) ---
-echo "Applying Seccomp Bypass (Systemd Override Method)..."
-mkdir -p /etc/systemd/system/filebeat.service.d
-cat > /etc/systemd/system/filebeat.service.d/override.conf <<EOF
-[Service]
-SystemCallFilter=
-EOF
+# --- [6/8] FIXING FILEBEAT (SECCOMP + OFFLINE TEMPLATE) ---
+echo "Applying Seccomp Bypass..."
+sed -i '/\[Service\]/a SystemCallFilter=' /usr/lib/systemd/system/filebeat.service
 systemctl daemon-reload
 
-echo "Applying Golden Filebeat Configuration..."
+echo "Setting filebeat.yml"
 cat > /etc/filebeat/filebeat.yml <<EOF
 filebeat.inputs:
   - type: log
@@ -194,7 +155,6 @@ filebeat.inputs:
     json.keys_under_root: true
     json.overwrite_keys: true
     json.add_error_key: true
-    json.message_key: log
 
 output.elasticsearch:
   hosts: ["127.0.0.1:9200"]
@@ -203,13 +163,14 @@ output.elasticsearch:
   password: "$WAZUH_PASSWORD"
   ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
   ssl.verification_mode: none
+  # Defines the target index name explicitly
   index: "wazuh-alerts-4.x-%{+yyyy.MM.dd}"
 
+setup.template.name: "wazuh"
+setup.template.pattern: "wazuh-alerts-*"
 setup.template.json.enabled: true
 setup.template.json.path: '/etc/filebeat/wazuh-template.json'
 setup.template.json.name: 'wazuh'
-setup.template.name: 'wazuh'
-setup.template.pattern: 'wazuh-alerts-*'
 setup.template.overwrite: true
 setup.ilm.enabled: false
 seccomp.enabled: false
@@ -226,6 +187,7 @@ chmod 600 /etc/filebeat/filebeat.yml
 
 echo "Downloading filebeat wazuh template"
 # [NEW LOGIC] Try Curl, Fallback to Local
+echo "Attempting to download Wazuh Template..."
 TEMPLATE_URL="https://raw.githubusercontent.com/wazuh/wazuh/v$WAZUH_VERSION/extensions/elasticsearch/7.x/wazuh-template.json"
 
 if curl -L --retry 3 --connect-timeout 10 -so /etc/filebeat/wazuh-template.json "$TEMPLATE_URL"; then
@@ -240,7 +202,7 @@ fi
 
 chmod go+r /etc/filebeat/wazuh-template.json
 
-echo "Setting up filebeat index management..."
+echo "Setting up filebeat index management and starting filebeat"
 filebeat setup --index-management \
   -E setup.template.json.enabled=true \
   -E setup.template.json.path=/etc/filebeat/wazuh-template.json \
@@ -253,7 +215,7 @@ systemctl enable filebeat
 systemctl start filebeat
 
 # --- [7/8] Dashboard ---
-echo "Installing Wazuh Dashboard..."
+echo "downloading and configuring wazuh dashboard"
 dnf install -y wazuh-dashboard-$WAZUH_VERSION
 
 mkdir -p /etc/wazuh-dashboard/certs
@@ -296,7 +258,7 @@ EOF
 chmod 600 /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
 chown -R wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data/wazuh
 
-echo "Starting Wazuh Dashboard..."
+echo "Starting wazuh dashboard"
 systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
 
