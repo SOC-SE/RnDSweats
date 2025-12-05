@@ -149,9 +149,10 @@ chmod 640 /var/ossec/etc/client.keys 2>/dev/null || true
 # CRITICAL FIX 2: The Port Sanitizer
 echo "Clearing Port 55000 to prevent API conflicts..."
 # 1. Stop the service normally first
-systemctl stop wazuh-manager || true
+systemctl stop wazuh-manager 
 
 # 2. Hunt for ANY process holding port 55000 (The Zombie Python)
+echo "Hunting for PID"
 PID=$(lsof -t -i:55000)
 if [ -n "$PID" ]; then
     echo "Found zombie API process (PID: $PID) on port 55000. Killing it..."
