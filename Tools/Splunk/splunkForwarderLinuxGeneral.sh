@@ -324,7 +324,7 @@ crcSalt = <SOURCE>
 
 
 # -----------------------------------------------------------------------------
-# # LMD (Linux Malware Detect). Combines ClamAV, Yara, and additional AV functionality.
+# # LMD (Linux Malware Detect). Combines ClamAV and additional AV functionality.
 # -----------------------------------------------------------------------------
 
 #General logs
@@ -502,13 +502,25 @@ crcSalt = <SOURCE>
 
 
 # -----------------------------------------------------------------------------
-# Custom Applications and Scripts
+# Custom Applications and Scripts (syst)
 # -----------------------------------------------------------------------------
 
 #Linux masterEnum logs
 [monitor:///var/log/syst/*audit*]
 index = main
-sourcetype = lin_audit
+sourcetype = linux_audit
+crcSalt = <SOURCE>
+
+#Rootkit detection logs
+[monitor:///var/log/syst/integrity_scan.log]
+index = main
+sourcetype = linux_rootkit
+crcSalt = <SOURCE>
+
+#Rootkit detection logs
+[monitor:///var/log/syst/pre_install_compromise.log]
+index = main
+sourcetype = linux_rootkit
 crcSalt = <SOURCE>
 
 #Test log
