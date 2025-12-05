@@ -247,13 +247,9 @@ void get_mounts() {
 // 4. CRON CONFIGURATION
 // ==========================================
 
-void check_crons() {
-    log_msg("\n--- SYSTEM CRON CHECK (/etc/crontab) ---\n");
-    FILE *f = fopen("/etc/crontab", "r");
-    if (!f) {
-        log_msg("Could not open /etc/crontab\n");
-        return;
-    }
+void parse_cron_file(const char *filename) {
+    FILE *f = fopen(filename, "r");
+    if (!f) return;
 
     char line[512];
     while (fgets(line, sizeof(line), f)) {
@@ -264,10 +260,36 @@ void check_crons() {
         if (isdigit(line[0]) || line[0] == '*') {
             // Remove newline
             line[strcspn(line, "\n")] = 0;
-            log_msg("[JOB] %s\n", line);
+            log_msg("[JOB] (%s) %s\n", filename, line);
         }
     }
     fclose(f);
+}
+
+void check_crons() {
+    log_msg("\n--- SYSTEM CRON CHECK (/etc/crontab & /etc/cron.d) ---\n");
+    
+    // Check main crontab
+    parse_cron_file("/etc/crontab");
+
+    // Check cron.d directory
+    DIR *dir = opendir("/etc/cron.d");
+    struct dirent *entry;
+
+    if (dir) {
+        while ((entry = readdir(dir)) != NULL) {
+            // Skip . and ..
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+                continue;
+
+            char path[256];
+            snprintf(path, sizeof(path), "/etc/cron.d/%s", entry->d_name);
+            parse_cron_file(path);
+        }
+        closedir(dir);
+    } else {
+        log_msg("Could not open /etc/cron.d\n");
+    }
 }
 
 // ==========================================
