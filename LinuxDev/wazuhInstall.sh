@@ -126,7 +126,20 @@ dnf install -y wazuh-manager-$WAZUH_VERSION filebeat
 systemctl enable wazuh-manager
 systemctl start wazuh-manager
 
-sleep 5
+echo "Waiting for Wazuh Manager API..."
+# Wait up to 30 seconds for the API socket to be active
+count=0
+while [ $count -lt 30 ]; do
+    if grep -q "Wazuh is ready" /var/ossec/logs/api.log 2>/dev/null; then
+        echo "Manager API is ready."
+        break
+    fi
+    sleep 1
+    ((count++))
+done
+# Safety buffer
+sleep 2
+
 /var/ossec/framework/python/bin/python3 <<EOF
 from wazuh.security import update_user
 try:
@@ -147,8 +160,12 @@ fi
 systemctl restart wazuh-manager
 
 # --- [6/8] FIXING FILEBEAT (CRITICAL CONFIG) ---
-echo "Applying Seccomp Bypass (Systemd Level)..."
-sed -i '/\[Service\]/a SystemCallFilter=' /usr/lib/systemd/system/filebeat.service
+echo "Applying Seccomp Bypass (Systemd Override Method)..."
+mkdir -p /etc/systemd/system/filebeat.service.d
+cat > /etc/systemd/system/filebeat.service.d/override.conf <<EOF
+[Service]
+SystemCallFilter=
+EOF
 systemctl daemon-reload
 
 echo "Applying Golden Filebeat Configuration..."
