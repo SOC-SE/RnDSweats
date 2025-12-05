@@ -89,7 +89,7 @@ else
     SYSTEM_JAVA="java"
 fi
 
-echo -e "${YELLOW}Setting up '$MC_USER' user so we don't get fucked and directory at: $INSTALL_DIR${NC}"
+echo -e "${YELLOW}Setting up '$MC_USER' user so we don't get fucked. oh, yeah, the directory is at: $INSTALL_DIR${NC}"
 
 if ! id "$MC_USER" &>/dev/null; then
     useradd -m -s /bin/bash "$MC_USER"
@@ -102,6 +102,7 @@ cd "$INSTALL_DIR" || exit
 echo -e "${YELLOW}Downloading Server Files...${NC}"
 
 sudo -u "$MC_USER" wget -O server.jar "$SERVER_URL"
+# Switched to curl as requested
 sudo -u "$MC_USER" curl -o log4j2_17-111.xml "$LOG4J_URL"
 
 if [ ! -f server.jar ]; then
@@ -119,7 +120,7 @@ cat <<EOF > "$START_SCRIPT"
 #!/bin/bash
 cd "$INSTALL_DIR"
 JAVA_BIN="$SYSTEM_JAVA"
-echo "Starting Minecraft 1.7.10..."
+echo "Starting Minecraft 1.7.10... because we ballin"
 exec "\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
 EOF
 
@@ -128,33 +129,39 @@ chown "$MC_USER":"$MC_USER" "$START_SCRIPT"
 
 echo -e "${YELLOW}Creating systemd service file...${NC}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+SCREEN_BIN=$(command -v screen)
 
 cat <<EOF > "$SERVICE_FILE"
 [Unit]
-Description=Minecraft 1.7.10 Server
+Description=Minecraft 1.7.10 Server for the coolest blue teamers around
 After=network.target
 
 [Service]
 User=$MC_USER
 Group=$MC_USER
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$START_SCRIPT
+# We wrap the start script in screen -DmS. 
+# -D ensures it stays in foreground (for systemd)
+# -m ensures it creates a new session
+# -S names it 'mc-console' so we can find it
+ExecStart=$SCREEN_BIN -DmS mc-console $START_SCRIPT
+
+# Stop gracefully by injecting the 'stop' command into the console
+ExecStop=$SCREEN_BIN -p 0 -S mc-console -X eval 'stuff "stop"\\015'
+
 Restart=on-failure
 RestartSec=10
-# StandardOutput=journal ensures logs go to journalctl
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-echo -e "${YELLOW}Reloading systemd daemon...${NC}"
-systemctl daemon-reload
 
+systemctl daemon-reload
 systemctl enable --now $SERVICE_NAME
 
 echo -e "It worked. Probably. If you want to actually enjoy life, here's info for you to administrate MC:"
 echo -e "Service name: ${YELLOW}$SERVICE_NAME${NC}"
 echo -e "Restart server when RT breaks it: ${YELLOW}systemctl restart $SERVICE_NAME${NC}"
+echo -e "Access Console: ${YELLOW}sudo -u $MC_USER screen -r mc-console${NC}  (Ctrl+A, D to detach)"
 echo -e "Check logs:   ${YELLOW}journalctl -u $SERVICE_NAME -f${NC}"
