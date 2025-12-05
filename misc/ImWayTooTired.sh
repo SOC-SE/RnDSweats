@@ -26,7 +26,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${GREEN}Starting Minecraft $MC_VERSION Server Installer...${NC}"
+echo -e "${GREEN}No fucking way we're actually installed Minecraft $MC_VERSION lmao${NC}"
 
 if [ "$EUID" -ne 0 ]; then
   echo -e "${RED}run this script as root u noob${NC}"
