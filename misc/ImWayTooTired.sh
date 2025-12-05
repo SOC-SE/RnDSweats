@@ -37,22 +37,22 @@ if command -v apt > /dev/null; then
     echo "trying to get packages for my special little apt minecrafter"
     apt-get update
     if apt-cache show openjdk-8-jre-headless > /dev/null 2>&1; then
-        apt-get install -y openjdk-8-jre-headless wget screen
+        apt-get install -y openjdk-8-jre-headless wget screen curl
     else
         echo -e "${YELLOW}OpenJDK 8 not found. Installing default-jre (Warning: MC 1.7.10 might not work with Java 17+).${NC}"
-        apt-get install -y default-jre wget screen
+        apt-get install -y default-jre wget screen curl
     fi
 
 elif command -v dnf > /dev/null; then
     echo "trying to get packages for my special little dnf minecrafter"
     dnf install -y epel-release
     dnf clean all
-    dnf install -y java-1.8.0-openjdk-headless wget screen
+    dnf install -y java-1.8.0-openjdk-headless wget screen curl
 
 elif command -v yum > /dev/null; then
     echo "trying to get packages for my special little yum minecrafter"
     yum install -y epel-release
-    yum install -y java-1.8.0-openjdk-headless wget screen
+    yum install -y java-1.8.0-openjdk-headless wget screen curl
 
 else
     echo -e "${RED}Error: No supported package manager found (apt, dnf, yum).${NC}"
@@ -101,7 +101,7 @@ cd "$INSTALL_DIR" || exit
 echo -e "${YELLOW}Downloading Server Files...${NC}"
 
 sudo -u "$MC_USER" wget -O server.jar "$SERVER_URL"
-sudo -u "$MC_USER" wget -O log4j2_17-111.xml "$LOG4J_URL"
+sudo -u "$MC_USER" curl -o log4j2_17-111.xml "$LOG4J_URL"
 
 if [ ! -f server.jar ]; then
     echo -e "${RED}Error: Server JAR failed to download. FML.${NC}"
