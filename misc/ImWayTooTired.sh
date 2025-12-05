@@ -115,13 +115,12 @@ echo "eula=true" | sudo -u "$MC_USER" tee eula.txt > /dev/null #everytime I see 
 START_SCRIPT="$INSTALL_DIR/start.sh"
 echo -e "${YELLOW}Creating start script wrapper...${NC}"
 
-
 cat <<EOF > "$START_SCRIPT"
 #!/bin/bash
 cd "$INSTALL_DIR"
 JAVA_BIN="$SYSTEM_JAVA"
-echo "Starting Minecraft 1.7.10... because we ballin"
-exec "\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
+echo "Starting Minecraft 1.7.10..."
+"\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
 EOF
 
 chmod +x "$START_SCRIPT"
@@ -133,18 +132,22 @@ SCREEN_BIN=$(command -v screen)
 
 cat <<EOF > "$SERVICE_FILE"
 [Unit]
-Description=Minecraft 1.7.10 Server for the coolest blue teamers around
+Description=Minecraft 1.7.10 Server
 After=network.target
 
 [Service]
 User=$MC_USER
 Group=$MC_USER
 WorkingDirectory=$INSTALL_DIR
+# Force xterm environment so Java detects a terminal and accepts input
+Environment=TERM=xterm
+
 # We wrap the start script in screen -DmS. 
 # -D ensures it stays in foreground (for systemd)
 # -m ensures it creates a new session
 # -S names it 'mc-console' so we can find it
-ExecStart=$SCREEN_BIN -DmS mc-console $START_SCRIPT
+# We explicitly call /bin/bash to ensure the script runs in a shell inside screen
+ExecStart=$SCREEN_BIN -DmS mc-console /bin/bash $START_SCRIPT
 
 # Stop gracefully by injecting the 'stop' command into the console
 ExecStop=$SCREEN_BIN -p 0 -S mc-console -X eval 'stuff "stop"\\015'
@@ -155,7 +158,6 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-
 
 systemctl daemon-reload
 systemctl enable --now $SERVICE_NAME
