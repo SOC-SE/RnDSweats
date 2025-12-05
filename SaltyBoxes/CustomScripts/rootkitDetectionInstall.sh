@@ -1,25 +1,27 @@
 #!/bin/bash
 #
-# AUTOMATED ROOTKIT DEFENSE & MONITORING
+# AUTOMATED ROOTKIT DEFENSE & MONITORING (SILENT MODE)
 # 
 # Actions:
 # 1. Installs rkhunter and chkrootkit (Distro Agnostic).
 # 2. Creates a custom logging directory for SIEM ingestion.
 # 3. Creates a scanner wrapper that runs both tools.
 # 4. Schedules the scanner to run every 15 minutes.
-# 5. Alerts via 'wall' (broadcast) only if threats are found.
+# 5. NO WALL MESSAGES - Silent logging only.
 
 set -e
 
 # --- Root Check ---
 if [ "$EUID" -ne 0 ]; then
-  echo "ERROR: Must run as root"
+  echo "!! ERROR: Must run as root !!"
   exit 1
 fi
 
 # --- Variables & Setup ---
 LOG_DIR="/var/log/syst"
+# Create directory FIRST so early logs don't fail
 mkdir -p "$LOG_DIR"
+chmod 700 "$LOG_DIR"
 
 LOG_FILE="$LOG_DIR/integrity_scan.log"
 PRE_INSTALL_LOG="$LOG_DIR/pre_install_compromise.log"
@@ -37,7 +39,7 @@ if command -v apt-get &> /dev/null; then
 
 elif command -v dnf &> /dev/null; then
     echo "[+] Detected DNF (RHEL 8+/Fedora/Oracle)"
-    # FIX: Fedora (Webmail) does not use EPEL. "|| true" prevents script death.
+    # Fedora does not use EPEL. "|| true" prevents script death.
     dnf install -y epel-release || true
     dnf install -y rkhunter chkrootkit
 
@@ -53,7 +55,7 @@ fi
 
 echo "[*] Verifying system binary integrity via Package Manager..."
 
-# FIX: Standardized log path to $PRE_INSTALL_LOG
+# Standardized log path to $PRE_INSTALL_LOG
 if command -v rpm &> /dev/null; then
     # RHEL/Fedora/Oracle
     echo "Running RPM verification..."
@@ -72,8 +74,6 @@ if [ -s "$PRE_INSTALL_LOG" ]; then
     echo "The system may ALREADY be compromised."
     echo "Check $PRE_INSTALL_LOG immediately."
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    # Active Defense: Wall this immediately
-    echo "CRITICAL: binaries modified BEFORE install. Check $PRE_INSTALL_LOG" | wall
 fi
 
 
@@ -91,7 +91,6 @@ cat <<EOF > "$SCANNER_SCRIPT"
 
 # Define Log Path
 LOG_TARGET="$LOG_FILE"
-HOST_NAME=\$(hostname)
 THREAT_DETECTED=0
 
 # Temp file for this specific scan's findings
@@ -122,15 +121,8 @@ fi
 
 # 3. Decision Logic
 if [ "\$THREAT_DETECTED" -eq 1 ]; then
-    # A. Append findings to the main log for the SIEM
+    # Append findings to the main log for the SIEM
     cat "\$SCAN_TEMP" >> "\$LOG_TARGET"
-    
-    # B. Send ONE broadcast message to terminals
-    echo "SECURITY ALERT: Rootkit/Anomaly detected on \$HOST_NAME. Check \$LOG_TARGET immediately." | wall
-else
-    # Heartbeat for SIEM (optional, helps verify agent is alive)
-    # echo "Scan clean" >> "\$LOG_TARGET"
-    :
 fi
 
 # Cleanup
@@ -153,4 +145,4 @@ echo "[+] Initial scan running now (backgrounded)..."
 echo "---[ DEPLOYMENT COMPLETE ]---"
 echo "Logs: $LOG_FILE"
 echo "Schedule: Every 15 minutes"
-echo "Alerts: Wall message triggers ONLY on detection."
+echo "Silent Mode: Active (No terminal broadcasts)"
