@@ -133,11 +133,6 @@ EOF
 /var/ossec/bin/wazuh-keystore -f indexer -k password -v "$WAZUH_PASSWORD"
 
 sed -i "s|<host>https://0.0.0.0:9200</host>|<host>https://127.0.0.1:9200</host>|g" /var/ossec/etc/ossec.conf
-#if ! grep -q "<ssl_verification>" /var/ossec/etc/ossec.conf; then
-#    sed -i '/<ssl>/a \      <ssl_verification>no</ssl_verification>' /var/ossec/etc/ossec.conf
-#else
-#    sed -i "s|<ssl_verification>yes</ssl_verification>|<ssl_verification>no</ssl_verification>|g" /var/ossec/etc/ossec.conf
-#fi
 
 echo "Applying correct permissions to Wazuh Manager files..."
 # CRITICAL FIX 1: Ensure wazuh user owns its config and keystore
@@ -186,6 +181,11 @@ filebeat.inputs:
     json.keys_under_root: true
     json.overwrite_keys: true
     json.add_error_key: true
+
+processors:
+  - drop_fields:
+      fields: ["agent", "host", "ecs", "beat", "input", "log", "offset"]
+      ignore_missing: true
 
 output.elasticsearch:
   hosts: ["127.0.0.1:9200"]
