@@ -2,7 +2,8 @@
 * C380 - C-based Enumeration
 * This is a C version of this script: https://github.com/SOC-SE/RnDSweats/blob/80322919e5ed97c04e5a701d5b90c3d415aaa6b9/LinuxDev/masterEnum.sh
 *
-* Sudo perms are required to run this
+* Sudo perms are required to run this program. To compile (gcc is required):
+* gcc -o enum.sh enum_C_variant.c
 * 
 * Research sources:
 *
