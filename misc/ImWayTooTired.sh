@@ -18,6 +18,7 @@ LOG4J_URL="https://launcher.mojang.com/v1/objects/4bb89a97a66f570bddc5592c671d46
 INSTALL_DIR="/opt/mc_server_1.7.10"
 MC_USER="mcadmin"
 RAM_AMOUNT="3G"
+SERVICE_NAME="mc-1.7.10"
 
 #pretty colours <3
 GREEN='\033[0;32m'
@@ -111,23 +112,49 @@ fi
 echo "eula=true" | sudo -u "$MC_USER" tee eula.txt > /dev/null #everytime I see tee, I want to do teehee.... holy shit I should alias that
 
 START_SCRIPT="$INSTALL_DIR/start.sh"
-echo -e "${YELLOW}Creating start script...${NC}"
+echo -e "${YELLOW}Creating start script wrapper...${NC}"
+
 
 cat <<EOF > "$START_SCRIPT"
 #!/bin/bash
-# Navigate to the server directory first so we can find server.jar
 cd "$INSTALL_DIR"
-
 JAVA_BIN="$SYSTEM_JAVA"
-
-echo "Starting Minecraft 1.7.10, go shout about it to all your friends and local RTers"
-echo "Using Java: \$JAVA_BIN"
-"\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
+echo "Starting Minecraft 1.7.10..."
+exec "\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
 EOF
 
 chmod +x "$START_SCRIPT"
 chown "$MC_USER":"$MC_USER" "$START_SCRIPT"
 
+echo -e "${YELLOW}Creating systemd service file...${NC}"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-echo -e "It worked. Probably. If you want to actually enjoy life, run this command and don't think twice, just trust me bro:"
-echo -e "${YELLOW}sudo -u $MC_USER $START_SCRIPT${NC}"
+cat <<EOF > "$SERVICE_FILE"
+[Unit]
+Description=Minecraft 1.7.10 Server
+After=network.target
+
+[Service]
+User=$MC_USER
+Group=$MC_USER
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$START_SCRIPT
+Restart=on-failure
+RestartSec=10
+# StandardOutput=journal ensures logs go to journalctl
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo -e "${YELLOW}Reloading systemd daemon...${NC}"
+systemctl daemon-reload
+
+systemctl enable --now $SERVICE_NAME
+
+echo -e "It worked. Probably. If you want to actually enjoy life, here's info for you to administrate MC:"
+echo -e "Service name: ${YELLOW}$SERVICE_NAME${NC}"
+echo -e "Restart server when RT breaks it: ${YELLOW}systemctl restart $SERVICE_NAME${NC}"
+echo -e "Check logs:   ${YELLOW}journalctl -u $SERVICE_NAME -f${NC}"
