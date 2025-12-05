@@ -1,12 +1,20 @@
 /*
- * C380 OS Project: System Enumeration and Security Audit Tool
- * * Objective: Reimplement functionality of 'masterEnum.sh' using native C
- * to demonstrate OS concepts: File I/O, System Calls, Structure Parsing,
- * and Directory Traversal.
- *
- * Compile with: gcc -o sys_audit system_audit.c
- * Run with: sudo ./sys_audit
- */
+* C380 - C-based Enumeration
+* This is a C version of this script: https://github.com/SOC-SE/RnDSweats/blob/80322919e5ed97c04e5a701d5b90c3d415aaa6b9/LinuxDev/masterEnum.sh
+*
+* Sudo perms are required to run this
+* 
+* Research sources:
+*
+* Gemini was used for much of the research needed for how to perform these tasks
+* 
+* https://www.tutorialspoint.com/c_standard_library/stdarg_h.htm
+* https://man7.org/tlpi/code/online/dist/sockets/list_host_addresses.c.html
+* https://www.linux.com/news/discover-possibilities-proc-directory/
+* https://en.wikibooks.org/wiki/C_Programming/POSIX_Reference/dirent.h
+* https://stackoverflow.com/questions/15952283/get-real-free-usable-space
+* 
+*/
 
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -416,11 +424,9 @@ int main() {
     get_hostname_os();
     get_network_info();
     get_hardware_info();
-    
-    get_mounts();        // NEW: Mount enumeration
-    scan_processes();    // NEW: Process enumeration
-    check_crons();       // NEW: Cron enumeration
-    
+    get_mounts();      
+    scan_processes();    
+    check_crons();       
     scan_users();
     
     log_msg("\n--- SCANNING FOR SUID BINARIES (May take a moment) ---\n");
