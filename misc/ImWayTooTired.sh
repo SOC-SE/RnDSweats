@@ -1,39 +1,41 @@
 #!/bin/bash
+#
+# My finals are two weeks long this year. I'm about half way in and 3.5 all nighters deep. I take schedule 2.3 hour naps.
+# I'm losing my sanity and we compete TOMORROW. So, here's me regaining some of it back.
+#
+# This script installs a bloody 1.7.10 Minecraft server. No, really, it does. It *should* work on RHEL and Debian based 
+# machines, but don't look at me if it fails. I'm tired boss.
+#
+#
+# Samuel Brucker 2025-2026
+#
+#
+#
 
-# ==============================================================================
-# Minecraft 1.7.10 Server Installer (Debian/Ubuntu & RHEL/CentOS)
-# ==============================================================================
-
-# Variables
 MC_VERSION="1.7.10"
 SERVER_URL="https://launcher.mojang.com/v1/objects/952438ac4e01b4d115c5fc38f891710c4941df29/server.jar"
-LOG4J_URL="https://launcher.mojang.com/v1/objects/4bb89a97a66f350bc9f73b3ca8509632682aea2e/log4j2_17-111.xml"
+LOG4J_URL="https://launcher.mojang.com/v1/objects/4bb89a97a66f570bddc5592c671d46345a060f08/log4j2_17-111.xml"
 INSTALL_DIR="/opt/mc_server_1.7.10"
 MC_USER="mcadmin"
 RAM_AMOUNT="3G"
 
-# Colors for pretty output
+#pretty colours <3
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 echo -e "${GREEN}Starting Minecraft $MC_VERSION Server Installer...${NC}"
 
-# 1. Check for Root
 if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}Error: This script must be run as root (sudo).${NC}"
+  echo -e "${RED}run this script as root u noob${NC}"
   exit 1
 fi
 
-# 2. Detect OS and Install Dependencies
-echo -e "${YELLOW}Detecting OS and installing dependencies...${NC}"
 
 if command -v apt > /dev/null; then
-    # --- Debian/Ubuntu ---
-    echo "Detected 'apt' package manager."
+    echo "trying to get packages for my special little apt minecrafter"
     apt-get update
-    # Install dependencies. openjdk-8 might be missing on very new Debians, fallback to default if needed
     if apt-cache show openjdk-8-jre-headless > /dev/null 2>&1; then
         apt-get install -y openjdk-8-jre-headless wget screen
     else
@@ -42,19 +44,13 @@ if command -v apt > /dev/null; then
     fi
 
 elif command -v dnf > /dev/null; then
-    # --- RHEL 8/9 / Fedora / Rocky ---
-    echo "Detected 'dnf' package manager."
-    # RHEL 9 requires EPEL for 'screen'
-    echo "Installing epel-release to ensure 'screen' is available..."
+    echo "trying to get packages for my special little dnf minecrafter"
     dnf install -y epel-release
     dnf clean all
-    
-    echo "Installing Java 8, wget, and screen..."
     dnf install -y java-1.8.0-openjdk-headless wget screen
 
 elif command -v yum > /dev/null; then
-    # --- Older RHEL / CentOS ---
-    echo "Detected 'yum' package manager."
+    echo "trying to get packages for my special little yum minecrafter"
     yum install -y epel-release
     yum install -y java-1.8.0-openjdk-headless wget screen
 
@@ -63,21 +59,20 @@ else
     exit 1
 fi
 
-# 3. Verify Dependencies (CRITICAL STEP)
 echo -e "${YELLOW}Verifying installation...${NC}"
 
 if ! command -v wget > /dev/null; then
-    echo -e "${RED}Error: 'wget' failed to install. Please install it manually.${NC}"
+    echo -e "${RED}wget failed to install, wtf did you do to this box????${NC}"
     exit 1
 fi
 
 if ! command -v screen > /dev/null; then
-    echo -e "${RED}Error: 'screen' failed to install. Please install it manually.${NC}"
+    echo -e "${RED}screen failed to install, wtf did you do to this box????${NC}"
     exit 1
 fi
 
 if ! command -v java > /dev/null; then
-    echo -e "${RED}Error: 'java' command not found. Checking for specific binary paths...${NC}"
+    echo -e "${RED}Error: 'java' command not found. Checking for specific binary paths... you dumbass${NC}"
     # Try to find java 8 specifically if 'java' alias isn't set
     if [ -f "/usr/lib/jvm/jre-1.8.0-openjdk/bin/java" ]; then
         echo "Found Java at /usr/lib/jvm/jre-1.8.0-openjdk/bin/java"
@@ -86,15 +81,14 @@ if ! command -v java > /dev/null; then
         echo "Found Java at /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java"
         SYSTEM_JAVA="/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java"
     else
-        echo -e "${RED}CRITICAL ERROR: Java 8 could not be found. Installation aborted.${NC}"
+        echo -e "${RED}CRITICAL ERROR: Java 8 could not be found. The script has decided you're not cool enough. \n\n\n\nBe sad about it.${NC}"
         exit 1
     fi
 else
     SYSTEM_JAVA="java"
 fi
 
-# 4. Create User and Setup Directory
-echo -e "${YELLOW}Setting up '$MC_USER' user and directory at: $INSTALL_DIR${NC}"
+echo -e "${YELLOW}Setting up '$MC_USER' user so we don't get fucked and directory at: $INSTALL_DIR${NC}"
 
 if ! id "$MC_USER" &>/dev/null; then
     useradd -m -s /bin/bash "$MC_USER"
@@ -103,7 +97,6 @@ fi
 mkdir -p "$INSTALL_DIR"
 chown -R "$MC_USER":"$MC_USER" "$INSTALL_DIR"
 
-# 5. Download Files
 cd "$INSTALL_DIR" || exit
 echo -e "${YELLOW}Downloading Server Files...${NC}"
 
@@ -111,22 +104,23 @@ sudo -u "$MC_USER" wget -O server.jar "$SERVER_URL"
 sudo -u "$MC_USER" wget -O log4j2_17-111.xml "$LOG4J_URL"
 
 if [ ! -f server.jar ]; then
-    echo -e "${RED}Error: Server JAR failed to download.${NC}"
+    echo -e "${RED}Error: Server JAR failed to download. FML.${NC}"
     exit 1
 fi
 
-# 6. EULA
-echo "eula=true" | sudo -u "$MC_USER" tee eula.txt > /dev/null
+echo "eula=true" | sudo -u "$MC_USER" tee eula.txt > /dev/null #everytime I see tee, I want to do teehee.... holy shit I should alias that
 
-# 7. Create Start Script
 START_SCRIPT="$INSTALL_DIR/start.sh"
 echo -e "${YELLOW}Creating start script...${NC}"
 
 cat <<EOF > "$START_SCRIPT"
 #!/bin/bash
+# Navigate to the server directory first so we can find server.jar
+cd "$INSTALL_DIR"
+
 JAVA_BIN="$SYSTEM_JAVA"
 
-echo "Starting Minecraft 1.7.10..."
+echo "Starting Minecraft 1.7.10, go shout about it to all your friends and local RTers"
 echo "Using Java: \$JAVA_BIN"
 "\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
 EOF
@@ -134,8 +128,6 @@ EOF
 chmod +x "$START_SCRIPT"
 chown "$MC_USER":"$MC_USER" "$START_SCRIPT"
 
-echo -e "${GREEN}==========================================${NC}"
-echo -e "${GREEN}Installation Complete!${NC}"
-echo -e "To start the server:"
+
+echo -e "It worked. Probably. If you want to actually enjoy life, run this command and don't think twice, just trust me bro:"
 echo -e "${YELLOW}sudo -u $MC_USER $START_SCRIPT${NC}"
-echo -e "${GREEN}==========================================${NC}"
