@@ -12,6 +12,9 @@
 #
 #
 
+
+ADMIN_UUID="3c8f12eb-31cd-4661-a9d9-2d4e4bb91919"
+
 # Check for local Log4j file first
 if [ ! -f "log4j2_17-111.xml" ]; then
     echo "Error: log4j2_17-111.xml not found in the current directory."
@@ -28,18 +31,18 @@ read -r -p "Select an option [1-2]: " VERSION_CHOICE
 case $VERSION_CHOICE in
     1)
         MC_VERSION="1.7.10"
-        SOURCE_JAR="server-1.7.10.jar"
+        SOURCE_JAR="server_1.7.10.jar"
         INSTALL_DIR="/opt/mc_server_1.7.10"
         ;;
     2)
         MC_VERSION="1.8.8"
-        SOURCE_JAR="server-1.8.8.jar"
+        SOURCE_JAR="server_1.8.8.jar"
         INSTALL_DIR="/opt/mc_server_1.8.8"
         ;;
     *)
         echo "You didn't type 1 or 2. I'm too tired to argue. Defaulting to 1.8.8."
         MC_VERSION="1.8.8"
-        SOURCE_JAR="server-1.8.8.jar"
+        SOURCE_JAR="server_1.8.8.jar"
         INSTALL_DIR="/opt/mc_server_1.8.8"
         ;;
 esac
@@ -53,11 +56,16 @@ fi
 
 # Ask for OP user
 echo ""
-echo "Do you want to automatically OP a player on startup? (y/n)"
+echo "Do you want to automatically OP yourself on startup? (y/n)"
 read -r -p "Choice: " WANT_OP
 OP_USERNAME=""
 if [[ "$WANT_OP" =~ ^[Yy]$ ]]; then
-    read -r -p "Enter the exact Minecraft Username to OP: " OP_USERNAME
+    if [ "$ADMIN_UUID" == "REPLACE_THIS_WITH_YOUR_FULL_UUID" ]; then
+        echo -e "\033[0;31mWARNING: You didn't edit the script to add your UUID! OP will fail.\033[0m"
+        echo "Please edit line 16 of this script and run it again."
+        exit 1
+    fi
+    read -r -p "Enter your Minecraft Username: " OP_USERNAME
 fi
 
 MC_USER="mcadmin"
@@ -139,11 +147,19 @@ fi
 mkdir -p "$INSTALL_DIR"
 chown -R "$MC_USER":"$MC_USER" "$INSTALL_DIR"
 
-# Handle OP file creation
+# Handle OP file creation (JSON Format)
 if [ ! -z "$OP_USERNAME" ]; then
-    echo -e "${YELLOW}Creating ops.txt for $OP_USERNAME...${NC}"
-    echo "$OP_USERNAME" > "$INSTALL_DIR/ops.txt"
-    chown "$MC_USER":"$MC_USER" "$INSTALL_DIR/ops.txt"
+    echo -e "${YELLOW}Creating ops.json for $OP_USERNAME...${NC}"
+    cat <<EOF > "$INSTALL_DIR/ops.json"
+[
+  {
+    "uuid": "$ADMIN_UUID",
+    "name": "$OP_USERNAME",
+    "level": 4
+  }
+]
+EOF
+    chown "$MC_USER":"$MC_USER" "$INSTALL_DIR/ops.json"
 fi
 
 # Copy the local Log4j file
