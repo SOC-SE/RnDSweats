@@ -24,14 +24,14 @@ fi
 #  BELOW THIS LINE IS THE BASH SCRIPT
 # ==============================================================================
 
-# IntProc (Alpine Final Edition)
+# intproc (Alpine Final Edition)
 #
 #    A self-healing network defense system for Alpine Linux.
 #    Features: Multi-interface, Maintenance Mode, Snapshotting, Auto-Dependency.
 #    Original Design by Samuel Brucker 2025-2026.
 #
 
-# Color codes
+#colours pretty <3
 RED="\e[31m"
 GREEN="\e[32m"
 YELLOW="\e[33m"
@@ -55,8 +55,8 @@ check_root() {
 }
 
 show_help() {
-    echo -e "${CYAN}IntProc - Network Interface Protector (Alpine Edition)${NC}"
-    echo "Usage: $0 [OPTION]"
+    echo -e "${CYAN}intproc - Network Interface Protector (Alpine Edition)${NC}"
+    echo "Usage: intproc [OPTION]"
     echo ""
     echo "Options:"
     echo -e "  ${GREEN}--install${NC}   Install the service and configure initial settings."
@@ -167,7 +167,7 @@ if [ "$1" = "--pause" ]; then
     touch "$maintenance_file"
     echo -e "${YELLOW}MAINTENANCE MODE ACTIVATED.${NC}"
     echo "The background service is now sleeping. You may make changes."
-    echo "Run '$0 --save' to commit changes, then '$0 --resume'."
+    echo "Run 'intproc --save' to commit changes, then 'intproc --resume'."
     exit 0
 fi
 
@@ -218,7 +218,7 @@ fi
 
 # 4. INSTALLATION MODE
 if [ "$1" = "--install" ]; then
-    echo -e "${YELLOW}Starting IntProc Installation...${NC}"
+    echo -e "${YELLOW}Starting intproc Installation...${NC}"
     mkdir -p /etc/IntProc
     > "$config_file"
     
@@ -263,12 +263,13 @@ if [ "$1" = "--install" ]; then
 
     echo -e "${GREEN}Configuration saved.${NC}"
 
+    # Create OpenRC service pointing to the new lowercase binary
     cat <<EOF > /etc/init.d/intproc
 #!/sbin/openrc-run
-name="IntProc"
+name="intproc"
 description="Network Interface Protector"
 command="/bin/bash"
-command_args="/usr/local/bin/IntProc.sh"
+command_args="/usr/local/bin/intproc"
 command_background=true
 pidfile="/run/intproc.pid"
 depend() {
@@ -277,8 +278,11 @@ depend() {
 }
 EOF
     chmod +x /etc/init.d/intproc
-    cp "$0" /usr/local/bin/IntProc.sh
-    chmod +x /usr/local/bin/IntProc.sh
+    
+    # Copy script to the new lowercase location
+    cp "$0" /usr/local/bin/intproc
+    chmod +x /usr/local/bin/intproc
+    
     rc-update add intproc default
     rc-service intproc restart
     echo -e "${GREEN}Service installed and started.${NC}"
