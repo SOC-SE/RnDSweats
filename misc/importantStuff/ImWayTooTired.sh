@@ -28,18 +28,18 @@ read -r -p "Select an option [1-2]: " VERSION_CHOICE
 case $VERSION_CHOICE in
     1)
         MC_VERSION="1.7.10"
-        SOURCE_JAR="server_1.7.10.jar"
+        SOURCE_JAR="server-1.7.10.jar"
         INSTALL_DIR="/opt/mc_server_1.7.10"
         ;;
     2)
         MC_VERSION="1.8.8"
-        SOURCE_JAR="server_1.8.8.jar"
+        SOURCE_JAR="server-1.8.8.jar"
         INSTALL_DIR="/opt/mc_server_1.8.8"
         ;;
     *)
         echo "You didn't type 1 or 2. I'm too tired to argue. Defaulting to 1.8.8."
         MC_VERSION="1.8.8"
-        SOURCE_JAR="server_1.8.8.jar"
+        SOURCE_JAR="server-1.8.8.jar"
         INSTALL_DIR="/opt/mc_server_1.8.8"
         ;;
 esac
