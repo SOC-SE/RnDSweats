@@ -148,16 +148,31 @@ if [ ! -s "$INSTALL_DIR/log4j2_17-111.xml" ]; then
     echo -e "${RED}Warning: Local log4j2_17-111.xml was empty or corrupt.${NC}"
     echo -e "${YELLOW}Generating a safe fallback Log4j config...${NC}"
     cat <<EOF > "$INSTALL_DIR/log4j2_17-111.xml"
-<?xml version="1.0" encoding="UTF-8"?>
-<Configuration status="WARN">
+<Configuration status="WARN" packages="com.mojang.util">
     <Appenders>
         <Console name="SysOut" target="SYSTEM_OUT">
-            <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level]: %msg%n" />
+            <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level]: %msg%n"/>
         </Console>
+        <Queue name="ServerGuiConsole">
+            <PatternLayout pattern="[%d{HH:mm:ss} %level]: %msg%n"/>
+        </Queue>
+        <RollingRandomAccessFile name="File" fileName="logs/latest.log" filePattern="logs/%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level]: %msg%n"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy/>
+                <OnStartupTriggeringPolicy/>
+            </Policies>
+        </RollingRandomAccessFile>
     </Appenders>
     <Loggers>
         <Root level="info">
-            <AppenderRef ref="SysOut" />
+            <filters>
+                <MarkerFilter marker="NETWORK_PACKETS" onMatch="DENY" onMismatch="NEUTRAL"/>
+                <RegexFilter regex="(?s).*\$\{[^}]*\}.*" onMatch="DENY" onMismatch="NEUTRAL"/>
+            </filters>
+            <AppenderRef ref="SysOut"/>
+            <AppenderRef ref="File"/>
+            <AppenderRef ref="ServerGuiConsole"/>
         </Root>
     </Loggers>
 </Configuration>
@@ -219,9 +234,7 @@ EOF
 
 echo -e "${YELLOW}Reloading systemd daemon...${NC}"
 systemctl daemon-reload
-# Disable old service names if they exist just in case
-systemctl disable mc-1.7.10 2>/dev/null
-systemctl disable mc-1.8.8 2>/dev/null
+
 
 echo -e "It worked. Probably. If you want to actually enjoy life, here are your new commands:"
 echo -e "Start server: ${YELLOW}systemctl start $SERVICE_NAME${NC}"
