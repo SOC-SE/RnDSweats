@@ -24,9 +24,10 @@ fi
 #  BELOW THIS LINE IS THE BASH SCRIPT
 # ==============================================================================
 
-# IntProc (Alpine Multi-Interface Edition)
+# IntProc (Alpine Multi-Interface + Container Fix)
 #
-#    Supports monitoring multiple interfaces simultaneously.
+#    Supports monitoring multiple interfaces.
+#    Fixes "eth0@if..." naming issues in LXC/LXD/Docker containers.
 #    Original Design by Samuel Brucker 2025-2026.
 #
 
@@ -77,12 +78,15 @@ validate_cidr() {
 }
 
 get_available_interfaces() {
-    ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$' | tr '\n' ' '
+    # CONTAINER FIX: 
+    # 'sed s/@.*//' removes the @if56 suffix common in LXC/LXD containers
+    ip -o link show | awk -F': ' '{print $2}' | sed 's/@.*//' | grep -v '^lo$' | tr '\n' ' '
 }
 
 get_current_ip() {
     local iface="$1"
-    ip -4 addr show dev "$iface" | awk '/inet / {print $2}'
+    # Safely get IP even if multiple exist, grab the first primary one
+    ip -4 addr show dev "$iface" | awk '/inet / {print $2}' | head -n 1
 }
 
 get_current_gateway() {
@@ -124,7 +128,7 @@ revert_settings() {
         fi
     fi
 
-    # Gateway is system-wide, but we need an interface to attach the command to if using 'route'
+    # Gateway is system-wide
     if [ "$change_type" = "gateway" ]; then
         echo "Using ip command to revert Gateway..."
         ip route del default 2>/dev/null
