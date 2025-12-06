@@ -74,23 +74,37 @@ fi
 if command -v apt > /dev/null; then
     echo "trying to get packages for my special little apt minecrafter"
     apt-get update
+    # Attempt to install essentials first
+    echo "Installing Java/Wget/Curl..."
     if apt-cache show openjdk-8-jre-headless > /dev/null 2>&1; then
-        apt-get install -y openjdk-8-jre-headless wget screen curl
+        apt-get install -y openjdk-8-jre-headless wget curl
     else
-        echo -e "${YELLOW}OpenJDK 8 not found. Installing default-jre (Warning: MC $MC_VERSION might not work with Java 17+).${NC}"
-        apt-get install -y default-jre wget screen curl
+        echo -e "${YELLOW}OpenJDK 8 not found. Installing default-jre.${NC}"
+        apt-get install -y default-jre wget curl
     fi
+    # Try to install screen separately so it doesn't break the whole thing if missing
+    echo "Attempting to install screen..."
+    apt-get install -y screen || echo -e "${YELLOW}Screen failed to install. Continuing anyway...${NC}"
 
 elif command -v dnf > /dev/null; then
     echo "trying to get packages for my special little dnf minecrafter"
+    # Attempt to install EPEL for screen
     dnf install -y epel-release
     dnf clean all
-    dnf install -y java-1.8.0-openjdk-headless wget screen curl
+    # Install Essentials FIRST
+    echo "Installing Java/Wget/Curl..."
+    dnf install -y java-1.8.0-openjdk-headless wget curl
+    # Try screen separately
+    echo "Attempting to install screen..."
+    dnf install -y screen || echo -e "${YELLOW}Screen failed to install (likely missing from repos). Continuing anyway...${NC}"
 
 elif command -v yum > /dev/null; then
     echo "trying to get packages for my special little yum minecrafter"
     yum install -y epel-release
-    yum install -y java-1.8.0-openjdk-headless wget screen curl
+    # Install Essentials FIRST
+    yum install -y java-1.8.0-openjdk-headless wget curl
+    # Try screen separately
+    yum install -y screen || echo -e "${YELLOW}Screen failed to install. Continuing anyway...${NC}"
 
 else
     echo -e "${RED}Error: No supported package manager found (apt, dnf, yum).${NC}"
@@ -104,26 +118,27 @@ if ! command -v wget > /dev/null; then
     exit 1
 fi
 
+# MODIFIED: Only warn if screen is missing, DO NOT EXIT
 if ! command -v screen > /dev/null; then
-    echo -e "${RED}screen failed to install, wtf did you do to this box????${NC}"
-    exit 1
+    echo -e "${YELLOW}Warning: 'screen' failed to install. Server will run in headless mode (no console access).${NC}"
+else
+    echo "Screen is installed. Good job."
 fi
 
-if ! command -v java > /dev/null; then
-    echo -e "${RED}Error: 'java' command not found. Checking for specific binary paths... you dumbass${NC}"
-    # Try to find java 8 specifically if 'java' alias isn't set
-    if [ -f "/usr/lib/jvm/jre-1.8.0-openjdk/bin/java" ]; then
-        echo "Found Java at /usr/lib/jvm/jre-1.8.0-openjdk/bin/java"
-        SYSTEM_JAVA="/usr/lib/jvm/jre-1.8.0-openjdk/bin/java"
-    elif [ -f "/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java" ]; then
-        echo "Found Java at /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java"
-        SYSTEM_JAVA="/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java"
-    else
-        echo -e "${RED}CRITICAL ERROR: Java 8 could not be found. The script has decided you're not cool enough. \n\n\n\nBe sad about it.${NC}"
-        exit 1
-    fi
+# Java Detection Logic - Robust
+if [ -f "/usr/lib/jvm/jre-1.8.0-openjdk/bin/java" ]; then
+    echo "Found Java at /usr/lib/jvm/jre-1.8.0-openjdk/bin/java"
+    SYSTEM_JAVA="/usr/lib/jvm/jre-1.8.0-openjdk/bin/java"
+elif [ -f "/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java" ]; then
+    echo "Found Java at /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java"
+    SYSTEM_JAVA="/usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java"
+elif command -v java > /dev/null 2>&1; then
+    # Dynamically find the path if hardcoded ones fail
+    SYSTEM_JAVA=$(command -v java)
+    echo "Found Java via command at: $SYSTEM_JAVA"
 else
-    SYSTEM_JAVA="java"
+    echo -e "${RED}CRITICAL ERROR: Java 8 could not be found anywhere. Installation aborted.${NC}"
+    exit 1
 fi
 
 echo -e "${YELLOW}Setting up '$MC_USER' user so we don't get fucked and directory at: $INSTALL_DIR${NC}"
@@ -138,7 +153,6 @@ chown -R "$MC_USER":"$MC_USER" "$INSTALL_DIR"
 # Handle OP file creation
 if [ ! -z "$OP_USERNAME" ]; then
     echo -e "${YELLOW}Creating ops.txt for $OP_USERNAME...${NC}"
-    # Valid for both 1.7.10 and 1.8.8 - server converts this to ops.json on startup
     echo "$OP_USERNAME" > "$INSTALL_DIR/ops.txt"
     chown "$MC_USER":"$MC_USER" "$INSTALL_DIR/ops.txt"
 fi
@@ -146,6 +160,27 @@ fi
 # Copy the local Log4j file
 echo -e "${YELLOW}Copying local Log4j fix...${NC}"
 cp "log4j2_17-111.xml" "$INSTALL_DIR/log4j2_17-111.xml"
+
+# CHECK IF LOG4J FILE IS EMPTY (Fixes the Fatal Error :1:1 issue)
+if [ ! -s "$INSTALL_DIR/log4j2_17-111.xml" ]; then
+    echo -e "${RED}Warning: Local log4j2_17-111.xml was empty or corrupt.${NC}"
+    echo -e "${YELLOW}Generating a safe fallback Log4j config...${NC}"
+    cat <<EOF > "$INSTALL_DIR/log4j2_17-111.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Appenders>
+        <Console name="SysOut" target="SYSTEM_OUT">
+            <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level]: %msg%n" />
+        </Console>
+    </Appenders>
+    <Loggers>
+        <Root level="info">
+            <AppenderRef ref="SysOut" />
+        </Root>
+    </Loggers>
+</Configuration>
+EOF
+fi
 chown "$MC_USER":"$MC_USER" "$INSTALL_DIR/log4j2_17-111.xml"
 
 cd "$INSTALL_DIR" || exit
@@ -158,13 +193,11 @@ if [ ! -f server.jar ]; then
     exit 1
 fi
 
-echo "eula=true" | sudo -u "$MC_USER" tee eula.txt > /dev/null #everytime I see tee, I want to do teehee.... holy shit I should alias that
+echo "eula=true" | sudo -u "$MC_USER" tee eula.txt > /dev/null
 
 START_SCRIPT="$INSTALL_DIR/start.sh"
 echo -e "${YELLOW}Creating start script wrapper...${NC}"
 
-# We are switching to systemd, so we don't need screen inside the start script anymore.
-# We REMOVE 'exec' to ensure the shell stays active, which helps with input piping in some screen versions.
 cat <<EOF > "$START_SCRIPT"
 #!/bin/bash
 cd "$INSTALL_DIR"
@@ -181,7 +214,12 @@ echo -e "${YELLOW}Creating systemd service file...${NC}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 SCREEN_BIN=$(command -v screen)
 
-cat <<EOF > "$SERVICE_FILE"
+# Fallback: If screen failed to install (common on some RHEL/Rocky minimal installs), run direct
+if [ -z "$SCREEN_BIN" ]; then
+    echo -e "${RED}Warning: 'screen' utility not found! Systemd service will run in direct mode.${NC}"
+    echo -e "${YELLOW}(You won't be able to attach to the console, but the server will run)${NC}"
+    
+    cat <<EOF > "$SERVICE_FILE"
 [Unit]
 Description=Minecraft $MC_VERSION Server
 After=network.target
@@ -190,25 +228,37 @@ After=network.target
 User=$MC_USER
 Group=$MC_USER
 WorkingDirectory=$INSTALL_DIR
-# Force xterm environment so Java detects a terminal and accepts input
+ExecStart=$START_SCRIPT
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+else
+    # Screen is available, use the preferred method
+    cat <<EOF > "$SERVICE_FILE"
+[Unit]
+Description=Minecraft $MC_VERSION Server
+After=network.target
+
+[Service]
+User=$MC_USER
+Group=$MC_USER
+WorkingDirectory=$INSTALL_DIR
 Environment=TERM=xterm
-
-# We wrap the start script in screen -DmS. 
-# -D ensures it stays in foreground (for systemd)
-# -m ensures it creates a new session
-# -S names it 'mc-console' so we can find it
-# We explicitly call /bin/bash to ensure the script runs in a shell inside screen
 ExecStart=$SCREEN_BIN -DmS mc-console /bin/bash $START_SCRIPT
-
-# Stop gracefully by injecting the 'stop' command into the console
 ExecStop=$SCREEN_BIN -p 0 -S mc-console -X eval 'stuff "stop"\\015'
-
 Restart=on-failure
 RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
+fi
 
 echo -e "${YELLOW}Reloading systemd daemon...${NC}"
 systemctl daemon-reload
@@ -218,6 +268,8 @@ systemctl disable mc-1.8.8 2>/dev/null
 
 echo -e "It worked. Probably. If you want to actually enjoy life, here are your new commands:"
 echo -e "Start server: ${YELLOW}systemctl start $SERVICE_NAME${NC}"
-echo -e "Access Console: ${YELLOW}sudo -u $MC_USER screen -r mc-console${NC}  (Ctrl+A, D to detach)"
+if [ ! -z "$SCREEN_BIN" ]; then
+    echo -e "Access Console: ${YELLOW}sudo -u $MC_USER screen -r mc-console${NC}  (Ctrl+A, D to detach)"
+fi
 echo -e "Stop server:  ${YELLOW}systemctl stop $SERVICE_NAME${NC}"
 echo -e "Enable on boot: ${YELLOW}systemctl enable $SERVICE_NAME${NC}"
