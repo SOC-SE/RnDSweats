@@ -10,7 +10,6 @@ if [ -z "$BASH_VERSION" ]; then
             exit 1
         fi
         
-        # FIX 2: Added error handling for network/repo failures
         apk update && apk add bash || {
             echo "CRITICAL ERROR: Failed to install Bash."
             echo "Please check your internet connection and repositories."
@@ -25,9 +24,9 @@ fi
 #  BELOW THIS LINE IS THE BASH SCRIPT
 # ==============================================================================
 
-# IntProc (Alpine Edition) - Self-Healing Network Interface Protector
+# IntProc (Alpine Multi-Interface Edition)
 #
-#    Adapted for Alpine Linux/OpenRC with Auto-Dependency Resolution.
+#    Supports monitoring multiple interfaces simultaneously.
 #    Original Design by Samuel Brucker 2025-2026.
 #
 
@@ -43,7 +42,6 @@ log_file="/var/log/IntProc.log"
 iptables_file="/etc/IntProc/iptables.rules"
 routes_file="/etc/IntProc/routes.txt"
 
-# Check root
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo -e "${RED}Error: This script must be run as root.${NC}"
@@ -51,53 +49,25 @@ check_root() {
     fi
 }
 
-# Auto-detect and install dependencies
 resolve_dependencies() {
     local packages_to_install=""
     local missing_flag=0
 
-    # 1. Check for IP command (provided by iproute2)
-    if ! command -v ip >/dev/null 2>&1; then
-        packages_to_install="$packages_to_install iproute2"
-        missing_flag=1
-    fi
-
-    # 2. Check for iptables
-    if ! command -v iptables >/dev/null 2>&1; then
-        packages_to_install="$packages_to_install iptables"
-        missing_flag=1
-    fi
-
-    # 3. Check for GNU coreutils (FIX 1: BusyBox Masquerade)
-    # BusyBox provides a limited 'timeout', so command -v checks return true even if full coreutils is missing.
-    # We explicitly ask apk if the coreutils package is installed.
-    if ! apk info -e coreutils >/dev/null 2>&1; then
-         packages_to_install="$packages_to_install coreutils"
-         missing_flag=1
-    fi
+    if ! command -v ip >/dev/null 2>&1; then packages_to_install="$packages_to_install iproute2"; missing_flag=1; fi
+    if ! command -v iptables >/dev/null 2>&1; then packages_to_install="$packages_to_install iptables"; missing_flag=1; fi
+    # Check for coreutils using apk info to bypass BusyBox masquerade
+    if ! apk info -e coreutils >/dev/null 2>&1; then packages_to_install="$packages_to_install coreutils"; missing_flag=1; fi
 
     if [ $missing_flag -eq 1 ]; then
-        echo -e "${YELLOW}Missing system dependencies detected.${NC}"
-        echo -e "${YELLOW}Installing: $packages_to_install...${NC}"
-        
+        echo -e "${YELLOW}Missing dependencies. Installing: $packages_to_install...${NC}"
         apk update >/dev/null 2>&1
         apk add --no-cache $packages_to_install
-        
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}Dependencies installed successfully.${NC}"
-        else
-            echo -e "${RED}Error installing dependencies. Please check network/repos.${NC}"
-            exit 1
-        fi
     fi
 }
 
-# FIX 3: Input Validation Helper
 validate_cidr() {
     local ip_cidr="$1"
-    # Regex checks for: X.X.X.X/X
     if [[ "$ip_cidr" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
-        # Further check: Verify netmask is <= 32
         local cidr=${ip_cidr##*/}
         if [ "$cidr" -gt 32 ]; then return 1; fi
         return 0
@@ -138,32 +108,31 @@ revert_settings() {
     local change_type="$5"
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
 
-    local target_ip="${target_ip_cidr%%/*}"
-    local target_cidr="${target_ip_cidr##*/}"
-    local target_mask=$(cidr_to_netmask "$target_cidr")
-
-    if [ "$change_type" = "ip" ] || [ "$change_type" = "gateway" ]; then
+    # Only calculate masks if we are actually dealing with an IP change
+    if [ "$change_type" = "ip" ]; then
+        local target_ip="${target_ip_cidr%%/*}"
+        local target_cidr="${target_ip_cidr##*/}"
+        local target_mask=$(cidr_to_netmask "$target_cidr")
+        
         if command -v ip >/dev/null 2>&1; then
-            echo "Using ip command to revert $change_type..."
+            echo "Using ip command to revert IP on $iface..."
             ip addr flush dev "$iface"
-            # If this command fails due to invalid IP, it logs to stderr but won't crash the script
             ip addr add "$target_ip_cidr" dev "$iface"
             ip link set "$iface" up
-            ip route del default 2>/dev/null
-            ip route add default via "$target_gw"
         elif command -v ifconfig >/dev/null 2>&1; then
-            echo "Using ifconfig to revert $change_type..."
             ifconfig "$iface" "$target_ip" netmask "$target_mask" up
-            route del default 2>/dev/null
-            route add default gw "$target_gw"
-        else
-            echo "[$timestamp] CRITICAL: No network tools found to revert changes." >> "$log_file"
-            return 1
         fi
     fi
 
+    # Gateway is system-wide, but we need an interface to attach the command to if using 'route'
+    if [ "$change_type" = "gateway" ]; then
+        echo "Using ip command to revert Gateway..."
+        ip route del default 2>/dev/null
+        ip route add default via "$target_gw"
+    fi
+
     if [ "$change_type" = "dns" ]; then
-        echo "[$timestamp] Editing /etc/resolv.conf to revert DNS..." >> "$log_file"
+        echo "[$timestamp] Reverting DNS in /etc/resolv.conf..." >> "$log_file"
         > /etc/resolv.conf
         IFS=' ' read -r -a dns_array <<< "$target_dns"
         for dns in "${dns_array[@]}"; do
@@ -175,16 +144,14 @@ revert_settings() {
 
 backup_iptables() {
     if command -v iptables-save >/dev/null 2>&1; then
-        iptables-save > "$iptables_file" || { echo -e "${RED}Error backing up iptables.${NC}"; return 1; }
-        echo -e "${GREEN}iptables rules backed up to $iptables_file.${NC}"
-    else
-        echo -e "${YELLOW}iptables not available (kernel module missing?). Skipping backup.${NC}"
+        iptables-save > "$iptables_file" || return 1
+        echo -e "${GREEN}iptables rules backed up.${NC}"
     fi
 }
 
 backup_routes() {
-    ip route show > "$routes_file" || { echo -e "${RED}Error backing up routes.${NC}"; return 1; }
-    echo -e "${GREEN}Route table backed up to $routes_file.${NC}"
+    ip route show > "$routes_file" || return 1
+    echo -e "${GREEN}Route table backed up.${NC}"
 }
 
 # ==============================================================================
@@ -192,77 +159,68 @@ backup_routes() {
 # ==============================================================================
 
 check_root
-# Resolve dependencies immediately upon start
 resolve_dependencies
 
 # --- INSTALLATION MODE ---
 if [ "$1" = "--install" ]; then
-
-    echo -e "${YELLOW}Starting Alpine installation/update mode...${NC}"
-
+    echo -e "${YELLOW}Starting Multi-Interface Installation...${NC}"
     mkdir -p /etc/IntProc
-
-    INTERFACE=""
-    IP=""
-    GATEWAY=""
-    DNS=""
-    UPDATE_ONLY="no"
-
-    if [ -f "$config_file" ]; then
-        source "$config_file"
-        echo -e "${GREEN}Existing config found. Entering update mode.${NC}"
-        UPDATE_ONLY="yes"
-    fi
-
-    cp "$0" /usr/local/bin/IntProc.sh
-    chmod +x /usr/local/bin/IntProc.sh
-    echo -e "${GREEN}Script copied to /usr/local/bin/IntProc.sh.${NC}"
-
-    if [ "$UPDATE_ONLY" = "no" ]; then
-        echo -e "${YELLOW}Detecting available network interfaces...${NC}"
-        available_ifaces=$(get_available_interfaces)
-        interfaces=($available_ifaces)
-        echo "Available interfaces:"
-        for i in "${!interfaces[@]}"; do
-            echo "$((i+1)). ${interfaces[i]}"
-        done
-        
-        while true; do
-            read -p "Enter the number of the interface to protect: " num
-            if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "${#interfaces[@]}" ]; then
-                interface="${interfaces[$((num-1))]}"
-                break
-            else
-                echo -e "${RED}Invalid selection. Try again.${NC}"
-            fi
-        done
-    else
-        read -p "Enter the interface to protect [$INTERFACE]: " interface
-        interface=${interface:-$INTERFACE}
-    fi
-
-    current_ip=$(get_current_ip "$interface")
     
-    # FIX 3: Validated Input Loop for IP
-    while true; do
-        read -p "Enter static IP/CIDR (e.g. 192.168.1.100/24) [$IP or $current_ip]: " input_ip
-        final_ip=${input_ip:-${IP:-$current_ip}}
-        
-        if validate_cidr "$final_ip"; then
-            ip="$final_ip"
-            break
-        else
-            echo -e "${RED}Invalid IP/CIDR format. Format must be X.X.X.X/XX (max /32).${NC}"
+    # Init config file
+    > "$config_file"
+
+    echo -e "${YELLOW}Detecting available network interfaces...${NC}"
+    available_ifaces=$(get_available_interfaces)
+    interfaces=($available_ifaces) # Convert to array
+    
+    selected_interfaces=""
+    
+    echo "Available interfaces:"
+    for i in "${!interfaces[@]}"; do
+        echo "$((i+1)). ${interfaces[i]}"
+    done
+    
+    echo -e "${YELLOW}Enter the numbers of the interfaces to protect, separated by space (e.g. '1 2'):${NC}"
+    read -p "> " selection
+    
+    # Process selection
+    for num in $selection; do
+        if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "${#interfaces[@]}" ]; then
+            iface_name="${interfaces[$((num-1))]}"
+            selected_interfaces="$selected_interfaces $iface_name"
+            
+            # Get IP for this specific interface
+            current_ip=$(get_current_ip "$iface_name")
+            while true; do
+                read -p "Enter static IP/CIDR for $iface_name [$current_ip]: " input_ip
+                final_ip=${input_ip:-$current_ip}
+                if validate_cidr "$final_ip"; then
+                    # Write dynamically named variable to config (e.g., IP_eth0="...")
+                    echo "IP_$iface_name=\"$final_ip\"" >> "$config_file"
+                    break
+                else
+                    echo -e "${RED}Invalid IP format.${NC}"
+                fi
+            done
         fi
     done
-
+    
+    # Save the list of monitored interfaces
+    echo "INTERFACES=\"$selected_interfaces\"" >> "$config_file"
+    
+    # Global settings (Gateway and DNS are usually system-wide)
     current_gw=$(get_current_gateway)
-    read -p "Enter default gateway [$GATEWAY or $current_gw]: " gw
-    gw=${gw:-${GATEWAY:-$current_gw}}
+    read -p "Enter default system gateway [$current_gw]: " gw
+    gw=${gw:-$current_gw}
+    echo "GATEWAY=\"$gw\"" >> "$config_file"
 
-    current_dns=$(get_current_dns "$interface")
-    read -p "Enter DNS servers [$DNS or $current_dns]: " dns
-    dns=${dns:-${DNS:-$current_dns}}
+    current_dns=$(get_current_dns "any")
+    read -p "Enter DNS servers [$current_dns]: " dns
+    dns=${dns:-$current_dns}
+    echo "DNS=\"$dns\"" >> "$config_file"
+    
+    echo "IPTABLES_FILE=\"$iptables_file\"" >> "$config_file"
+    echo "ROUTES_FILE=\"$routes_file\"" >> "$config_file"
 
     read -p "Backup iptables? (y/n) [y]: " backup_ipt
     [ "${backup_ipt:-y}" = "y" ] && backup_iptables
@@ -270,18 +228,10 @@ if [ "$1" = "--install" ]; then
     read -p "Backup routes? (y/n) [y]: " backup_rts
     [ "${backup_rts:-y}" = "y" ] && backup_routes
 
-    cat <<EOF > "$config_file"
-INTERFACE="$interface"
-IP="$ip"
-GATEWAY="$gw"
-DNS="$dns"
-IPTABLES_FILE="$iptables_file"
-ROUTES_FILE="$routes_file"
-EOF
-    echo -e "${GREEN}Configuration saved to $config_file.${NC}"
+    echo -e "${GREEN}Configuration saved.${NC}"
 
-    if [ "$UPDATE_ONLY" = "no" ]; then
-        cat <<EOF > /etc/init.d/intproc
+    # Create OpenRC Service
+    cat <<EOF > /etc/init.d/intproc
 #!/sbin/openrc-run
 
 name="IntProc"
@@ -296,24 +246,19 @@ depend() {
     after firewall
 }
 EOF
-        chmod +x /etc/init.d/intproc
-        echo -e "${GREEN}OpenRC init script created at /etc/init.d/intproc.${NC}"
-
-        rc-update add intproc default
-        rc-service intproc start
-        echo -e "${GREEN}Service added to default runlevel and started.${NC}"
-    else
-        rc-service intproc restart
-        echo -e "${GREEN}Service restarted.${NC}"
-    fi
-
-    echo -e "${YELLOW}Check status with: rc-service intproc status${NC}"
+    chmod +x /etc/init.d/intproc
+    cp "$0" /usr/local/bin/IntProc.sh
+    chmod +x /usr/local/bin/IntProc.sh
+    
+    rc-update add intproc default
+    rc-service intproc restart
+    echo -e "${GREEN}Service installed and started.${NC}"
     exit 0
 fi
 
 # --- MONITORING MODE ---
 if [ ! -f "$config_file" ]; then
-    echo "Error: Configuration file not found. Run with --install first."
+    echo "Error: Configuration file not found."
     exit 1
 fi
 source "$config_file"
@@ -323,35 +268,27 @@ chmod 644 "$log_file"
 
 while true; do
     timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-
-    if ! ip link show "$INTERFACE" up >/dev/null 2>&1; then
-        echo "[$timestamp] Interface $INTERFACE is down. Bringing up." >> "$log_file"
-        ip link set "$INTERFACE" up 2>> "$log_file"
-    fi
-
-    current_ip=$(get_current_ip "$INTERFACE")
+    
+    # 1. GLOBAL CHECKS (Gateway, DNS, Firewall)
+    
+    # Check Gateway
     current_gw=$(get_current_gateway)
-    current_dns=$(get_current_dns "$INTERFACE")
     log_gw="${current_gw:-none}"
-
-    if [ "$current_ip" != "$IP" ]; then
-        echo "[$timestamp] IP changed ($IP -> $current_ip). Reverting." >> "$log_file"
-        revert_settings "$INTERFACE" "$IP" "$GATEWAY" "$DNS" "ip"
-    fi
-
     if [ "$current_gw" != "$GATEWAY" ]; then
-        echo "[$timestamp] Gateway changed ($GATEWAY -> $log_gw). Reverting." >> "$log_file"
-        revert_settings "$INTERFACE" "$IP" "$GATEWAY" "$DNS" "gateway"
+        echo "[$timestamp] Global Gateway changed ($GATEWAY -> $log_gw). Reverting." >> "$log_file"
+        revert_settings "global" "0.0.0.0/0" "$GATEWAY" "$DNS" "gateway"
     fi
 
-    # Flatten DNS for comparison
+    # Check DNS
+    current_dns=$(get_current_dns "any")
     flat_current_dns=$(echo "$current_dns" | xargs)
     flat_target_dns=$(echo "$DNS" | xargs)
     if [ "$flat_current_dns" != "$flat_target_dns" ]; then
         echo "[$timestamp] DNS changed ($flat_target_dns -> $flat_current_dns). Reverting." >> "$log_file"
-        revert_settings "$INTERFACE" "$IP" "$GATEWAY" "$DNS" "dns"
+        revert_settings "global" "0.0.0.0/0" "$GATEWAY" "$DNS" "dns"
     fi
 
+    # Check iptables
     if [ -f "$IPTABLES_FILE" ] && command -v iptables-save >/dev/null 2>&1; then
         current_ipt=$(iptables-save)
         saved_ipt=$(cat "$IPTABLES_FILE")
@@ -360,7 +297,8 @@ while true; do
             iptables-restore < "$IPTABLES_FILE"
         fi
     fi
-
+    
+    # Check Route Table
     if [ -f "$ROUTES_FILE" ] && command -v ip >/dev/null 2>&1; then
         current_routes=$(ip route show | sort)
         saved_routes=$(sort "$ROUTES_FILE")
@@ -372,6 +310,28 @@ while true; do
             done < "$ROUTES_FILE"
         fi
     fi
+
+    # 2. PER-INTERFACE CHECKS (IP Addresses)
+    # Loop through the list of interfaces saved in config
+    for iface in $INTERFACES; do
+        # Dynamically construct variable name (e.g., IP_eth0)
+        target_ip_var="IP_$iface"
+        # Indirect reference to get the value
+        target_ip="${!target_ip_var}"
+
+        if ! ip link show "$iface" up >/dev/null 2>&1; then
+            echo "[$timestamp] Interface $iface is down. Bringing up." >> "$log_file"
+            ip link set "$iface" up 2>> "$log_file"
+        fi
+        
+        current_ip=$(get_current_ip "$iface")
+        
+        if [ "$current_ip" != "$target_ip" ]; then
+            echo "[$timestamp] IP on $iface changed ($target_ip -> $current_ip). Reverting." >> "$log_file"
+            # Pass the specific IP for this interface
+            revert_settings "$iface" "$target_ip" "$GATEWAY" "$DNS" "ip"
+        fi
+    done
 
     sleep 5
 done
