@@ -31,7 +31,7 @@ fi
 #    Original Design by Samuel Brucker 2025-2026.
 #
 
-#colours pretty <3
+# Color codes
 RED="\e[31m"
 GREEN="\e[32m"
 YELLOW="\e[33m"
@@ -263,7 +263,6 @@ if [ "$1" = "--install" ]; then
 
     echo -e "${GREEN}Configuration saved.${NC}"
 
-    # Create OpenRC service pointing to the new lowercase binary
     cat <<EOF > /etc/init.d/intproc
 #!/sbin/openrc-run
 name="intproc"
@@ -278,11 +277,8 @@ depend() {
 }
 EOF
     chmod +x /etc/init.d/intproc
-    
-    # Copy script to the new lowercase location
     cp "$0" /usr/local/bin/intproc
     chmod +x /usr/local/bin/intproc
-    
     rc-update add intproc default
     rc-service intproc restart
     echo -e "${GREEN}Service installed and started.${NC}"
@@ -292,11 +288,8 @@ fi
 # --- MONITORING MODE (Daemon) ---
 
 if [ ! -f "$config_file" ]; then
-    echo -e "\n${RED}============================================================${NC}"
-    echo -e "${RED} CRITICAL ERROR: CONFIGURATION NOT FOUND ${NC}"
-    echo -e "${RED}============================================================${NC}"
-    echo -e " Run the installer first:"
-    echo -e " ${GREEN}sudo $0 --install${NC}\n"
+    echo -e "${RED}Error: Configuration not found.${NC}"
+    echo -e "Please run: ${GREEN}intproc --help${NC} for usage instructions."
     exit 1
 fi
 
