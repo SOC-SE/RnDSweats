@@ -82,29 +82,18 @@ if command -v apt > /dev/null; then
         echo -e "${YELLOW}OpenJDK 8 not found. Installing default-jre.${NC}"
         apt-get install -y default-jre wget curl
     fi
-    # Try to install screen separately so it doesn't break the whole thing if missing
-    echo "Attempting to install screen..."
-    apt-get install -y screen || echo -e "${YELLOW}Screen failed to install. Continuing anyway...${NC}"
 
 elif command -v dnf > /dev/null; then
     echo "trying to get packages for my special little dnf minecrafter"
-    # Attempt to install EPEL for screen
-    dnf install -y epel-release
     dnf clean all
     # Install Essentials FIRST
     echo "Installing Java/Wget/Curl..."
     dnf install -y java-1.8.0-openjdk-headless wget curl
-    # Try screen separately
-    echo "Attempting to install screen..."
-    dnf install -y screen || echo -e "${YELLOW}Screen failed to install (likely missing from repos). Continuing anyway...${NC}"
 
 elif command -v yum > /dev/null; then
     echo "trying to get packages for my special little yum minecrafter"
-    yum install -y epel-release
     # Install Essentials FIRST
     yum install -y java-1.8.0-openjdk-headless wget curl
-    # Try screen separately
-    yum install -y screen || echo -e "${YELLOW}Screen failed to install. Continuing anyway...${NC}"
 
 else
     echo -e "${RED}Error: No supported package manager found (apt, dnf, yum).${NC}"
@@ -116,13 +105,6 @@ echo -e "${YELLOW}Verifying installation...${NC}"
 if ! command -v wget > /dev/null; then
     echo -e "${RED}wget failed to install, wtf did you do to this box????${NC}"
     exit 1
-fi
-
-# MODIFIED: Only warn if screen is missing, DO NOT EXIT
-if ! command -v screen > /dev/null; then
-    echo -e "${YELLOW}Warning: 'screen' failed to install. Server will run in headless mode (no console access).${NC}"
-else
-    echo "Screen is installed. Good job."
 fi
 
 # Java Detection Logic - Robust
@@ -203,7 +185,8 @@ cat <<EOF > "$START_SCRIPT"
 cd "$INSTALL_DIR"
 JAVA_BIN="$SYSTEM_JAVA"
 echo "Starting Minecraft $MC_VERSION..."
-"\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
+# exec replaced the shell process with java, ensuring signals (like stop) go straight to the server
+exec "\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
 EOF
 
 chmod +x "$START_SCRIPT"
@@ -212,14 +195,8 @@ chown "$MC_USER":"$MC_USER" "$START_SCRIPT"
 # --- SYSTEMD SERVICE CREATION ---
 echo -e "${YELLOW}Creating systemd service file...${NC}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-SCREEN_BIN=$(command -v screen)
 
-# Fallback: If screen failed to install (common on some RHEL/Rocky minimal installs), run direct
-if [ -z "$SCREEN_BIN" ]; then
-    echo -e "${RED}Warning: 'screen' utility not found! Systemd service will run in direct mode.${NC}"
-    echo -e "${YELLOW}(You won't be able to attach to the console, but the server will run)${NC}"
-    
-    cat <<EOF > "$SERVICE_FILE"
+cat <<EOF > "$SERVICE_FILE"
 [Unit]
 Description=Minecraft $MC_VERSION Server
 After=network.target
@@ -228,37 +205,17 @@ After=network.target
 User=$MC_USER
 Group=$MC_USER
 WorkingDirectory=$INSTALL_DIR
+# Run the start script directly. No screen.
 ExecStart=$START_SCRIPT
 Restart=on-failure
 RestartSec=10
+# Logs go directly to journalctl
 StandardOutput=journal
 StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-else
-    # Screen is available, use the preferred method
-    cat <<EOF > "$SERVICE_FILE"
-[Unit]
-Description=Minecraft $MC_VERSION Server
-After=network.target
-
-[Service]
-User=$MC_USER
-Group=$MC_USER
-WorkingDirectory=$INSTALL_DIR
-Environment=TERM=xterm
-ExecStart=$SCREEN_BIN -DmS mc-console /bin/bash $START_SCRIPT
-ExecStop=$SCREEN_BIN -p 0 -S mc-console -X eval 'stuff "stop"\\015'
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-fi
 
 echo -e "${YELLOW}Reloading systemd daemon...${NC}"
 systemctl daemon-reload
@@ -268,8 +225,6 @@ systemctl disable mc-1.8.8 2>/dev/null
 
 echo -e "It worked. Probably. If you want to actually enjoy life, here are your new commands:"
 echo -e "Start server: ${YELLOW}systemctl start $SERVICE_NAME${NC}"
-if [ ! -z "$SCREEN_BIN" ]; then
-    echo -e "Access Console: ${YELLOW}sudo -u $MC_USER screen -r mc-console${NC}  (Ctrl+A, D to detach)"
-fi
+echo -e "Check logs:   ${YELLOW}journalctl -u $SERVICE_NAME -f${NC}"
 echo -e "Stop server:  ${YELLOW}systemctl stop $SERVICE_NAME${NC}"
 echo -e "Enable on boot: ${YELLOW}systemctl enable $SERVICE_NAME${NC}"
