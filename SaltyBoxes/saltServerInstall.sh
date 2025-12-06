@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # ==============================================================================
-# Automated Salt-GUI Deployment Script (Direct Repo Config Edition)
+# Automated Salt-GUI Deployment Script (Ubuntu 24 Fix + Universal SHA-1)
 # ==============================================================================
 #
-# Installs the Salt Deployment server. This includes the Salt Master, API, a local Minion,
-# and the SaltGUI. Designed to run on RHEL-like and Debian-like systems. Tested on OL9.
+# - Installs Salt 3007 (Master + API + Minion)
+# - Fixes 401 Auth Errors on Ubuntu by installing python3-pam
+# - Fixes SHA-1 Compatibility for RHEL/Oracle and Debian/Ubuntu
 #
 # Samuel Brucker 2025-2026
 #
@@ -34,7 +35,6 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-
 log "Cleaning up existing services..."
 systemctl stop salt-gui salt-minion salt-master salt-api 2>/dev/null || true
 
@@ -47,9 +47,13 @@ log "Detecting package manager and installing dependencies..."
 if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
-    #Set encryption protocol. Thanks OL9 for being a PITA.
-    update-crypto-policies --set DEFAULT:SHA1
+    # RHEL/Oracle Crypto Fix (SHA-1)
+    if command -v update-crypto-policies &> /dev/null; then
+        log "Enabling SHA-1 Crypto Policy for Salt compatibility..."
+        update-crypto-policies --set DEFAULT:SHA1
+    fi
 
+    # OS Detection
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         if [[ "$ID" == "fedora" ]]; then
@@ -74,10 +78,10 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     cat <<EOF > /etc/yum.repos.d/salt.repo
 [salt-repo-3007-sts]
 name=Salt Repo for Salt v3007 STS
-baseurl=https://packages.broadcom.com/artifactory/saltproject-rpm/
+baseurl=https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${EL_VERSION}/x86_64/3007
 skip_if_unavailable=True
 priority=10
-enabled=0
+enabled=1
 enabled_metadata=1
 gpgcheck=1
 exclude=*3006* *3008* *3009* *3010*
@@ -85,19 +89,16 @@ gpgkey=https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjec
 EOF
     
     log "Repository file created at /etc/yum.repos.d/salt.repo"
-    $PKG_MGR clean expire-cache
-    $PKG_MGR config-manager --set-disable salt-repo-*
-    $PKG_MGR config-manager --set-enabled salt-repo-3007-sts
     $PKG_MGR makecache
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
     
     log "Upgrading/Installing Salt Components..."
-    $PKG_MGR install -y nodejs npm python3-pip salt-master-3007.5 salt-api-3007.5 salt-minion-3007.5 policycoreutils-python-utils
+    $PKG_MGR install -y nodejs npm python3-pip salt-master salt-api salt-minion policycoreutils-python-utils
 
 elif command -v apt-get &> /dev/null; then
     PKG_MGR="apt-get"
     
-    # We lower SECLEVEL from 2 to 1 to allow SHA-1 (matching RHEL's DEFAULT:SHA1 policy).
+    # Debian/Ubuntu Crypto Fix (SHA-1)
     if [ -f /etc/ssl/openssl.cnf ]; then
         if grep -q "SECLEVEL=2" /etc/ssl/openssl.cnf; then
             log "Lowering OpenSSL Security Level to allow SHA-1..."
@@ -122,7 +123,7 @@ elif command -v apt-get &> /dev/null; then
     # Add Repo
     echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$ARCH] https://packages.broadcom.com/artifactory/saltproject-deb/ stable main" | tee /etc/apt/sources.list.d/salt.list > /dev/null
     
-    # Pin to 3007 to ensure version match
+    # Pin to 3007
     cat <<EOF > /etc/apt/preferences.d/salt-pin-1001
 Package: salt-*
 Pin: version 3007.*
@@ -131,7 +132,9 @@ EOF
     
     $PKG_MGR update
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    $PKG_MGR install -y nodejs build-essential salt-master salt-minion salt-api salt-ssh
+    # FIX: Added python3-pam and python3-passlib to allow API authentication on Ubuntu
+    log "Installing Salt Components and PAM dependencies..."
+    $PKG_MGR install -y nodejs build-essential salt-master salt-minion salt-api salt-ssh python3-pam python3-passlib
     $PKG_MGR install -y python3-cherrypy3 || pip3 install cherrypy
 else
     error "No supported package manager found."
@@ -143,7 +146,8 @@ if ! id "$SALT_USER" &>/dev/null; then
     useradd -m -s /bin/bash "$SALT_USER"
 fi
 echo "$SALT_USER:$SALT_PASS" | chpasswd
-
+# Ensure user is unlocked (Ubuntu safety check)
+usermod -U "$SALT_USER" 2>/dev/null || true
 
 log "Configuring Salt Master and API (Monolithic Config)..."
 
@@ -193,6 +197,7 @@ cp -r "$SOURCE_DIR" "$INSTALL_DIR"
 CONFIG_FILE="$INSTALL_DIR/config.json"
 log "Updating config.json with Server IP ($SERVER_IP)..."
 
+# FIX: Changed saltAPIUrl to 127.0.0.1 to avoid network binding issues
 python3 -c "
 import json
 import sys
@@ -202,7 +207,7 @@ try:
         data = json.load(f)
     # Update values
     data['proxyURL'] = ''
-    data['saltAPIUrl'] = 'http://0.0.0.0:$API_PORT'
+    data['saltAPIUrl'] = 'http://127.0.0.1:$API_PORT'
     data['username'] = '$SALT_USER'
     data['password'] = '$SALT_PASS'
     data['eauth'] = 'pam'
@@ -262,6 +267,6 @@ salt-key -y -a "salt-master-gui" || warn "Key 'salt-master-gui' not found yet. Y
 log "Deployment Complete!"
 echo "--------------------------------------------------------"
 echo "Salt-GUI Accessible at: http://$SERVER_IP:$GUI_PORT"
-echo "Salt-API Accessible at: http://$SERVER_IP:$API_PORT"
+echo "Salt-API Accessible at: http://127.0.0.1:$API_PORT"
 echo "User: $SALT_USER"
 echo "--------------------------------------------------------"
