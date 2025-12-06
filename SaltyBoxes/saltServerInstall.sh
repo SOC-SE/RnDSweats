@@ -48,6 +48,7 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
     
     #Set encryption protocol. Thanks OL9 for being a PITA.
+    dnf install -y crypto-policies-scripts
     update-crypto-policies --set DEFAULT:SHA1
 
     if [ -f /etc/os-release ]; then
