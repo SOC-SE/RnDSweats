@@ -287,7 +287,7 @@ apply_rules() {
 
     # 7. LOGGING (Active Defense)
     # Log to kernel with prefix, rsyslog will catch this and move to firewall.log
-    iptables -A INPUT -m limit --limit 5/min -j LOG --log-prefix "FW-DROP: " --log-level 4
+    iptables -A INPUT -m limit --limit 5/sec -j LOG --log-prefix "FW-DROP: " --log-level 4
     
     # 8. DROP
     iptables -A INPUT -j DROP
