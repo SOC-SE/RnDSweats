@@ -24,10 +24,10 @@ fi
 #  BELOW THIS LINE IS THE BASH SCRIPT
 # ==============================================================================
 
-# intproc (Alpine Final Edition)
+# intproc (Alpine Final Edition v3)
 #
 #    A self-healing network defense system for Alpine Linux.
-#    Features: Multi-interface, Maintenance Mode, Snapshotting, Auto-Dependency.
+#    Features: Multi-interface, Maintenance Mode, Snapshotting, Interactive Backup.
 #    Original Design by Samuel Brucker 2025-2026.
 #
 
@@ -209,8 +209,17 @@ if [ "$1" = "--save" ]; then
     done
     
     mv "$temp_config" "$config_file"
-    iptables-save > "$iptables_file"
-    ip route show > "$routes_file"
+    
+    # Check if backup files exist (meaning user opted in) before updating them
+    if [ -f "$iptables_file" ]; then
+        iptables-save > "$iptables_file"
+        echo "Updated iptables backup."
+    fi
+    
+    if [ -f "$routes_file" ]; then
+        ip route show > "$routes_file"
+        echo "Updated routes backup."
+    fi
     
     echo -e "${GREEN}New configuration saved!${NC}"
     exit 0
@@ -258,8 +267,28 @@ if [ "$1" = "--install" ]; then
     echo "IPTABLES_FILE=\"$iptables_file\"" >> "$config_file"
     echo "ROUTES_FILE=\"$routes_file\"" >> "$config_file"
 
-    iptables-save > "$iptables_file"
-    ip route show > "$routes_file"
+    # --- RESTORED PROMPTS ---
+    read -p "Backup current iptables rules? (y/n) [y]: " backup_ipt
+    backup_ipt=${backup_ipt:-y}
+    if [ "$backup_ipt" = "y" ]; then
+        iptables-save > "$iptables_file"
+        echo -e "${GREEN}iptables rules backed up.${NC}"
+    else
+        echo -e "${YELLOW}Skipping iptables backup.${NC}"
+        # Ensure file doesn't exist so monitor ignores it
+        rm -f "$iptables_file"
+    fi
+
+    read -p "Backup current route table? (y/n) [y]: " backup_rts
+    backup_rts=${backup_rts:-y}
+    if [ "$backup_rts" = "y" ]; then
+        ip route show > "$routes_file"
+        echo -e "${GREEN}Route table backed up.${NC}"
+    else
+        echo -e "${YELLOW}Skipping route table backup.${NC}"
+        rm -f "$routes_file"
+    fi
+    # ------------------------
 
     echo -e "${GREEN}Configuration saved.${NC}"
 
@@ -289,7 +318,7 @@ fi
 
 if [ ! -f "$config_file" ]; then
     echo -e "${RED}Error: Configuration not found.${NC}"
-    echo -e "Please run: ${GREEN}intproc --help${NC} for usage instructions."
+    echo -e "Please run: ${GREEN}./intProcAlpineEdition.sh --help${NC} for usage instructions."
     exit 1
 fi
 
