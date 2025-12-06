@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # ==============================================================================
-# Automated Salt-GUI Deployment Script (Ubuntu 24 Fix + Universal SHA-1)
+# Automated Salt-GUI Deployment Script (Ubuntu Onedir Fix)
 # ==============================================================================
 #
 # - Installs Salt 3007 (Master + API + Minion)
-# - Fixes 401 Auth Errors on Ubuntu by installing python3-pam
-# - Fixes SHA-1 Compatibility for RHEL/Oracle and Debian/Ubuntu
+# - Fixes Ubuntu 24.04 Auth by installing 'python-pam' into Salt's Onedir Python
+# - Universal SHA-1/SSL Compatibility
 #
 # Samuel Brucker 2025-2026
 #
@@ -16,7 +16,8 @@ set -e
 SOURCE_DIR="../SaltyBoxes/Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
 SALT_USER="hiblueteam"
-SALT_PASS="PlzNoHackThisAccountItsUseless!"
+# Changed password to alphanumeric to prevent shell expansion issues with '!'
+SALT_PASS="BlueTeamSaltAdmin2025"
 API_PORT=8881
 GUI_PORT=3000
 MASTER_CONF="/etc/salt/master"
@@ -74,7 +75,6 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
     $PKG_MGR clean all
 
     log "Configuring Salt 3007 Repository (Manual Write)..."
-    
     cat <<EOF > /etc/yum.repos.d/salt.repo
 [salt-repo-3007-sts]
 name=Salt Repo for Salt v3007 STS
@@ -88,7 +88,6 @@ exclude=*3006* *3008* *3009* *3010*
 gpgkey=https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public
 EOF
     
-    log "Repository file created at /etc/yum.repos.d/salt.repo"
     $PKG_MGR makecache
     $PKG_MGR module enable -y nodejs:18 || $PKG_MGR module enable -y nodejs:16 || true
     
@@ -132,21 +131,33 @@ EOF
     
     $PKG_MGR update
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    # FIX: Added python3-pam and python3-passlib to allow API authentication on Ubuntu
-    log "Installing Salt Components and PAM dependencies..."
-    $PKG_MGR install -y nodejs build-essential salt-master salt-minion salt-api salt-ssh python3-pam python3-passlib
+    
+    log "Installing Salt Components..."
+    # Install libpam0g-dev so we can build/link PAM modules
+    $PKG_MGR install -y nodejs build-essential salt-master salt-minion salt-api salt-ssh libpam0g-dev
     $PKG_MGR install -y python3-cherrypy3 || pip3 install cherrypy
 else
     error "No supported package manager found."
     exit 1
 fi
 
+# --- FIX FOR UBUNTU ONEDIR ---
+# Salt 3007 uses a bundled Python. We MUST install 'python-pam' inside THAT environment.
+if [ -f "/opt/saltstack/salt/bin/pip" ]; then
+    log "Detected Salt Onedir. Installing python-pam into Salt's private Python environment..."
+    /opt/saltstack/salt/bin/pip install python-pam
+else
+    log "Salt Onedir pip not found. Assuming system pip..."
+    pip3 install python-pam
+fi
+
 log "Configuring system user '$SALT_USER'..."
 if ! id "$SALT_USER" &>/dev/null; then
     useradd -m -s /bin/bash "$SALT_USER"
 fi
+
+# Set password safely
 echo "$SALT_USER:$SALT_PASS" | chpasswd
-# Ensure user is unlocked (Ubuntu safety check)
 usermod -U "$SALT_USER" 2>/dev/null || true
 
 log "Configuring Salt Master and API (Monolithic Config)..."
@@ -197,7 +208,7 @@ cp -r "$SOURCE_DIR" "$INSTALL_DIR"
 CONFIG_FILE="$INSTALL_DIR/config.json"
 log "Updating config.json with Server IP ($SERVER_IP)..."
 
-# FIX: Changed saltAPIUrl to 127.0.0.1 to avoid network binding issues
+# Config update (using localhost for API to avoid bind issues)
 python3 -c "
 import json
 import sys
@@ -256,7 +267,7 @@ systemctl enable --now salt-minion
 systemctl enable --now salt-api
 systemctl enable --now salt-gui
 
-systemctl restart salt-minion
+systemctl restart salt-master salt-api salt-minion salt-gui
 
 log "Waiting for local minion to contact master..."
 sleep 5
@@ -269,4 +280,5 @@ echo "--------------------------------------------------------"
 echo "Salt-GUI Accessible at: http://$SERVER_IP:$GUI_PORT"
 echo "Salt-API Accessible at: http://127.0.0.1:$API_PORT"
 echo "User: $SALT_USER"
+echo "Password: $SALT_PASS"
 echo "--------------------------------------------------------"
