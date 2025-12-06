@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# My finals are two weeks long this year. I'm about half way in and 3.5 all nighters deep. I take schedule 2.3 hour naps.
+# My finals are two weeks long this year. I'm about half way in and 3.5 all nighters deep. I take scheduled 2.3 hour naps.
 # I'm losing my sanity and we compete TOMORROW. So, here's me regaining some of it back.
 #
-# This script installs a bloody 1.7.10 Minecraft server. No, really, it does. It *should* work on RHEL and Debian based 
+# This script installs a bloody Minecraft server. No, really, it does. It *should* work on RHEL and Debian based 
 # machines, but don't look at me if it fails. I'm tired boss.
 #
 #
@@ -12,13 +12,44 @@
 #
 #
 
-MC_VERSION="1.7.10"
-SERVER_URL="https://launcher.mojang.com/v1/objects/952438ac4e01b4d115c5fc38f891710c4941df29/server.jar"
+# Ask the user which version they want because apparently choice is important
+echo "Which version of Minecraft do you want to install?"
+echo "1) 1.7.10 (The classic)"
+echo "2) 1.8.8 (UHC Ready)"
+read -r -p "Select an option [1-2]: " VERSION_CHOICE
+
+case $VERSION_CHOICE in
+    1)
+        MC_VERSION="1.7.10"
+        SERVER_URL="https://launcher.mojang.com/v1/objects/952438ac4e01b4d115c5fc38f891710c4941df29/server.jar"
+        INSTALL_DIR="/opt/mc_server_1.7.10"
+        ;;
+    2)
+        MC_VERSION="1.8.8"
+        SERVER_URL="https://launcher.mojang.com/v1/objects/5fafba3f58c40dc51b5c3ca72a98f62dfdae003c/server.jar"
+        INSTALL_DIR="/opt/mc_server_1.8.8"
+        ;;
+    *)
+        echo "You didn't type 1 or 2. I'm too tired to argue. Defaulting to 1.8.8."
+        MC_VERSION="1.8.8"
+        SERVER_URL="https://launcher.mojang.com/v1/objects/5fafba3f58c40dc51b5c3ca72a98f62dfdae003c/server.jar"
+        INSTALL_DIR="/opt/mc_server_1.8.8"
+        ;;
+esac
+
+# Ask for OP user
+echo ""
+echo "Do you want to automatically OP a player on startup? (y/n)"
+read -r -p "Choice: " WANT_OP
+OP_USERNAME=""
+if [[ "$WANT_OP" =~ ^[Yy]$ ]]; then
+    read -r -p "Enter the exact Minecraft Username to OP: " OP_USERNAME
+fi
+
 LOG4J_URL="https://launcher.mojang.com/v1/objects/4bb89a97a66f570bddc5592c671d46345a060f08/log4j2_17-111.xml"
-INSTALL_DIR="/opt/mc_server_1.7.10"
 MC_USER="mcadmin"
-RAM_AMOUNT="3G"
-SERVICE_NAME="mc-1.7.10"
+RAM_AMOUNT="2G"
+SERVICE_NAME="mc-server"
 
 #pretty colours <3
 GREEN='\033[0;32m'
@@ -26,7 +57,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${GREEN}No fucking way we're actually installed Minecraft $MC_VERSION lmao${NC}"
+echo -e "${GREEN}Starting Minecraft $MC_VERSION Server Installer...${NC}"
 
 if [ "$EUID" -ne 0 ]; then
   echo -e "${RED}run this script as root u noob${NC}"
@@ -40,7 +71,7 @@ if command -v apt > /dev/null; then
     if apt-cache show openjdk-8-jre-headless > /dev/null 2>&1; then
         apt-get install -y openjdk-8-jre-headless wget screen curl
     else
-        echo -e "${YELLOW}OpenJDK 8 not found. Installing default-jre (Warning: MC 1.7.10 might not work with Java 17+).${NC}"
+        echo -e "${YELLOW}OpenJDK 8 not found. Installing default-jre (Warning: MC $MC_VERSION might not work with Java 17+).${NC}"
         apt-get install -y default-jre wget screen curl
     fi
 
@@ -89,7 +120,7 @@ else
     SYSTEM_JAVA="java"
 fi
 
-echo -e "${YELLOW}Setting up '$MC_USER' user so we don't get fucked. oh, yeah, the directory is at: $INSTALL_DIR${NC}"
+echo -e "${YELLOW}Setting up '$MC_USER' user so we don't get fucked and directory at: $INSTALL_DIR${NC}"
 
 if ! id "$MC_USER" &>/dev/null; then
     useradd -m -s /bin/bash "$MC_USER"
@@ -97,6 +128,14 @@ fi
 
 mkdir -p "$INSTALL_DIR"
 chown -R "$MC_USER":"$MC_USER" "$INSTALL_DIR"
+
+# Handle OP file creation
+if [ ! -z "$OP_USERNAME" ]; then
+    echo -e "${YELLOW}Creating ops.txt for $OP_USERNAME...${NC}"
+    # Valid for both 1.7.10 and 1.8.8 - server converts this to ops.json on startup
+    echo "$OP_USERNAME" > "$INSTALL_DIR/ops.txt"
+    chown "$MC_USER":"$MC_USER" "$INSTALL_DIR/ops.txt"
+fi
 
 cd "$INSTALL_DIR" || exit
 echo -e "${YELLOW}Downloading Server Files...${NC}"
@@ -115,24 +154,27 @@ echo "eula=true" | sudo -u "$MC_USER" tee eula.txt > /dev/null #everytime I see 
 START_SCRIPT="$INSTALL_DIR/start.sh"
 echo -e "${YELLOW}Creating start script wrapper...${NC}"
 
+# We are switching to systemd, so we don't need screen inside the start script anymore.
+# We REMOVE 'exec' to ensure the shell stays active, which helps with input piping in some screen versions.
 cat <<EOF > "$START_SCRIPT"
 #!/bin/bash
 cd "$INSTALL_DIR"
 JAVA_BIN="$SYSTEM_JAVA"
-echo "Starting Minecraft 1.7.10..."
+echo "Starting Minecraft $MC_VERSION..."
 "\$JAVA_BIN" -Xmx${RAM_AMOUNT} -Xms1G -Dlog4j.configurationFile=log4j2_17-111.xml -jar server.jar nogui
 EOF
 
 chmod +x "$START_SCRIPT"
 chown "$MC_USER":"$MC_USER" "$START_SCRIPT"
 
+# --- SYSTEMD SERVICE CREATION ---
 echo -e "${YELLOW}Creating systemd service file...${NC}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 SCREEN_BIN=$(command -v screen)
 
 cat <<EOF > "$SERVICE_FILE"
 [Unit]
-Description=Minecraft 1.7.10 Server
+Description=Minecraft $MC_VERSION Server
 After=network.target
 
 [Service]
@@ -159,7 +201,9 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
+echo -e "${YELLOW}Reloading systemd daemon...${NC}"
 systemctl daemon-reload
+
 systemctl enable --now $SERVICE_NAME
 
 echo -e "It worked. Probably. If you want to actually enjoy life, here's info for you to administrate MC:"
