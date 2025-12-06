@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# My finals are two weeks long this year. I'm about half way in and 3.5 all nighters deep. I take scheduled 2.3 hour naps.
+# My finals are two weeks long this year. I'm about half way in and 3.5 all nighters deep. I take schedule 2.3 hour naps.
 # I'm losing my sanity and we compete TOMORROW. So, here's me regaining some of it back.
 #
 # This script installs a bloody Minecraft server. No, really, it does. It *should* work on RHEL and Debian based 
@@ -11,6 +11,13 @@
 #
 #
 #
+
+# Check for local Log4j file first
+if [ ! -f "log4j2_17-111.xml" ]; then
+    echo "Error: log4j2_17-111.xml not found in the current directory."
+    echo "Please download it and place it next to this script."
+    exit 1
+fi
 
 # Ask the user which version they want because apparently choice is important
 echo "Which version of Minecraft do you want to install?"
@@ -46,9 +53,8 @@ if [[ "$WANT_OP" =~ ^[Yy]$ ]]; then
     read -r -p "Enter the exact Minecraft Username to OP: " OP_USERNAME
 fi
 
-LOG4J_URL="https://launcher.mojang.com/v1/objects/4bb89a97a66f570bddc5592c671d46345a060f08/log4j2_17-111.xml"
 MC_USER="mcadmin"
-RAM_AMOUNT="2G"
+RAM_AMOUNT="3G"
 SERVICE_NAME="mc-server"
 
 #pretty colours <3
@@ -137,12 +143,15 @@ if [ ! -z "$OP_USERNAME" ]; then
     chown "$MC_USER":"$MC_USER" "$INSTALL_DIR/ops.txt"
 fi
 
+# Copy the local Log4j file
+echo -e "${YELLOW}Copying local Log4j fix...${NC}"
+cp "log4j2_17-111.xml" "$INSTALL_DIR/log4j2_17-111.xml"
+chown "$MC_USER":"$MC_USER" "$INSTALL_DIR/log4j2_17-111.xml"
+
 cd "$INSTALL_DIR" || exit
 echo -e "${YELLOW}Downloading Server Files...${NC}"
 
 sudo -u "$MC_USER" wget -O server.jar "$SERVER_URL"
-# Switched to curl as requested
-sudo -u "$MC_USER" curl -o log4j2_17-111.xml "$LOG4J_URL"
 
 if [ ! -f server.jar ]; then
     echo -e "${RED}Error: Server JAR failed to download. FML.${NC}"
@@ -203,11 +212,12 @@ EOF
 
 echo -e "${YELLOW}Reloading systemd daemon...${NC}"
 systemctl daemon-reload
+# Disable old service names if they exist just in case
+systemctl disable mc-1.7.10 2>/dev/null
+systemctl disable mc-1.8.8 2>/dev/null
 
-systemctl enable --now $SERVICE_NAME
-
-echo -e "It worked. Probably. If you want to actually enjoy life, here's info for you to administrate MC:"
-echo -e "Service name: ${YELLOW}$SERVICE_NAME${NC}"
-echo -e "Restart server when RT breaks it: ${YELLOW}systemctl restart $SERVICE_NAME${NC}"
+echo -e "It worked. Probably. If you want to actually enjoy life, here are your new commands:"
+echo -e "Start server: ${YELLOW}systemctl start $SERVICE_NAME${NC}"
 echo -e "Access Console: ${YELLOW}sudo -u $MC_USER screen -r mc-console${NC}  (Ctrl+A, D to detach)"
-echo -e "Check logs:   ${YELLOW}journalctl -u $SERVICE_NAME -f${NC}"
+echo -e "Stop server:  ${YELLOW}systemctl stop $SERVICE_NAME${NC}"
+echo -e "Enable on boot: ${YELLOW}systemctl enable $SERVICE_NAME${NC}"

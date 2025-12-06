@@ -45,7 +45,7 @@ usage() {
     echo "  --wazuh-agt       Wazuh Agent (Outbound allowed by default)"
     echo "  --velo-srv        Velociraptor Server (8000, 8001, 8003)"
     echo "  --velo-agt        Velociraptor Agent (Outbound allowed by default)"
-    echo "  --salt-master     Salt Master (4505, 4506, 8000-API, 3000-GUI)"
+    echo "  --salt-master     Salt Master (4505, 4506, 8881-API, 3000-GUI)"
     echo "  --salt-minion     Salt Minion (Outbound allowed by default)"
     echo ""
     echo "--- MISC ---"
@@ -167,8 +167,8 @@ interactive_menu() {
     read -p "7. Is this a VELOCIRAPTOR SERVER? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("8000" "8001" "8003")
 
-    read -p "8. Is this a SALT MASTER (4505, 4506, API-8000, GUI-3000)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("4505" "4506" "8000" "3000")
+    read -p "8. Is this a SALT MASTER (4505, 4506, API-8881, GUI-3000)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("4505" "4506" "8881" "3000")
 
     echo -e "\n--- EXTRAS ---"
     read -p "9. Allow Databases (MySQL 3306 / Postgres 5432)? [y/N]: " ans
@@ -204,7 +204,7 @@ parse_args() {
             --wazuh-agt )       echo "Info: Wazuh Agent outbound is allowed by default." ;;
             --velo-srv )        TCP_PORTS+=("8000" "8001" "8003") ;;
             --velo-agt )        echo "Info: Velociraptor Agent outbound is allowed by default." ;;
-            --salt-master )     TCP_PORTS+=("4505" "4506" "8000" "3000") ;;
+            --salt-master )     TCP_PORTS+=("4505" "4506" "8881" "3000") ;;
             --salt-minion )     echo "Info: Salt Minion outbound is allowed by default." ;;
             # Misc
             --minecraft )       TCP_PORTS+=("25565"); UDP_PORTS+=("25565") ;;
