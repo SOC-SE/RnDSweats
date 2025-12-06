@@ -1,13 +1,8 @@
 #!/bin/bash
-#
-# EZ IPTables Firewall Generator. Complete with logging. You're welcome.
-#
-# Samuel Brucker
-# 2025-2026
-#
-#
-#
-
+# =============================================================================
+# UNIVERSAL SENTINEL FIREWALL v10
+# Logic: Full Interactive Menu | Granular Agents | K8s Manual/Auto | Logging
+# =============================================================================
 
 # --- GLOBAL VARS ---
 declare -a TCP_PORTS
@@ -70,16 +65,12 @@ prepare_os() {
     # Check for DNF or YUM (RHEL/Fedora/CentOS/Rocky)
     if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
         echo "    > Detected RPM-based system (dnf/yum)."
-        
-        # Disable Firewalld (The enemy of custom iptables)
         if systemctl is-active --quiet firewalld; then
             echo "    > Disabling firewalld..."
             systemctl stop firewalld
             systemctl disable firewalld
             systemctl mask firewalld
         fi
-        
-        # Install iptables-services
         if ! rpm -q iptables-services &> /dev/null; then
             echo "    > Installing iptables-services..."
             if command -v dnf &> /dev/null; then dnf install -y iptables-services; else yum install -y iptables-services; fi
@@ -89,25 +80,18 @@ prepare_os() {
     # Check for APT (Debian/Ubuntu/Kali)
     elif command -v apt-get &> /dev/null; then
         echo "    > Detected DEB-based system (apt)."
-        
-        # Install iptables-persistent
         if ! dpkg -s iptables-persistent &> /dev/null; then
             echo "    > Installing iptables-persistent..."
             echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
             echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
             DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent netfilter-persistent
         fi
-        
-    else
-        echo "    > [!] WARNING: Unknown Package Manager. Persistence might fail."
     fi
 }
 
 configure_logging() {
     echo "[*] Configuring Active Defense Logging..."
     if [ ! -d "$LOG_DIR" ]; then mkdir -p "$LOG_DIR"; fi
-    
-    # Force rsyslog to divert FW logs
     if [ -d "/etc/rsyslog.d" ]; then
         cat <<EOF > /etc/rsyslog.d/99-defensive-firewall.conf
 :msg, contains, "FW-DROP" -${LOG_FILE}
@@ -119,18 +103,21 @@ EOF
 }
 
 detect_orchestration() {
-    # Kubernetes Check
-    if command -v kubelet &> /dev/null || ip link show | grep -qE "cni|flannel|calico|cilium"; then
-        echo -e "\033[1;33m[!] KUBERNETES DETECTED. Engaging Safe-Flush Mode.\033[0m"
-        IS_K8S=true
-        TCP_PORTS+=("6443" "10250" "10255")
-        UDP_PORTS+=("8472") 
+    # Check binaries/interfaces but respect manual override if already set
+    if [ "$IS_K8S" = false ]; then
+        if command -v kubelet &> /dev/null || ip link show | grep -qE "cni|flannel|calico|cilium"; then
+            echo -e "\033[1;33m[!] KUBERNETES DETECTED (Auto). Engaging Safe-Flush Mode.\033[0m"
+            IS_K8S=true
+            TCP_PORTS+=("6443" "10250" "10255")
+            UDP_PORTS+=("8472") 
+        fi
     fi
 
-    # Docker Check
-    if command -v docker &> /dev/null && docker ps &> /dev/null; then
-        echo -e "\033[1;33m[!] DOCKER DETECTED. Preserving NAT.\033[0m"
-        IS_DOCKER=true
+    if [ "$IS_DOCKER" = false ]; then
+        if command -v docker &> /dev/null && docker ps &> /dev/null; then
+            echo -e "\033[1;33m[!] DOCKER DETECTED (Auto). Preserving NAT.\033[0m"
+            IS_DOCKER=true
+        fi
     fi
 }
 
@@ -138,7 +125,8 @@ detect_orchestration() {
 
 interactive_menu() {
     clear
-    echo "=== UNIVERSAL SENTINEL CONFIG ==="
+    echo "=== UNIVERSAL SENTINEL CONFIG V10 ==="
+    echo "--- BASIC ACCESS ---"
     
     read -p "1. Allow SSH (22)? [Y/n]: " ans
     [[ "$ans" =~ ^[Nn]$ ]] || TCP_PORTS+=("22") # Default Yes
@@ -152,32 +140,69 @@ interactive_menu() {
     read -p "4. Allow NTP Server (123 UDP)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && UDP_PORTS+=("123")
 
-    echo -e "\n--- SECURITY TOOLS ---"
-    read -p "5. Is this a SPLUNK SERVER (Indexer/Web)? [y/N]: " ans
+    read -p "5. Allow Mail (SMTP/IMAP/POP3)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("25" "465" "587" "110" "143" "993" "995")
+
+    read -p "6. Allow FTP (20/21)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("20" "21") && MOD_FTP=true
+
+    read -p "7. Allow SMB/Samba (139/445)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("139" "445")
+
+    echo -e "\n--- SECURITY TOOLS (Server vs Agent) ---"
+    
+    # SPLUNK
+    read -p "8. Is this a SPLUNK SERVER (Indexer/Web)? [y/N]: " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then 
         TCP_PORTS+=("8000" "8089" "9997" "514"); UDP_PORTS+=("514")
     else
         read -p "   > Is this a Splunk FORWARDER? [y/N]: " sub
-        [[ "$sub" =~ ^[Yy]$ ]] && TCP_PORTS+=("8089")
+        [[ "$sub" =~ ^[Yy]$ ]] && TCP_PORTS+=("8089") && echo "     (Allowed Mgmt Port 8089)"
     fi
 
-    read -p "6. Is this a WAZUH SERVER (Manager)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("1514" "1515" "55000" "443")
+    # WAZUH
+    read -p "9. Is this a WAZUH SERVER (Manager)? [y/N]: " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        TCP_PORTS+=("1514" "1515" "55000" "443")
+    else
+        read -p "   > Is this a Wazuh AGENT? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && echo "     (Agent Outbound Allowed by Default)"
+    fi
 
-    read -p "7. Is this a VELOCIRAPTOR SERVER? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("8000" "8001" "8003")
+    # VELOCIRAPTOR
+    read -p "10. Is this a VELOCIRAPTOR SERVER? [y/N]: " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        TCP_PORTS+=("8000" "8001" "8003")
+    else
+        read -p "    > Is this a Velociraptor AGENT? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && echo "      (Agent Outbound Allowed by Default)"
+    fi
 
-    read -p "8. Is this a SALT MASTER (4505, 4506, API-8881, GUI-3000)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("4505" "4506" "8881" "3000")
+    # SALT
+    read -p "11. Is this a SALT MASTER (4505/4506, API-8881, GUI-3000)? [y/N]: " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        TCP_PORTS+=("4505" "4506" "8881" "3000")
+    else
+        read -p "    > Is this a Salt MINION? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && echo "      (Minion Outbound Allowed by Default)"
+    fi
 
-    echo -e "\n--- EXTRAS ---"
-    read -p "9. Allow Databases (MySQL 3306 / Postgres 5432)? [y/N]: " ans
+    echo -e "\n--- INFRASTRUCTURE ---"
+    read -p "12. Is this a KUBERNETES NODE (Force Enable)? [y/N]: " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        IS_K8S=true
+        TCP_PORTS+=("6443" "10250")
+        echo "    (K8s Safe-Flush Enabled)"
+    fi
+
+    read -p "13. Allow Databases (MySQL 3306 / Postgres 5432)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("3306" "5432")
     
-    read -p "10. Allow Minecraft (25565)? [y/N]: " ans
+    read -p "14. Allow Minecraft (25565)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("25565") && UDP_PORTS+=("25565")
 
-    read -p "11. Enable Persistence? [Y/n]: " ans
+    echo -e "\n--- FINALIZE ---"
+    read -p "15. Enable Persistence? [Y/n]: " ans
     [[ "$ans" =~ ^[Nn]$ ]] || PERSIST=true # Default Yes
 }
 
@@ -193,13 +218,12 @@ parse_args() {
             --ftp )             TCP_PORTS+=("20" "21"); MOD_FTP=true ;;
             --mail )            TCP_PORTS+=("25" "465" "587" "110" "143" "993" "995") ;;
             --smb )             TCP_PORTS+=("139" "445") ;;
-            --bgp )             TCP_PORTS+=("179") ;;
             # Databases
             --db-mysql )        TCP_PORTS+=("3306") ;;
             --db-postgres )     TCP_PORTS+=("5432") ;;
             # Security
             --splunk-srv )      TCP_PORTS+=("8000" "8089" "9997" "514"); UDP_PORTS+=("514") ;;
-            --splunk-fwd )      TCP_PORTS+=("8089") ;; # Mgmt port
+            --splunk-fwd )      TCP_PORTS+=("8089") ;;
             --wazuh-srv )       TCP_PORTS+=("1514" "1515" "55000" "443") ;;
             --wazuh-agt )       echo "Info: Wazuh Agent outbound is allowed by default." ;;
             --velo-srv )        TCP_PORTS+=("8000" "8001" "8003") ;;
