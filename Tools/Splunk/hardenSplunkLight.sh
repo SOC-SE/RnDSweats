@@ -335,20 +335,6 @@ EOF
 #Add the 9997 listener using splunk CLI
 $SPLUNK_HOME/bin/splunk enable listen 9997 -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
 
-#Add the index for Palo logs
-$SPLUNK_HOME/bin/splunk add index pan_logs
-
-# Install Palo Alto Networks apps
-echo "Installing Palo Alto Networks apps..."
-
-# Clone the Palo Alto splunk app
-git clone https://github.com/PaloAltoNetworks/SplunkforPaloAltoNetworks.git SplunkforPaloAltoNetworks
-mv SplunkforPaloAltoNetworks "$SPLUNK_HOME/etc/apps/"
-
-# Clone the Palo Alto splunk add-on
-git clone https://github.com/PaloAltoNetworks/Splunk_TA_paloalto.git Splunk_TA_paloalto
-mv Splunk_TA_paloalto "$SPLUNK_HOME/etc/apps/"
-
 # Disable distributed search
 echo "Disabling distributed search"
 echo "[distributedSearch]" > $SPLUNK_HOME/etc/system/local/distsearch.conf
