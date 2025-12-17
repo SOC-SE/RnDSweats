@@ -131,36 +131,6 @@ $SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
 
 echo "Hardening Splunk keys and certs"
 
-# Stop Splunk to rotate keys
-$SPLUNK_HOME/bin/splunk stop
-
-# A. Rotate Symmetric Key (Anti-Persistence)
-NEW_SYMM_KEY=$(openssl rand -base64 64)
-NEW_SSL_PASS=$(openssl rand -base64 32)
-
-echo "Rotating pass4SymmKey..."
-cat > $SPLUNK_HOME/etc/system/local/server.conf << EOF
-[general]
-pass4SymmKey = $NEW_SYMM_KEY
-
-[sslConfig]
-sslPassword = $NEW_SSL_PASS
-EOF
-chmod 600 $SPLUNK_HOME/etc/system/local/server.conf
-chown splunk:splunk $SPLUNK_HOME/etc/system/local/server.conf
-
-# Generate Internal Certificates 
-echo "Generating internal SSL certificates..."
-mkdir -p $SPLUNK_HOME/etc/auth/mycerts
-openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
-    -keyout $SPLUNK_HOME/etc/auth/mycerts/server.key \
-    -out $SPLUNK_HOME/etc/auth/mycerts/server.pem \
-    -subj "/C=US/ST=State/L=City/O=CCDC/CN=splunk-internal"
-
-cat $SPLUNK_HOME/etc/auth/mycerts/server.key $SPLUNK_HOME/etc/auth/mycerts/server.pem > $SPLUNK_HOME/etc/auth/mycerts/combined.pem
-chmod 600 $SPLUNK_HOME/etc/auth/mycerts/*
-chown -R splunk:splunk $SPLUNK_HOME/etc/auth/mycerts
-
 # C. Bind MongoDB to Localhost
 echo "Locking down MongoDB..."
 sed -i '$a [kvstore]\nbind_ip = 127.0.0.1' $SPLUNK_HOME/etc/system/local/server.conf
@@ -182,7 +152,13 @@ index = main
 disabled = 0
 EOF
 
-# Start Splunk Back Up (REQUIRED before running CLI commands)
+
+#move the custom props.conf
+chown splunk:splunk props.conf
+mv props.conf $SPLUNK_HOME/etc/system/local/
+
+
+# Start Splunk Back Up 
 echo "Starting Hardened Splunk..."
 $SPLUNK_HOME/bin/splunk start
 $SPLUNK_HOME/bin/splunk enable boot-start
@@ -240,9 +216,10 @@ touch /etc/at.allow
 chmod 600 /etc/at.allow
 awk -F: '{print $1}' /etc/passwd | grep -v root > /etc/at.deny
 
-echo "Setting firewall rules"
+# --- 5. FIREWALL (STRICT MODE) ---
+echo "[+] Phase 4: Firewall Configuration (Strict Output Control)"
 
-# Install IPTables services 
+# Install IPTables services (Oracle 9 Standard)
 dnf install -y iptables-services
 systemctl stop firewalld
 systemctl disable firewalld
