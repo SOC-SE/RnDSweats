@@ -6,6 +6,9 @@
 #
 
 # Make sure this is being ran as sudo
+
+cd ../
+
 if [ "$EUID" -ne 0 ]; then
   echo "❌ This script must be run as root or with sudo. Please try again."
   exit 1
@@ -19,11 +22,11 @@ curl -so wazuh-passwords-tool.sh https://packages.wazuh.com/4.14/wazuh-passwords
 
 bash wazuh-install.sh -a
 
-#mv Tools/Wazuh/local_decoder.xml /var/ossec/etc/decoders/local_decoder.xml
-#mv Tools/Wazuh/local_rules.xml /var/ossec/etc/rules/local_rules.xml
-#mv Tools/Wazuh/ossec.conf /var/ossec/etc/ossec.conf
+mv Tools/Wazuh/local_decoder.xml /var/ossec/etc/decoders/local_decoder.xml
+mv Tools/Wazuh/local_rules.xml /var/ossec/etc/rules/local_rules.xml
+mv Tools/Wazuh/ossec.conf /var/ossec/etc/ossec.conf
 
-cd Tools/Wazuh/Configs/
+cd Configs/
 bash setConfigs.sh
 
 #cd ../../../
