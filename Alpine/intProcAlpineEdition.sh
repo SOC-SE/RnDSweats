@@ -24,10 +24,10 @@ fi
 #  BELOW THIS LINE IS THE BASH SCRIPT
 # ==============================================================================
 
-# intproc (Alpine Final Edition v3)
+# intproc (Alpine Final Edition v4 - Toggle Update)
 #
 #    A self-healing network defense system for Alpine Linux.
-#    Features: Multi-interface, Maintenance Mode, Snapshotting, Interactive Backup.
+#    Features: Multi-interface, Smart Toggle (Auto-Save), Interactive Backup.
 #    Original Design by Samuel Brucker 2025-2026.
 #
 
@@ -60,9 +60,9 @@ show_help() {
     echo ""
     echo "Options:"
     echo -e "  ${GREEN}--install${NC}   Install the service and configure initial settings."
-    echo -e "  ${GREEN}--pause${NC}     Pause protection (Maintenance Mode). Allows changes."
-    echo -e "  ${GREEN}--resume${NC}    Resume protection and re-lock the configuration."
-    echo -e "  ${GREEN}--save${NC}      Snapshot current network state (IPs, Routes, Firewall) as new baseline."
+    echo -e "  ${GREEN}--toggle${NC}    Switch between Maintenance Mode (Pause) and Protection (Resume)."
+    echo -e "               - If Pausing: Simply stops protection so you can make changes."
+    echo -e "               - If Resuming: AUTOMATICALLY SAVES current state as the new baseline."
     echo -e "  ${GREEN}-h, --help${NC}  Show this help message."
     echo ""
     exit 0
@@ -148,6 +148,49 @@ revert_settings() {
     return 0
 }
 
+snapshot_config() {
+    if [ ! -f "$config_file" ]; then
+        echo -e "${RED}Error: No config file found. Run --install first.${NC}"
+        exit 1
+    fi
+    
+    # Load old config to get the list of interfaces to check
+    source "$config_file"
+    echo -e "${CYAN}Snapshotting current system state to configuration...${NC}"
+    
+    current_gw=$(get_current_gateway)
+    current_dns=$(get_current_dns "any")
+    temp_config="/tmp/IntProc_new.conf"
+    
+    # Reconstruct the config file with CURRENT system values
+    echo "INTERFACES=\"$INTERFACES\"" > "$temp_config"
+    echo "GATEWAY=\"$current_gw\"" >> "$temp_config"
+    echo "DNS=\"$current_dns\"" >> "$temp_config"
+    echo "IPTABLES_FILE=\"$iptables_file\"" >> "$temp_config"
+    echo "ROUTES_FILE=\"$routes_file\"" >> "$temp_config"
+    
+    for iface in $INTERFACES; do
+        current_ip=$(get_current_ip "$iface")
+        echo "IP_$iface=\"$current_ip\"" >> "$temp_config"
+        echo "  - Updated IP for $iface: $current_ip"
+    done
+    
+    mv "$temp_config" "$config_file"
+    
+    # Check if backup files exist (meaning user opted in) before updating them
+    if [ -f "$iptables_file" ]; then
+        iptables-save > "$iptables_file"
+        echo "  - Updated iptables backup."
+    fi
+    
+    if [ -f "$routes_file" ]; then
+        ip route show > "$routes_file"
+        echo "  - Updated routes backup."
+    fi
+    
+    echo -e "${GREEN}New configuration saved!${NC}"
+}
+
 # ==============================================================================
 # MAIN LOGIC
 # ==============================================================================
@@ -162,70 +205,29 @@ resolve_dependencies
 
 # --- COMMAND LINE ARGUMENTS ---
 
-# 1. Maintenance Mode: PAUSE
-if [ "$1" = "--pause" ]; then
-    touch "$maintenance_file"
-    echo -e "${YELLOW}MAINTENANCE MODE ACTIVATED.${NC}"
-    echo "The background service is now sleeping. You may make changes."
-    echo "Run 'intproc --save' to commit changes, then 'intproc --resume'."
-    exit 0
-fi
-
-# 2. Maintenance Mode: RESUME
-if [ "$1" = "--resume" ]; then
+# 1. Toggle Mode (Smart Pause/Resume)
+if [ "$1" = "--toggle" ]; then
     if [ -f "$maintenance_file" ]; then
+        # --- RESUME LOGIC (With Auto-Save) ---
+        echo -e "${CYAN}Maintenance Mode is currently ACTIVE.${NC}"
+        echo "Reading current network state to update baseline..."
+        
+        snapshot_config
+        
         rm "$maintenance_file"
         echo -e "${GREEN}Protection RESUMED.${NC}"
+        echo "The daemon will now defend the NEW configuration."
     else
-        echo "Maintenance mode was not active."
+        # --- PAUSE LOGIC ---
+        touch "$maintenance_file"
+        echo -e "${YELLOW}Maintenance Mode ACTIVATED.${NC}"
+        echo "Protection is PAUSED. You may now make changes to IPs, routes, or firewall."
+        echo "Run 'intproc --toggle' again to Save & Resume."
     fi
     exit 0
 fi
 
-# 3. Snapshot: SAVE CURRENT STATE
-if [ "$1" = "--save" ]; then
-    if [ ! -f "$config_file" ]; then
-        echo -e "${RED}Error: No config file found. Run --install first.${NC}"
-        exit 1
-    fi
-    
-    source "$config_file"
-    echo -e "${CYAN}Snapshotting current system state to configuration...${NC}"
-    
-    current_gw=$(get_current_gateway)
-    current_dns=$(get_current_dns "any")
-    temp_config="/tmp/IntProc_new.conf"
-    
-    echo "INTERFACES=\"$INTERFACES\"" > "$temp_config"
-    echo "GATEWAY=\"$current_gw\"" >> "$temp_config"
-    echo "DNS=\"$current_dns\"" >> "$temp_config"
-    echo "IPTABLES_FILE=\"$iptables_file\"" >> "$temp_config"
-    echo "ROUTES_FILE=\"$routes_file\"" >> "$temp_config"
-    
-    for iface in $INTERFACES; do
-        current_ip=$(get_current_ip "$iface")
-        echo "IP_$iface=\"$current_ip\"" >> "$temp_config"
-        echo "Updated IP for $iface: $current_ip"
-    done
-    
-    mv "$temp_config" "$config_file"
-    
-    # Check if backup files exist (meaning user opted in) before updating them
-    if [ -f "$iptables_file" ]; then
-        iptables-save > "$iptables_file"
-        echo "Updated iptables backup."
-    fi
-    
-    if [ -f "$routes_file" ]; then
-        ip route show > "$routes_file"
-        echo "Updated routes backup."
-    fi
-    
-    echo -e "${GREEN}New configuration saved!${NC}"
-    exit 0
-fi
-
-# 4. INSTALLATION MODE
+# 2. INSTALLATION MODE
 if [ "$1" = "--install" ]; then
     echo -e "${YELLOW}Starting intproc Installation...${NC}"
     mkdir -p /etc/IntProc
@@ -275,7 +277,6 @@ if [ "$1" = "--install" ]; then
         echo -e "${GREEN}iptables rules backed up.${NC}"
     else
         echo -e "${YELLOW}Skipping iptables backup.${NC}"
-        # Ensure file doesn't exist so monitor ignores it
         rm -f "$iptables_file"
     fi
 
@@ -330,6 +331,12 @@ while true; do
     if [ -f "$maintenance_file" ]; then
         sleep 5
         continue
+    fi
+
+    # CRITICAL UPDATE: Reload config in case it was changed via toggle/snapshot
+    # This ensures the daemon is always defending the LATEST saved state.
+    if [ -f "$config_file" ]; then
+        source "$config_file"
     fi
 
     timestamp=$(date +"%Y-%m-%d %H:%M:%S")
