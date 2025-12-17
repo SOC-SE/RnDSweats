@@ -1,121 +1,110 @@
 #!/bin/bash
 # =============================================================================
-# UNIVERSAL SENTINEL FIREWALL v10
-# Logic: Full Interactive Menu | Granular Agents | K8s Manual/Auto | Logging
+# UNIVERSAL SENTINEL FIREWALL v13 (The "Full Arsenal" Edition)
+# Logic: Strict In/Out | Full Service List | Failsafe | K8s Safe
 # =============================================================================
 
 # --- GLOBAL VARS ---
-declare -a TCP_PORTS
-declare -a UDP_PORTS
+declare -a IN_TCP
+declare -a IN_UDP
+declare -a OUT_TCP
+declare -a OUT_UDP
+
 IS_K8S=false
 IS_DOCKER=false
 MOD_FTP=false
 LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/firewall.log"
+FAILSAFE_DELAY=60
 
 # --- HELPER FUNCTIONS ---
 
 usage() {
     echo "Usage: $0 [OPTIONS]"
-    echo "--- CORE ---"
+    echo "--- CORE (OUTBOUND ESSENTIALS) ---"
     echo "  -h, --help        Show this help"
-    echo "  --ssh             Allow SSH (22)"
+    echo "  --ssh             Allow SSH (In: 22)"
+    echo "  --updates         Allow Repo Updates (Out: 80, 443)"
+    echo "  --dns-resolver    Allow DNS Lookup (Out: 53)"
+    echo "  --ntp-client      Allow Time Sync (Out: 123)"
     echo "  --persist         Save rules across reboots"
     echo ""
-    echo "--- INFRASTRUCTURE ---"
+    echo "--- INFRASTRUCTURE (INBOUND) ---"
     echo "  --web             HTTP/HTTPS (80, 443)"
-    echo "  --dns             DNS (53 TCP/UDP)"
-    echo "  --ntp             NTP Server (123 UDP)"
-    echo "  --ftp             FTP (20, 21)"
+    echo "  --dns-server      DNS Server (53 TCP/UDP)"
+    echo "  --ftp             FTP (20, 21) + Kernel Modules"
     echo "  --mail            SMTP/IMAP/POP3 (25, 465, 587, 110, 143, 993, 995)"
-    echo "  --db-mysql        MySQL/MariaDB (3306)"
-    echo "  --db-postgres     PostgreSQL (5432)"
+    echo "  --ldap            LDAP/LDAPS (389, 636 TCP)"
+    echo "  --kerb            Kerberos (88 TCP/UDP)"
     echo "  --smb             Samba/Windows Share (139, 445)"
+    echo "  --nfs             NFS (2049 TCP/UDP)"
     echo "  --k8s             Kubernetes API/Kubelet (6443, 10250)"
     echo ""
-    echo "--- DEFENSIVE TOOLS ---"
+    echo "--- DATABASES (INBOUND) ---"
+    echo "  --db-mysql        MySQL/MariaDB (3306)"
+    echo "  --db-postgres     PostgreSQL (5432)"
+    echo ""
+    echo "--- DEFENSIVE TOOLS (SERVER = INBOUND) ---"
     echo "  --splunk-srv      Splunk Enterprise (8000, 8089, 9997, 514)"
-    echo "  --splunk-fwd      Splunk Forwarder Mgmt (8089)"
     echo "  --wazuh-srv       Wazuh Manager/API (1514, 1515, 55000, 443)"
-    echo "  --wazuh-agt       Wazuh Agent (Outbound allowed by default)"
+    echo "  --elk             Elasticsearch/Logstash (9200, 9300, 5044)"
     echo "  --velo-srv        Velociraptor Server (8000, 8001, 8003)"
-    echo "  --velo-agt        Velociraptor Agent (Outbound allowed by default)"
     echo "  --salt-master     Salt Master (4505, 4506, 8881-API, 3000-GUI)"
-    echo "  --salt-minion     Salt Minion (Outbound allowed by default)"
+    echo "  --palo            Palo Alto Mgmt (443, 22)"
+    echo ""
+    echo "--- DEFENSIVE AGENTS (AGENT = OUTBOUND) ---"
+    echo "  --splunk-fwd      Splunk Forwarder (Out: 8089, 9997)"
+    echo "  --wazuh-agt       Wazuh Agent (Out: 1514, 1515)"
+    echo "  --velo-agt        Velociraptor Agent (Out: 8001)"
+    echo "  --salt-minion     Salt Minion (Out: 4505, 4506)"
     echo ""
     echo "--- MISC ---"
     echo "  --minecraft       Minecraft Server (25565)"
-    echo "  --custom-tcp      Comma separated list (e.g. 8080,4444)"
+    echo "  --custom-in       Comma separated (e.g. 8080,4444)"
+    echo "  --custom-out      Comma separated (e.g. 8.8.8.8,1.1.1.1)"
     echo ""
     exit 0
 }
 
 check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        echo "[-] Error: This script must be run as root."
-        exit 1
-    fi
+    [[ $EUID -ne 0 ]] && echo "[-] Error: Run as root." && exit 1
 }
 
 # --- DETECTION & PREP ---
 
 prepare_os() {
     echo "[*] Detecting Package Manager..."
-    
-    # Check for DNF or YUM (RHEL/Fedora/CentOS/Rocky)
     if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
-        echo "    > Detected RPM-based system (dnf/yum)."
         if systemctl is-active --quiet firewalld; then
-            echo "    > Disabling firewalld..."
-            systemctl stop firewalld
-            systemctl disable firewalld
-            systemctl mask firewalld
+            systemctl stop firewalld; systemctl disable firewalld; systemctl mask firewalld
         fi
-        if ! rpm -q iptables-services &> /dev/null; then
-            echo "    > Installing iptables-services..."
-            if command -v dnf &> /dev/null; then dnf install -y iptables-services; else yum install -y iptables-services; fi
-        fi
+        rpm -q iptables-services &> /dev/null || yum install -y iptables-services
         systemctl enable iptables
-
-    # Check for APT (Debian/Ubuntu/Kali)
     elif command -v apt-get &> /dev/null; then
-        echo "    > Detected DEB-based system (apt)."
-        if ! dpkg -s iptables-persistent &> /dev/null; then
-            echo "    > Installing iptables-persistent..."
-            echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-            echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
-            DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent netfilter-persistent
-        fi
+        dpkg -s iptables-persistent &> /dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent netfilter-persistent
     fi
 }
 
 configure_logging() {
-    echo "[*] Configuring Active Defense Logging..."
     if [ ! -d "$LOG_DIR" ]; then mkdir -p "$LOG_DIR"; fi
-    if [ -d "/etc/rsyslog.d" ]; then
-        cat <<EOF > /etc/rsyslog.d/99-defensive-firewall.conf
-:msg, contains, "FW-DROP" -${LOG_FILE}
-& stop
-EOF
+    if [ -d "/etc/rsyslog.d" ] && command -v rsyslogd &> /dev/null; then
+        echo ':msg, contains, "FW-DROP" -'"$LOG_FILE" > /etc/rsyslog.d/99-defensive-firewall.conf
+        echo '& stop' >> /etc/rsyslog.d/99-defensive-firewall.conf
         systemctl restart rsyslog 2>/dev/null || service rsyslog restart 2>/dev/null
     fi
-    echo "    > Logs targeted at: $LOG_FILE"
 }
 
 detect_orchestration() {
-    # Check binaries/interfaces but respect manual override if already set
     if [ "$IS_K8S" = false ]; then
         if command -v kubelet &> /dev/null || ip link show | grep -qE "cni|flannel|calico|cilium"; then
-            echo -e "\033[1;33m[!] KUBERNETES DETECTED (Auto). Engaging Safe-Flush Mode.\033[0m"
+            echo -e "\033[1;33m[!] KUBERNETES DETECTED. Engaging Safe-Flush & CNI Whitelisting.\033[0m"
             IS_K8S=true
-            TCP_PORTS+=("6443" "10250" "10255")
-            UDP_PORTS+=("8472") 
+            IN_TCP+=("6443" "10250"); IN_UDP+=("8472")
         fi
     fi
-
     if [ "$IS_DOCKER" = false ]; then
         if command -v docker &> /dev/null && docker ps &> /dev/null; then
-            echo -e "\033[1;33m[!] DOCKER DETECTED (Auto). Preserving NAT.\033[0m"
+            echo -e "\033[1;33m[!] DOCKER DETECTED. Preserving NAT/FORWARD chains.\033[0m"
             IS_DOCKER=true
         fi
     fi
@@ -125,220 +114,219 @@ detect_orchestration() {
 
 interactive_menu() {
     clear
-    echo "=== UNIVERSAL SENTINEL CONFIG V10 ==="
-    echo "--- BASIC ACCESS ---"
+    echo "=== UNIVERSAL SENTINEL CONFIG v13 (Full Arsenal) ==="
     
+    echo "--- BASIC ACCESS (Bidirectional) ---"
     read -p "1. Allow SSH (22)? [Y/n]: " ans
-    [[ "$ans" =~ ^[Nn]$ ]] || TCP_PORTS+=("22") # Default Yes
+    [[ "$ans" =~ ^[Nn]$ ]] || IN_TCP+=("22") # Default Yes
 
-    read -p "2. Allow Web (80/443)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("80" "443")
+    read -p "2. Allow DNS Resolution (Outbound 53)? [Y/n]: " ans
+    [[ "$ans" =~ ^[Nn]$ ]] || { OUT_UDP+=("53"); OUT_TCP+=("53"); }
 
-    read -p "3. Allow DNS Server (53)? [y/N]: " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then TCP_PORTS+=("53"); UDP_PORTS+=("53"); fi
+    read -p "3. Allow System Updates (Outbound 80/443)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && OUT_TCP+=("80" "443")
 
-    read -p "4. Allow NTP Server (123 UDP)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && UDP_PORTS+=("123")
+    read -p "4. Allow NTP Sync (Outbound 123)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && OUT_UDP+=("123")
 
-    read -p "5. Allow Mail (SMTP/IMAP/POP3)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("25" "465" "587" "110" "143" "993" "995")
+    echo -e "\n--- COMMON SERVICES (Server = Inbound) ---"
+    read -p "5. Web Server (80/443)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && IN_TCP+=("80" "443")
 
-    read -p "6. Allow FTP (20/21)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("20" "21") && MOD_FTP=true
+    read -p "6. Mail Server (SMTP/IMAP/POP3)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && IN_TCP+=("25" "465" "587" "110" "143" "993" "995")
 
-    read -p "7. Allow SMB/Samba (139/445)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("139" "445")
+    read -p "7. FTP Server (20/21)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("20" "21"); MOD_FTP=true; }
+
+    read -p "8. SMB/Windows Share (139/445)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && IN_TCP+=("139" "445")
+
+    echo -e "\n--- INFRASTRUCTURE (Server = Inbound) ---"
+    read -p "9. DNS Server (53)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("53"); IN_UDP+=("53"); }
+
+    read -p "10. Directory Services (LDAP 389/636, Kerberos 88)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("389" "636" "88"); IN_UDP+=("88"); }
+
+    read -p "11. Database (MySQL 3306 / PG 5432)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && IN_TCP+=("3306" "5432")
+    
+    read -p "12. NFS Share (2049)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("2049"); IN_UDP+=("2049"); }
 
     echo -e "\n--- SECURITY TOOLS (Server vs Agent) ---"
-    
-    # SPLUNK
-    read -p "8. Is this a SPLUNK SERVER (Indexer/Web)? [y/N]: " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then 
-        TCP_PORTS+=("8000" "8089" "9997" "514"); UDP_PORTS+=("514")
-    else
-        read -p "   > Is this a Splunk FORWARDER? [y/N]: " sub
-        [[ "$sub" =~ ^[Yy]$ ]] && TCP_PORTS+=("8089") && echo "     (Allowed Mgmt Port 8089)"
-    fi
-
-    # WAZUH
-    read -p "9. Is this a WAZUH SERVER (Manager)? [y/N]: " ans
+    read -p "13. Is this a SPLUNK/WAZUH/ELK SERVER? [y/N]: " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
-        TCP_PORTS+=("1514" "1515" "55000" "443")
+        echo "    > Enabling Server Ports (Splunk, Wazuh, ELK, Salt)..."
+        IN_TCP+=("8000" "8089" "9997" "514" "1514" "1515" "55000" "443" "9200" "9300" "5601" "4505" "4506")
+        IN_UDP+=("514")
     else
-        read -p "   > Is this a Wazuh AGENT? [y/N]: " sub
-        [[ "$sub" =~ ^[Yy]$ ]] && echo "     (Agent Outbound Allowed by Default)"
+        read -p "    > Allow Outbound AGENT Traffic (Splunk/Wazuh/Salt)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("9997" "8089" "1514" "1515" "4505" "4506")
     fi
 
-    # VELOCIRAPTOR
-    read -p "10. Is this a VELOCIRAPTOR SERVER? [y/N]: " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then
-        TCP_PORTS+=("8000" "8001" "8003")
-    else
-        read -p "    > Is this a Velociraptor AGENT? [y/N]: " sub
-        [[ "$sub" =~ ^[Yy]$ ]] && echo "      (Agent Outbound Allowed by Default)"
-    fi
-
-    # SALT
-    read -p "11. Is this a SALT MASTER (4505/4506, API-8881, GUI-3000)? [y/N]: " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then
-        TCP_PORTS+=("4505" "4506" "8881" "3000")
-    else
-        read -p "    > Is this a Salt MINION? [y/N]: " sub
-        [[ "$sub" =~ ^[Yy]$ ]] && echo "      (Minion Outbound Allowed by Default)"
-    fi
-
-    echo -e "\n--- INFRASTRUCTURE ---"
-    read -p "12. Is this a KUBERNETES NODE (Force Enable)? [y/N]: " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then
-        IS_K8S=true
-        TCP_PORTS+=("6443" "10250")
-        echo "    (K8s Safe-Flush Enabled)"
-    fi
-
-    read -p "13. Allow Databases (MySQL 3306 / Postgres 5432)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("3306" "5432")
-    
-    read -p "14. Allow Minecraft (25565)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && TCP_PORTS+=("25565") && UDP_PORTS+=("25565")
+    echo -e "\n--- MISC ---"
+    read -p "14. Minecraft Server (25565)? [y/N]: " ans
+    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("25565"); IN_UDP+=("25565"); }
 
     echo -e "\n--- FINALIZE ---"
     read -p "15. Enable Persistence? [Y/n]: " ans
-    [[ "$ans" =~ ^[Nn]$ ]] || PERSIST=true # Default Yes
+    [[ "$ans" =~ ^[Nn]$ ]] || PERSIST=true
 }
 
 parse_args() {
     while [ "$1" != "" ]; do
         case $1 in
             -h | --help )       usage ;;
-            # Core
-            --ssh )             TCP_PORTS+=("22") ;;
-            --web )             TCP_PORTS+=("80" "443") ;;
-            --dns )             TCP_PORTS+=("53"); UDP_PORTS+=("53") ;;
-            --ntp )             UDP_PORTS+=("123") ;;
-            --ftp )             TCP_PORTS+=("20" "21"); MOD_FTP=true ;;
-            --mail )            TCP_PORTS+=("25" "465" "587" "110" "143" "993" "995") ;;
-            --smb )             TCP_PORTS+=("139" "445") ;;
-            # Databases
-            --db-mysql )        TCP_PORTS+=("3306") ;;
-            --db-postgres )     TCP_PORTS+=("5432") ;;
-            # Security
-            --splunk-srv )      TCP_PORTS+=("8000" "8089" "9997" "514"); UDP_PORTS+=("514") ;;
-            --splunk-fwd )      TCP_PORTS+=("8089") ;;
-            --wazuh-srv )       TCP_PORTS+=("1514" "1515" "55000" "443") ;;
-            --wazuh-agt )       echo "Info: Wazuh Agent outbound is allowed by default." ;;
-            --velo-srv )        TCP_PORTS+=("8000" "8001" "8003") ;;
-            --velo-agt )        echo "Info: Velociraptor Agent outbound is allowed by default." ;;
-            --salt-master )     TCP_PORTS+=("4505" "4506" "8881" "3000") ;;
-            --salt-minion )     echo "Info: Salt Minion outbound is allowed by default." ;;
+            # Outbound Essentials
+            --ssh )             IN_TCP+=("22") ;;
+            --updates )         OUT_TCP+=("80" "443") ;;
+            --dns-resolver )    OUT_UDP+=("53"); OUT_TCP+=("53") ;;
+            --ntp-client )      OUT_UDP+=("123") ;;
+            
+            # Inbound Infrastructure
+            --web )             IN_TCP+=("80" "443") ;;
+            --dns-server )      IN_TCP+=("53"); IN_UDP+=("53") ;;
+            --ftp )             IN_TCP+=("20" "21"); MOD_FTP=true ;;
+            --mail )            IN_TCP+=("25" "465" "587" "110" "143" "993" "995") ;;
+            --ldap )            IN_TCP+=("389" "636") ;;
+            --kerb )            IN_TCP+=("88"); IN_UDP+=("88") ;;
+            --smb )             IN_TCP+=("139" "445") ;;
+            --nfs )             IN_TCP+=("2049"); IN_UDP+=("2049") ;;
+            --db-mysql )        IN_TCP+=("3306") ;;
+            --db-postgres )     IN_TCP+=("5432") ;;
+
+            # Security SERVERS (Inbound)
+            --splunk-srv )      IN_TCP+=("8000" "8089" "9997" "514"); IN_UDP+=("514") ;;
+            --wazuh-srv )       IN_TCP+=("1514" "1515" "55000" "443") ;;
+            --elk )             IN_TCP+=("9200" "9300" "5601" "5044") ;;
+            --velo-srv )        IN_TCP+=("8000" "8001" "8003") ;;
+            --salt-master )     IN_TCP+=("4505" "4506" "8881" "3000") ;;
+            --palo )            IN_TCP+=("443" "22") ;;
+
+            # Security AGENTS (Outbound)
+            --splunk-fwd )      OUT_TCP+=("9997" "8089") ;;
+            --wazuh-agt )       OUT_TCP+=("1514" "1515") ;;
+            --velo-agt )        OUT_TCP+=("8001") ;;
+            --salt-minion )     OUT_TCP+=("4505" "4506") ;;
+
             # Misc
-            --minecraft )       TCP_PORTS+=("25565"); UDP_PORTS+=("25565") ;;
-            --k8s )             IS_K8S=true; TCP_PORTS+=("6443" "10250") ;;
-            --custom-tcp )      shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do TCP_PORTS+=("$i"); done ;;
+            --minecraft )       IN_TCP+=("25565"); IN_UDP+=("25565") ;;
+            --k8s )             IS_K8S=true; IN_TCP+=("6443" "10250") ;;
+            
             --persist )         PERSIST=true ;;
+            --custom-in )       shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do IN_TCP+=("$i"); done ;;
+            --custom-out )      shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do OUT_TCP+=("$i"); done ;;
         esac
         shift
     done
 }
 
-# --- FIREWALL EXECUTION ---
+# --- FAILSAFE ---
+start_failsafe() {
+    echo -e "\033[1;31m [!] FAILSAFE TIMER: Reverting in $FAILSAFE_DELAY seconds unless confirmed...\033[0m"
+    (
+        sleep $FAILSAFE_DELAY
+        iptables -P INPUT ACCEPT; iptables -P OUTPUT ACCEPT; iptables -F
+        echo " [!!!] FAILSAFE TRIGGERED [!!!]" | wall
+    ) &
+    FAILSAFE_PID=$!
+}
+
+confirm_failsafe() {
+    echo ""
+    read -t $FAILSAFE_DELAY -p "Apply Permanent? (y/N): " response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        kill $FAILSAFE_PID 2>/dev/null
+        echo -e "[+] Configuration Confirmed."
+    else
+        echo -e "[!] Reverting..."
+    fi
+}
+
+# --- FIREWALL LOGIC ---
 
 apply_rules() {
     echo "[*] Applying Rules..."
     
-    # Load Kernel Modules if needed
-    if [ "$MOD_FTP" = true ]; then modprobe nf_conntrack_ftp 2>/dev/null; fi
+    if [ "$MOD_FTP" = true ]; then 
+        modprobe nf_conntrack_ftp 2>/dev/null || echo "    > Warning: Could not load FTP conntrack."
+    fi
 
-    # 1. FAIL-SAFE: ACCEPT ALL
+    # 1. SET POLICY TO ACCEPT (Prevent instant lockout)
     iptables -P INPUT ACCEPT
     iptables -P FORWARD ACCEPT
     iptables -P OUTPUT ACCEPT
 
-    # 2. SAFE FLUSH (K8s/Docker Protection)
+    # 2. FLUSH
     if [ "$IS_K8S" = true ] || [ "$IS_DOCKER" = true ]; then
-        iptables -F INPUT
-        # Do not flush NAT or MANGLE tables on Orchestrators
+        iptables -F INPUT; iptables -F OUTPUT
     else
-        iptables -F
-        iptables -X
-        iptables -t nat -F
-        iptables -t nat -X
-        iptables -t mangle -F
-        iptables -t mangle -X
+        iptables -F; iptables -X
     fi
 
-    # 3. IPv6 SOFT-LOCK (Drop All, But don't break kernel)
-    ip6tables -P INPUT DROP
-    ip6tables -P FORWARD DROP
-    ip6tables -P OUTPUT DROP
-    ip6tables -A INPUT -i lo -j ACCEPT
-    ip6tables -A OUTPUT -o lo -j ACCEPT
-
-    # 4. BASELINE (Localhost & ICMP Allowed)
+    # 3. BASELINE
     iptables -A INPUT -i lo -j ACCEPT
+    iptables -A OUTPUT -o lo -j ACCEPT
+    
+    # Allow Established
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -A INPUT -p icmp -j ACCEPT
+    iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-    # 5. ORCHESTRATION WHITELIST
+    # Allow ICMP
+    iptables -A INPUT -p icmp -j ACCEPT
+    iptables -A OUTPUT -p icmp -j ACCEPT
+
+    # 4. ORCHESTRATION WHITELIST
     if [ "$IS_K8S" = true ]; then
-        # Allow CNI interfaces (Pod-to-Pod)
-        iptables -A INPUT -i cni+ -j ACCEPT
-        iptables -A INPUT -i flannel+ -j ACCEPT
-        iptables -A INPUT -i calico+ -j ACCEPT
-        iptables -A INPUT -i cilium+ -j ACCEPT
-        iptables -A INPUT -i tunl0 -j ACCEPT
-        iptables -A INPUT -p vrrp -j ACCEPT
+        iptables -A INPUT -i cni+ -j ACCEPT; iptables -A OUTPUT -o cni+ -j ACCEPT
+        iptables -A INPUT -i flannel+ -j ACCEPT; iptables -A OUTPUT -o flannel+ -j ACCEPT
+        iptables -A INPUT -i calico+ -j ACCEPT; iptables -A OUTPUT -o calico+ -j ACCEPT
+        iptables -A INPUT -i cilium+ -j ACCEPT; iptables -A OUTPUT -o cilium+ -j ACCEPT
+        iptables -A INPUT -i tunl0 -j ACCEPT; iptables -A OUTPUT -o tunl0 -j ACCEPT
     fi
     if [ "$IS_DOCKER" = true ]; then
-        iptables -A INPUT -i docker0 -j ACCEPT
+        iptables -A INPUT -i docker0 -j ACCEPT; iptables -A OUTPUT -o docker0 -j ACCEPT
     fi
 
-    # 6. ALLOW SERVICES
-    # Sort and remove duplicates
-    IFS=" " read -r -a UNIQUE_TCP <<< "$(echo "${TCP_PORTS[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-    IFS=" " read -r -a UNIQUE_UDP <<< "$(echo "${UDP_PORTS[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-
-    for port in "${UNIQUE_TCP[@]}"; do
-        if [ ! -z "$port" ]; then
-            iptables -A INPUT -p tcp --dport $port -m conntrack --ctstate NEW -j ACCEPT
-        fi
-    done
-
-    for port in "${UDP_PORTS[@]}"; do
-        if [ ! -z "$port" ]; then
-            iptables -A INPUT -p udp --dport $port -m conntrack --ctstate NEW -j ACCEPT
-        fi
-    done
-
-    # 7. LOGGING (Active Defense)
-    # Log to kernel with prefix, rsyslog will catch this and move to firewall.log
-    iptables -A INPUT -m limit --limit 5/sec -j LOG --log-prefix "FW-DROP: " --log-level 4
+    # 5. INBOUND RULES
+    IFS=" " read -r -a U_IN_TCP <<< "$(echo "${IN_TCP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+    IFS=" " read -r -a U_IN_UDP <<< "$(echo "${IN_UDP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
     
-    # 8. DROP
-    iptables -A INPUT -j DROP
+    for port in "${U_IN_TCP[@]}"; do [ ! -z "$port" ] && iptables -A INPUT -p tcp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
+    for port in "${U_IN_UDP[@]}"; do [ ! -z "$port" ] && iptables -A INPUT -p udp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
+
+    # 6. OUTBOUND RULES
+    IFS=" " read -r -a U_OUT_TCP <<< "$(echo "${OUT_TCP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+    IFS=" " read -r -a U_OUT_UDP <<< "$(echo "${OUT_UDP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+
+    for port in "${U_OUT_TCP[@]}"; do [ ! -z "$port" ] && iptables -A OUTPUT -p tcp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
+    for port in "${U_OUT_UDP[@]}"; do [ ! -z "$port" ] && iptables -A OUTPUT -p udp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
+
+    # 7. LOGGING
+    iptables -A INPUT -m limit --limit 2/sec -j LOG --log-prefix "FW-DROP-IN: " --log-level 4
+    iptables -A OUTPUT -m limit --limit 2/sec -j LOG --log-prefix "FW-DROP-OUT: " --log-level 4
+
+    # 8. DROP POLICY
+    iptables -P INPUT DROP
+    if [ "$IS_K8S" = false ]; then
+        iptables -P OUTPUT DROP
+    else
+        echo "    > K8s Detected: Defaulting OUTPUT to ACCEPT."
+        iptables -P OUTPUT ACCEPT
+    fi
     
-    # Only drop FORWARD if not an Orchestrator
-    if [ "$IS_K8S" = false ] && [ "$IS_DOCKER" = false ]; then
+    if [ "$IS_DOCKER" = false ] && [ "$IS_K8S" = false ]; then
         iptables -P FORWARD DROP
     fi
 }
 
 save_persistence() {
     if [ "$PERSIST" = true ]; then
-        echo "[*] Saving Persistence..."
-        # RPM-Based
-        if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
-            service iptables save
-            # Backup IPv6 just in case
-            ip6tables-save > /etc/sysconfig/ip6tables 2>/dev/null
-        # DEB-Based
-        elif command -v apt-get &> /dev/null; then
-            netfilter-persistent save
-        # Generic Fallback
-        else
-            mkdir -p /etc/iptables
-            iptables-save > /etc/iptables/rules.v4
-            ip6tables-save > /etc/iptables/rules.v6
-        fi
+        if command -v dnf &> /dev/null || command -v yum &> /dev/null; then service iptables save
+        elif command -v apt-get &> /dev/null; then netfilter-persistent save
+        else mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4; fi
         echo "    > Rules saved."
     fi
 }
@@ -348,16 +336,15 @@ check_root
 prepare_os
 configure_logging
 
-if [ $# -eq 0 ]; then
-    interactive_menu
-else
-    parse_args "$@"
-fi
+if [ $# -eq 0 ]; then interactive_menu; else parse_args "$@"; fi
 
 detect_orchestration
+start_failsafe
 apply_rules
-save_persistence
+confirm_failsafe
 
-echo -e "\n[+] FIREWALL APPLIED."
-echo -e "    Logs: $LOG_FILE"
-echo -e "    IPv6: Dropped (Enabled in Kernel)"
+if ps -p $FAILSAFE_PID > /dev/null; then
+   kill $FAILSAFE_PID 2>/dev/null
+   save_persistence
+   echo -e "\n[+] FIREWALL SECURED (IN & OUT)."
+fi
