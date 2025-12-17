@@ -17,6 +17,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const scriptViewerTitle = document.getElementById('script-viewer-title');
     const scriptViewerContent = document.getElementById('script-viewer-content');
     const contextMenu = document.getElementById('custom-script-context-menu');
+    // --- Terminal Modal Elements ---
+    const openTerminalBtn = document.getElementById('open-terminal-btn'); // This ID is now in the HTML
+    const terminalModal = document.getElementById('terminal-modal');
+    const terminalCloseButton = document.getElementById('terminal-close-button');
+    const terminalTitle = document.getElementById('terminal-title');
+    const terminalOutput = document.getElementById('terminal-output');
+    const terminalCommandInput = document.getElementById('terminal-command-input');
 
     let proxyUrl = 'http://localhost:3000'; // Default value, will be updated from settings
     let currentArgSpec = null; // Variable to cache the argspec
@@ -798,6 +805,87 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         contextMenu.style.display = 'none'; // Hide menu after action
     });
+
+    // --- Terminal Functions ---
+    function openTerminal() {
+        const deviceId = monitoringDeviceSelect.value;
+        if (!deviceId) {
+            logToConsole('Please select a device from the System Monitoring section to open a terminal.', 'warn');
+            alert('Please select a device to open the terminal.');
+            return;
+        }
+
+        terminalTitle.textContent = `Terminal: ${deviceId}`;
+        terminalOutput.innerHTML = `<span>Connecting to ${deviceId}...</span><br>`;
+        terminalCommandInput.value = '';
+        terminalModal.style.display = 'block';
+        terminalCommandInput.focus();
+    }
+
+    function closeTerminal() {
+        terminalModal.style.display = 'none';
+    }
+
+    async function executeTerminalCommand(event) {
+        if (event.key !== 'Enter') return;
+
+        const command = terminalCommandInput.value.trim();
+        const deviceId = monitoringDeviceSelect.value; // Assumes the device doesn't change while modal is open
+
+        if (!command || !deviceId) return;
+
+        // Echo the command to the terminal
+        const echoEntry = document.createElement('div');
+        echoEntry.innerHTML = `<span class="terminal-prompt">&gt;</span> <span class="command-echo">${command}</span>`;
+        terminalOutput.appendChild(echoEntry);
+        terminalCommandInput.value = ''; // Clear input
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
+
+        const payload = {
+            client: 'local',
+            tgt: deviceId,
+            fun: 'cmd.run',
+            arg: [command]
+        };
+
+        try {
+            const response = await fetch(`${proxyUrl}/proxy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            let result = data.return[0][deviceId];
+
+            // If the result is an empty string, it's a successful command with no stdout.
+            // Show a confirmation message. Also handle null/undefined cases. A non-empty string
+            // (even with just whitespace) should be displayed.
+            if (result === null || result === undefined) {
+                result = 'Error executing command.';
+            } else if (result.trim() === '') {
+                result = 'Command finished successfully (no output).';
+            }
+
+            const resultEntry = document.createElement('div');
+            resultEntry.className = response.ok ? 'command-result' : 'terminal-error';
+            const pre = document.createElement('pre');
+            pre.textContent = result;
+            resultEntry.appendChild(pre);
+            terminalOutput.appendChild(resultEntry);
+        } catch (error) {
+            const errorEntry = document.createElement('div');
+            errorEntry.className = 'terminal-error';
+            errorEntry.textContent = `Error: ${error.message}`;
+            terminalOutput.appendChild(errorEntry);
+        } finally {
+            terminalOutput.scrollTop = terminalOutput.scrollHeight; // Auto-scroll
+        }
+    }
+    // Terminal Event Listeners
+    openTerminalBtn.addEventListener('click', openTerminal);
+    terminalCloseButton.addEventListener('click', closeTerminal);
+    terminalCommandInput.addEventListener('keydown', executeTerminalCommand);
 
     scriptViewerCloseButton.addEventListener('click', () => {
         scriptViewerModal.style.display = 'none';

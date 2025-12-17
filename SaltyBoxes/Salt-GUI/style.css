@@ -347,3 +347,61 @@ li.selected {
     font-family: "Fira Code", "Courier New", Courier, monospace;
     font-size: 14px;
 }
+
+/* Styles for the terminal modal */
+.terminal-modal-content {
+    width: 80%;
+    max-width: 900px;
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    border: 1px solid #333;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #333;
+}
+
+.terminal-output {
+    height: 400px;
+    overflow-y: auto;
+    padding: 10px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    background-color: #1e1e1e;
+    white-space: pre-wrap; /* Allows text to wrap */
+    word-wrap: break-word;
+}
+
+.terminal-input-container {
+    display: flex;
+    align-items: center;
+    padding: 5px 10px;
+    background-color: #252526;
+}
+
+.terminal-prompt {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    margin-right: 8px;
+}
+
+#terminal-command-input {
+    flex-grow: 1;
+    background: transparent;
+    border: none;
+    color: #d4d4d4;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+}
+
+#terminal-command-input:focus {
+    outline: none;
+}
+
+.terminal-output .command-echo { color: #9cdcfe; }
+.terminal-output .command-result { color: #d4d4d4; }
+.terminal-output .terminal-error { color: #f44747; }

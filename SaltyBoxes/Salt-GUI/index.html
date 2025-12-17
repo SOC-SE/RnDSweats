@@ -83,7 +83,7 @@
                         <option value="firewall-rules">Firewall Rules</option>
                         <option value="running-processes">Running Processes</option>
                     </select>
-                    <button class="btn btn-open-terminal">Open Terminal</button>
+                    <button id="open-terminal-btn" class="btn btn-open-terminal">Open Terminal</button>
                     <button class="btn btn-refresh">Refresh</button>
                 </div>
                 <div class="system-monitoring-output">
@@ -158,6 +158,21 @@
             </div>
             <!-- <button id="edit-script-btn" class="btn">Edit</button> -->
             <!-- <button id="save-script-btn" class="btn" style="display:none;">Save</button> -->
+        </div>
+    </div>
+
+    <!-- Terminal Modal -->
+    <div id="terminal-modal" class="modal">
+        <div class="modal-content terminal-modal-content">
+            <div class="modal-header">
+                <h2 id="terminal-title">Terminal</h2>
+                <span id="terminal-close-button" class="close-button">&times;</span>
+            </div>
+            <div id="terminal-output" class="terminal-output"></div>
+            <div class="terminal-input-container">
+                <span class="terminal-prompt">&gt;</span>
+                <input type="text" id="terminal-command-input" placeholder="Enter command...">
+            </div>
         </div>
     </div>
 </body>
