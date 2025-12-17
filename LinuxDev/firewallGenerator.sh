@@ -74,7 +74,7 @@ detect_orchestration() {
 
 interactive_menu() {
     clear
-    echo "=== UNIVERSAL SENTINEL CONFIG ==="
+    echo "=== UNIVERSAL FIREWALL GENERATOR =="
     
     # 1. ESSENTIALS (Top Level - High Priority)
     echo "--- ESSENTIALS ---"
@@ -117,7 +117,7 @@ interactive_menu() {
     read -p "7. Configure Splunk/Wazuh/ELK/Salt? [y/N]: " cat_ans
     if [[ "$cat_ans" =~ ^[Yy]$ ]]; then
         # SPLUNK
-        read -p "   > Splunk SERVER (In: 8000/8089/9997)? [y/N]: " sub
+        read -p "   > Splunk SERVER (In: 8000/8089/9997/514)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("8000" "8089" "9997" "514"); IN_UDP+=("514"); }
         read -p "   > Splunk FORWARDER (Out: 9997/8089)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("9997" "8089")
@@ -129,11 +129,13 @@ interactive_menu() {
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("1514" "1515")
 
         # ELK
-        read -p "   > ELK Stack (In: 9200/9300/5601)? [y/N]: " sub
-        [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("9200" "9300" "5601" "5044")
+        read -p "   > ELK Stack (In: 9200/9300/5601/514)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("9200" "9300" "5601" "5044" "514"); IN_UDP+=("514"); }
+        read -p "   > Elastic AGENT (Out: 8220/9200)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("8220" "9200")
         
         # SALT
-        read -p "   > Salt MASTER (In: 4505/4506)? [y/N]: " sub
+        read -p "   > Salt MASTER (In: 4505-4506, 8881, 3000)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("4505" "4506" "8881" "3000")
         read -p "   > Salt MINION (Out: 4505/4506)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("4505" "4506")
@@ -167,7 +169,7 @@ interactive_menu() {
 }
 
 parse_args() {
-    # Argument parsing remains mostly the same, allowing manual bypass
+    # Argument parsing
     while [ "$1" != "" ]; do
         case $1 in
             -h | --help )       usage ;;
@@ -185,14 +187,16 @@ parse_args() {
             --nfs )             IN_TCP+=("2049"); IN_UDP+=("2049") ;;
             --db-mysql )        IN_TCP+=("3306") ;;
             --db-postgres )     IN_TCP+=("5432") ;;
+            # Updated Security Blocks
             --splunk-srv )      IN_TCP+=("8000" "8089" "9997" "514"); IN_UDP+=("514") ;;
             --splunk-fwd )      OUT_TCP+=("9997" "8089") ;;
             --wazuh-srv )       IN_TCP+=("1514" "1515" "55000" "443") ;;
             --wazuh-agt )       OUT_TCP+=("1514" "1515") ;;
-            --elk )             IN_TCP+=("9200" "9300" "5601" "5044") ;;
+            --elk )             IN_TCP+=("9200" "9300" "5601" "5044" "514"); IN_UDP+=("514") ;;
+            --elk-agt )         OUT_TCP+=("8220" "9200") ;; 
             --velo-srv )        IN_TCP+=("8000" "8001" "8003") ;;
             --velo-agt )        OUT_TCP+=("8001") ;;
-            --salt-master )     IN_TCP+=("4505" "4506" "8881" "3000") ;;
+            --salt-master )     IN_TCP+=("4505" "4506" "8881" "3000" "8001") ;;
             --salt-minion )     OUT_TCP+=("4505" "4506") ;;
             --palo )            IN_TCP+=("443" "22") ;;
             --minecraft )       IN_TCP+=("25565"); IN_UDP+=("25565") ;;
