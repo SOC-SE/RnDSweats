@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
-# UNIVERSAL SENTINEL FIREWALL v13 (The "Full Arsenal" Edition)
-# Logic: Strict In/Out | Full Service List | Failsafe | K8s Safe
+# UNIVERSAL SENTINEL FIREWALL 
+# Logic: Category Drill-Down | Strict In/Out | Anti-C2 | Failsafe
 # =============================================================================
 
 # --- GLOBAL VARS ---
@@ -21,48 +21,9 @@ FAILSAFE_DELAY=60
 
 usage() {
     echo "Usage: $0 [OPTIONS]"
-    echo "--- CORE (OUTBOUND ESSENTIALS) ---"
-    echo "  -h, --help        Show this help"
-    echo "  --ssh             Allow SSH (In: 22)"
-    echo "  --updates         Allow Repo Updates (Out: 80, 443)"
-    echo "  --dns-resolver    Allow DNS Lookup (Out: 53)"
-    echo "  --ntp-client      Allow Time Sync (Out: 123)"
-    echo "  --persist         Save rules across reboots"
-    echo ""
-    echo "--- INFRASTRUCTURE (INBOUND) ---"
-    echo "  --web             HTTP/HTTPS (80, 443)"
-    echo "  --dns-server      DNS Server (53 TCP/UDP)"
-    echo "  --ftp             FTP (20, 21) + Kernel Modules"
-    echo "  --mail            SMTP/IMAP/POP3 (25, 465, 587, 110, 143, 993, 995)"
-    echo "  --ldap            LDAP/LDAPS (389, 636 TCP)"
-    echo "  --kerb            Kerberos (88 TCP/UDP)"
-    echo "  --smb             Samba/Windows Share (139, 445)"
-    echo "  --nfs             NFS (2049 TCP/UDP)"
-    echo "  --k8s             Kubernetes API/Kubelet (6443, 10250)"
-    echo ""
-    echo "--- DATABASES (INBOUND) ---"
-    echo "  --db-mysql        MySQL/MariaDB (3306)"
-    echo "  --db-postgres     PostgreSQL (5432)"
-    echo ""
-    echo "--- DEFENSIVE TOOLS (SERVER = INBOUND) ---"
-    echo "  --splunk-srv      Splunk Enterprise (8000, 8089, 9997, 514)"
-    echo "  --wazuh-srv       Wazuh Manager/API (1514, 1515, 55000, 443)"
-    echo "  --elk             Elasticsearch/Logstash (9200, 9300, 5044)"
-    echo "  --velo-srv        Velociraptor Server (8000, 8001, 8003)"
-    echo "  --salt-master     Salt Master (4505, 4506, 8881-API, 3000-GUI)"
-    echo "  --palo            Palo Alto Mgmt (443, 22)"
-    echo ""
-    echo "--- DEFENSIVE AGENTS (AGENT = OUTBOUND) ---"
-    echo "  --splunk-fwd      Splunk Forwarder (Out: 8089, 9997)"
-    echo "  --wazuh-agt       Wazuh Agent (Out: 1514, 1515)"
-    echo "  --velo-agt        Velociraptor Agent (Out: 8001)"
-    echo "  --salt-minion     Salt Minion (Out: 4505, 4506)"
-    echo ""
-    echo "--- MISC ---"
-    echo "  --minecraft       Minecraft Server (25565)"
-    echo "  --custom-in       Comma separated (e.g. 8080,4444)"
-    echo "  --custom-out      Comma separated (e.g. 8.8.8.8,1.1.1.1)"
-    echo ""
+    echo "This script uses an interactive menu to strictly open ports."
+    echo "Use --help to see this message. Run without arguments for the menu."
+    echo "Run with specific flags to bypass menu (e.g., --ssh --splunk-fwd)."
     exit 0
 }
 
@@ -71,7 +32,6 @@ check_root() {
 }
 
 # --- DETECTION & PREP ---
-
 prepare_os() {
     echo "[*] Detecting Package Manager..."
     if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
@@ -114,13 +74,14 @@ detect_orchestration() {
 
 interactive_menu() {
     clear
-    echo "=== UNIVERSAL SENTINEL CONFIG v13 (Full Arsenal) ==="
+    echo "=== UNIVERSAL SENTINEL CONFIG ==="
     
-    echo "--- BASIC ACCESS (Bidirectional) ---"
-    read -p "1. Allow SSH (22)? [Y/n]: " ans
+    # 1. ESSENTIALS (Top Level - High Priority)
+    echo "--- ESSENTIALS ---"
+    read -p "1. Allow SSH (Inbound 22)? [Y/n]: " ans
     [[ "$ans" =~ ^[Nn]$ ]] || IN_TCP+=("22") # Default Yes
 
-    read -p "2. Allow DNS Resolution (Outbound 53)? [Y/n]: " ans
+    read -p "2. Allow DNS Lookup (Outbound 53)? [Y/n]: " ans
     [[ "$ans" =~ ^[Nn]$ ]] || { OUT_UDP+=("53"); OUT_TCP+=("53"); }
 
     read -p "3. Allow System Updates (Outbound 80/443)? [y/N]: " ans
@@ -129,63 +90,91 @@ interactive_menu() {
     read -p "4. Allow NTP Sync (Outbound 123)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && OUT_UDP+=("123")
 
-    echo -e "\n--- COMMON SERVICES (Server = Inbound) ---"
-    read -p "5. Web Server (80/443)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && IN_TCP+=("80" "443")
-
-    read -p "6. Mail Server (SMTP/IMAP/POP3)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && IN_TCP+=("25" "465" "587" "110" "143" "993" "995")
-
-    read -p "7. FTP Server (20/21)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("20" "21"); MOD_FTP=true; }
-
-    read -p "8. SMB/Windows Share (139/445)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && IN_TCP+=("139" "445")
-
-    echo -e "\n--- INFRASTRUCTURE (Server = Inbound) ---"
-    read -p "9. DNS Server (53)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("53"); IN_UDP+=("53"); }
-
-    read -p "10. Directory Services (LDAP 389/636, Kerberos 88)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("389" "636" "88"); IN_UDP+=("88"); }
-
-    read -p "11. Database (MySQL 3306 / PG 5432)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && IN_TCP+=("3306" "5432")
-    
-    read -p "12. NFS Share (2049)? [y/N]: " ans
-    [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("2049"); IN_UDP+=("2049"); }
-
-    echo -e "\n--- SECURITY TOOLS (Server vs Agent) ---"
-    read -p "13. Is this a SPLUNK/WAZUH/ELK SERVER? [y/N]: " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then
-        echo "    > Enabling Server Ports (Splunk, Wazuh, ELK, Salt)..."
-        IN_TCP+=("8000" "8089" "9997" "514" "1514" "1515" "55000" "443" "9200" "9300" "5601" "4505" "4506")
-        IN_UDP+=("514")
-    else
-        read -p "    > Allow Outbound AGENT Traffic (Splunk/Wazuh/Salt)? [y/N]: " sub
-        [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("9997" "8089" "1514" "1515" "4505" "4506")
+    # 2. STANDARD SERVICES (Category Drill-Down)
+    echo -e "\n--- STANDARD SERVICES ---"
+    read -p "5. Configure Web/Mail/File Services? [y/N]: " cat_ans
+    if [[ "$cat_ans" =~ ^[Yy]$ ]]; then
+        read -p "   > Web Server (In: 80/443)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("80" "443")
+        read -p "   > Mail Server (In: SMTP/IMAP/POP3)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("25" "465" "587" "110" "143" "993" "995")
+        read -p "   > SMB/Windows Share (In: 139/445)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("139" "445")
+        read -p "   > FTP Server (In: 20/21)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("20" "21"); MOD_FTP=true; }
+        read -p "   > NFS Share (In: 2049)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("2049"); IN_UDP+=("2049"); }
     fi
 
+    # 3. INFRASTRUCTURE (Category Drill-Down)
+    echo -e "\n--- INFRASTRUCTURE ---"
+    read -p "6. Configure DNS/Auth/Databases? [y/N]: " cat_ans
+    if [[ "$cat_ans" =~ ^[Yy]$ ]]; then
+        read -p "   > DNS Server (In: 53)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("53"); IN_UDP+=("53"); }
+        read -p "   > LDAP (In: 389/636)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("389" "636")
+        read -p "   > Kerberos (In: 88)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("88"); IN_UDP+=("88"); }
+        read -p "   > MySQL/MariaDB (In: 3306)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("3306")
+        read -p "   > PostgreSQL (In: 5432)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("5432")
+    fi
+
+    # 4. SECURITY TOOLS (Category Drill-Down)
+    echo -e "\n--- SECURITY TOOLS (Server = Inbound / Agent = Outbound) ---"
+    read -p "7. Configure Splunk/Wazuh/ELK/Salt? [y/N]: " cat_ans
+    if [[ "$cat_ans" =~ ^[Yy]$ ]]; then
+        # SPLUNK
+        read -p "   > Splunk SERVER (In: 8000/8089/9997)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("8000" "8089" "9997" "514"); IN_UDP+=("514"); }
+        read -p "   > Splunk FORWARDER (Out: 9997/8089)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("9997" "8089")
+
+        # WAZUH
+        read -p "   > Wazuh SERVER (In: 1514/1515/55000)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("1514" "1515" "55000" "443")
+        read -p "   > Wazuh AGENT (Out: 1514/1515)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("1514" "1515")
+
+        # ELK
+        read -p "   > ELK Stack (In: 9200/9300/5601)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("9200" "9300" "5601" "5044")
+        
+        # SALT
+        read -p "   > Salt MASTER (In: 4505/4506)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("4505" "4506" "8881" "3000")
+        read -p "   > Salt MINION (Out: 4505/4506)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("4505" "4506")
+
+        # VELOCIRAPTOR
+        read -p "   > Velociraptor SERVER (In: 8000-8003)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("8000" "8001" "8003")
+        read -p "   > Velociraptor AGENT (Out: 8001)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("8001")
+        
+        # PALO ALTO
+        read -p "   > Palo Alto Mgmt (In: 443/22)? [y/N]: " sub
+        [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("443" "22")
+    fi
+
+    # 5. ORCHESTRATION & MISC
     echo -e "\n--- MISC ---"
-    read -p "14. Minecraft Server (25565)? [y/N]: " ans
+    read -p "8. Minecraft Server (In: 25565)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("25565"); IN_UDP+=("25565"); }
+    
+    read -p "9. Kubernetes Node (Force Enable)? [y/N]: " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        IS_K8S=true
+        IN_TCP+=("6443" "10250")
+        echo "    (K8s Safe-Flush & CNI Whitelist Enabled)"
+    fi
 
     echo -e "\n--- FINALIZE ---"
-    read -p "15. Enable Persistence? [Y/n]: " ans
+    read -p "10. Enable Persistence? [Y/n]: " ans
     [[ "$ans" =~ ^[Nn]$ ]] || PERSIST=true
 }
 
 parse_args() {
+    # Argument parsing remains mostly the same, allowing manual bypass
     while [ "$1" != "" ]; do
         case $1 in
             -h | --help )       usage ;;
-            # Outbound Essentials
             --ssh )             IN_TCP+=("22") ;;
             --updates )         OUT_TCP+=("80" "443") ;;
             --dns-resolver )    OUT_UDP+=("53"); OUT_TCP+=("53") ;;
             --ntp-client )      OUT_UDP+=("123") ;;
-            
-            # Inbound Infrastructure
             --web )             IN_TCP+=("80" "443") ;;
             --dns-server )      IN_TCP+=("53"); IN_UDP+=("53") ;;
             --ftp )             IN_TCP+=("20" "21"); MOD_FTP=true ;;
@@ -196,25 +185,18 @@ parse_args() {
             --nfs )             IN_TCP+=("2049"); IN_UDP+=("2049") ;;
             --db-mysql )        IN_TCP+=("3306") ;;
             --db-postgres )     IN_TCP+=("5432") ;;
-
-            # Security SERVERS (Inbound)
             --splunk-srv )      IN_TCP+=("8000" "8089" "9997" "514"); IN_UDP+=("514") ;;
+            --splunk-fwd )      OUT_TCP+=("9997" "8089") ;;
             --wazuh-srv )       IN_TCP+=("1514" "1515" "55000" "443") ;;
+            --wazuh-agt )       OUT_TCP+=("1514" "1515") ;;
             --elk )             IN_TCP+=("9200" "9300" "5601" "5044") ;;
             --velo-srv )        IN_TCP+=("8000" "8001" "8003") ;;
-            --salt-master )     IN_TCP+=("4505" "4506" "8881" "3000") ;;
-            --palo )            IN_TCP+=("443" "22") ;;
-
-            # Security AGENTS (Outbound)
-            --splunk-fwd )      OUT_TCP+=("9997" "8089") ;;
-            --wazuh-agt )       OUT_TCP+=("1514" "1515") ;;
             --velo-agt )        OUT_TCP+=("8001") ;;
+            --salt-master )     IN_TCP+=("4505" "4506" "8881" "3000") ;;
             --salt-minion )     OUT_TCP+=("4505" "4506") ;;
-
-            # Misc
+            --palo )            IN_TCP+=("443" "22") ;;
             --minecraft )       IN_TCP+=("25565"); IN_UDP+=("25565") ;;
             --k8s )             IS_K8S=true; IN_TCP+=("6443" "10250") ;;
-            
             --persist )         PERSIST=true ;;
             --custom-in )       shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do IN_TCP+=("$i"); done ;;
             --custom-out )      shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do OUT_TCP+=("$i"); done ;;
@@ -223,7 +205,7 @@ parse_args() {
     done
 }
 
-# --- FAILSAFE ---
+# --- FAILSAFE & FIREWALL EXECUTION ---
 start_failsafe() {
     echo -e "\033[1;31m [!] FAILSAFE TIMER: Reverting in $FAILSAFE_DELAY seconds unless confirmed...\033[0m"
     (
@@ -245,8 +227,6 @@ confirm_failsafe() {
     fi
 }
 
-# --- FIREWALL LOGIC ---
-
 apply_rules() {
     echo "[*] Applying Rules..."
     
@@ -254,7 +234,7 @@ apply_rules() {
         modprobe nf_conntrack_ftp 2>/dev/null || echo "    > Warning: Could not load FTP conntrack."
     fi
 
-    # 1. SET POLICY TO ACCEPT (Prevent instant lockout)
+    # 1. ACCEPT POLICY (Safety)
     iptables -P INPUT ACCEPT
     iptables -P FORWARD ACCEPT
     iptables -P OUTPUT ACCEPT
@@ -269,12 +249,8 @@ apply_rules() {
     # 3. BASELINE
     iptables -A INPUT -i lo -j ACCEPT
     iptables -A OUTPUT -o lo -j ACCEPT
-    
-    # Allow Established
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-    # Allow ICMP
     iptables -A INPUT -p icmp -j ACCEPT
     iptables -A OUTPUT -p icmp -j ACCEPT
 
