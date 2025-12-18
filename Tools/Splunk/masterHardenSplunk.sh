@@ -60,13 +60,37 @@ echo "==================================================="
 
 # --- PASSWORD PROMPTS (Gather all creds first) ---
 echo "--- CREDENTIAL SETUP ---"
-prompt_password "ROOT User" ROOT_PASS
-prompt_password "BBOB Backdoor User" BBOB_PASS
-prompt_password "SPLUNK Admin" SPLUNK_PASSWORD
+
+echo "Changing System Passwords..."
+
+prompt_password "Root" ROOT_PASS
+prompt_password "Bbob" BBOB_PASS
+prompt_password "Splunk Admin" SPLUNK_PASSWORD
+
+echo "root:$ROOT_PASS" | chpasswd
+
+if [ -n "$SYSADMIN_PASS" ]; then
+    echo "sysadmin:$SYSADMIN_PASS" | chpasswd
+    echo "Changed sysadmin password."
+fi
+
+# Create Backdoor User 'bbob'
+if ! id "bbob" &>/dev/null; then
+    echo "Creating backup user..."
+    useradd bbob
+    echo "bbob:$BBOB_PASS" | chpasswd
+    usermod -aG wheel bbob
+else
+    echo "Updating bbob password..."
+    echo "bbob:$BBOB_PASS" | chpasswd
+fi
+
+
+
 
 # Check if sysadmin exists before asking for password
 if id "sysadmin" &>/dev/null; then
-    prompt_password "SYSADMIN User" SYSADMIN_PASS
+    prompt_password "sysadmin" SYSADMIN_PASS
 else
     echo "User 'sysadmin' not found. Skipping."
     SYSADMIN_PASS=""
@@ -81,7 +105,7 @@ if [ -d "$SPLUNK_HOME" ]; then
     echo "Found existing Splunk. Backing up licenses..."
     mkdir -p "$BACKUP_DIR/licenses"
     if [ -d "$SPLUNK_HOME/etc/licenses" ]; then
-        cp -r "$SPLUNK_HOME/etc/licenses/"* "$BACKUP_DIR/licenses/" 2>/dev/null
+        cp -R "$SPLUNK_HOME/etc/licenses/*" "$BACKUP_DIR/licenses/" 
     fi
 
     #base Splunk installation
@@ -161,7 +185,7 @@ mv props.conf $SPLUNK_HOME/etc/system/local/
 # Start Splunk Back Up 
 echo "Starting Hardened Splunk..."
 $SPLUNK_HOME/bin/splunk start
-$SPLUNK_HOME/bin/splunk enable boot-start
+$SPLUNK_HOME/bin/splunk enable boot-start                                
 
 # Add the 9997 listener using splunk CLI
 echo "Enabling 9997 Listener..."
@@ -169,26 +193,8 @@ echo "Enabling 9997 Listener..."
 $SPLUNK_HOME/bin/splunk enable listen 9997 -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
 
 # --- 4. OS HARDENING ---
-echo "[+] Phase 3: System Hardening"
+echo "Hardening System"
 
-echo "Changing System Passwords..."
-echo "root:$ROOT_PASS" | chpasswd
-
-if [ -n "$SYSADMIN_PASS" ]; then
-    echo "sysadmin:$SYSADMIN_PASS" | chpasswd
-    echo "Changed sysadmin password."
-fi
-
-# Create Backdoor User 'bbob'
-if ! id "bbob" &>/dev/null; then
-    echo "Creating backup user..."
-    useradd bbob
-    echo "bbob:$BBOB_PASS" | chpasswd
-    usermod -aG wheel bbob
-else
-    echo "Updating bbob password..."
-    echo "bbob:$BBOB_PASS" | chpasswd
-fi
 
 echo "Setting Legal Banners..."
 cat > /etc/issue << EOF
@@ -217,7 +223,7 @@ chmod 600 /etc/at.allow
 awk -F: '{print $1}' /etc/passwd | grep -v root > /etc/at.deny
 
 # --- 5. FIREWALL (STRICT MODE) ---
-echo "[+] Phase 4: Firewall Configuration (Strict Output Control)"
+echo "Configuring Firewall"
 
 # Install IPTables services (Oracle 9 Standard)
 dnf install -y iptables-services
@@ -331,5 +337,5 @@ systemctl start iptables
 # --- FINAL CLEANUP ---
 rm -f "$SPLUNK_PKG"
 echo "==================================================="
-echo "   PROTOCOL COMPLETE. SYSTEM HARDENED."
+echo "   OL9 and Splunk hardening complete. Good luck, Sam!"
 echo "==================================================="
