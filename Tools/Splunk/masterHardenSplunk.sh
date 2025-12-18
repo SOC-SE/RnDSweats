@@ -58,6 +58,12 @@ echo "==================================================="
 echo "            Starting Splunk Hardening              "
 echo "==================================================="
 
+
+#Enumeration
+echo "Performing first enumeration cycle"
+
+
+
 # --- PASSWORD PROMPTS (Gather all creds first) ---
 echo "--- CREDENTIAL SETUP ---"
 
@@ -66,13 +72,14 @@ echo "Changing System Passwords..."
 prompt_password "Root" ROOT_PASS
 prompt_password "Bbob" BBOB_PASS
 prompt_password "Splunk Admin" SPLUNK_PASSWORD
+prompt_password "sysadmin" SYSADMIN_PASS
+
+
 
 echo "root:$ROOT_PASS" | chpasswd
+echo "sysadmin:$SYSADMIN_PASS" | chpasswd
 
-if [ -n "$SYSADMIN_PASS" ]; then
-    echo "sysadmin:$SYSADMIN_PASS" | chpasswd
-    echo "Changed sysadmin password."
-fi
+echo "Changed root and sysadmin passwords"
 
 # Create Backdoor User 'bbob'
 if ! id "bbob" &>/dev/null; then
@@ -88,13 +95,7 @@ fi
 
 
 
-# Check if sysadmin exists before asking for password
-if id "sysadmin" &>/dev/null; then
-    prompt_password "sysadmin" SYSADMIN_PASS
-else
-    echo "User 'sysadmin' not found. Skipping."
-    SYSADMIN_PASS=""
-fi
+
 echo "------------------------"
 
 echo "Nuking and then reinstalling Splunk..."
