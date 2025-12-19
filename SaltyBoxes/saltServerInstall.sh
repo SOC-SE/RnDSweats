@@ -264,7 +264,9 @@ systemctl restart salt-minion
 # Again, don't ask, I'm done with it at this point. 
 if [[ "$PKG_MGR" == "apt-get" ]]; then
     log "Applying Debian/Ubuntu specific fix: Restarting Master and Minion to apply config..."
-    systemctl restart salt-master salt-minion
+    systemctl restart salt-master
+    systemctl restart salt-minion
+    systemctl restart salt-minion
 fi
 
 
