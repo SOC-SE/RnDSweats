@@ -1,11 +1,7 @@
 #!/bin/bash
-
-# ==============================================================================
-# Automated Salt-GUI Deployment Script (Direct Repo Config Edition)
-# ==============================================================================
 #
 # Installs the Salt Deployment server. This includes the Salt Master, API, a local Minion,
-# and the SaltGUI. Designed to run on RHEL-like and Debian-like systems. Tested on OL9.
+# and the SaltGUI. Designed to run on RHEL-like and Debian-like systems. Tested on OL9 and Ubuntu.
 #
 # Samuel Brucker 2025-2026
 #
@@ -134,6 +130,15 @@ EOF
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
     $PKG_MGR install -y nodejs build-essential salt-master salt-minion salt-api salt-ssh
     $PKG_MGR install -y python3-cherrypy3 || pip3 install cherrypy
+
+    log "Creating PAM configuration for Salt (required on Ubuntu/Debian)..."
+    cat <<EOF > /etc/pam.d/salt
+auth    include common-auth
+account include common-account
+password include common-password
+session include common-session
+EOF
+
 else
     error "No supported package manager found."
     exit 1
@@ -170,6 +175,7 @@ rest_cherrypy:
   port: $API_PORT
   host: 0.0.0.0
   disable_ssl: True
+  cors: True
 
 external_auth:
   pam:
