@@ -59,9 +59,9 @@ fi
 log_step "Step 2: Verification"
 if command -v firejail &> /dev/null; then
     VER=$(firejail --version | head -n 1)
-    log_message "✅ Installed: $VER"
+    log_message "Installed: $VER"
 else
-    log_warning "❌ FireJail installation failed."
+    log_warning "FireJail installation failed."
     exit 1
 fi
 
@@ -292,7 +292,7 @@ seccomp
 shell none
 "
 
-log_message "✅ Tool hardening profiles seeded."
+log_message "Tool hardening profiles seeded."
 
 # --- Step 5: Post-Installation Instructions ---
 echo -e "${BLUE}"
