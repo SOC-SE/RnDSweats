@@ -20,6 +20,9 @@ read add_second
 
 final_dest="$dest_ip"
 
+echo -n "Enter the Source IP address (leave empty for any): "
+read source_ip
+
 if [ "$add_second" = "y" ] || [ "$add_second" = "Y" ]; then
     echo -n "Enter the second Destination IP address: "
     read dest_ip2
@@ -45,7 +48,13 @@ else
     port_rule="--dport $ports"
 fi
 
-iptables_cmd="iptables -A FORWARD -p tcp -d $final_dest $port_rule -j ACCEPT"
+if [ -n "$source_ip" ]; then
+    src_rule="-s $source_ip"
+else
+    src_rule=""
+fi
+
+iptables_cmd="iptables -A FORWARD -p tcp $src_rule -d $final_dest $port_rule -j ACCEPT"
 
 echo ""
 echo "---------------------------------------------------"
