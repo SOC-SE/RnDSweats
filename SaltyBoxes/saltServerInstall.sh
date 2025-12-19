@@ -133,10 +133,10 @@ EOF
 
     log "Creating PAM configuration for Salt (required on Ubuntu/Debian)..."
     cat <<EOF > /etc/pam.d/salt
-auth    include common-auth
-account include common-account
-password include common-password
-session include common-session
+auth        include common-auth
+account     include common-account
+password    include common-password
+session     include common-session
 EOF
 
 else
@@ -259,6 +259,14 @@ systemctl enable --now salt-api
 systemctl enable --now salt-gui
 
 systemctl restart salt-minion
+
+# Don't ask. I don't know why, but this is necessary. Yes, I know the salt minion has already been restarted. Ubuntu likes it being restarted twice.
+# Again, don't ask, I'm done with it at this point. 
+if [[ "$PKG_MGR" == "apt-get" ]]; then
+    log "Applying Debian/Ubuntu specific fix: Restarting Master and Minion to apply config..."
+    systemctl restart salt-master salt-minion
+fi
+
 
 log "Waiting for local minion to contact master..."
 sleep 5
