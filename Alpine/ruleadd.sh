@@ -20,9 +20,6 @@ read add_second
 
 final_dest="$dest_ip"
 
-echo -n "Enter the Source IP address (leave empty for any): "
-read source_ip
-
 if [ "$add_second" = "y" ] || [ "$add_second" = "Y" ]; then
     echo -n "Enter the second Destination IP address: "
     read dest_ip2
@@ -33,6 +30,9 @@ if [ "$add_second" = "y" ] || [ "$add_second" = "Y" ]; then
         exit 1
     fi
 fi
+
+echo -n "Enter the Source IP address (leave empty for any): "
+read source_ip
 
 echo -n "Enter port(s) to accept (comma-separated, e.g., 80,443): "
 read ports
