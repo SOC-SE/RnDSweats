@@ -1,0 +1,200 @@
+#!/bin/sh
+# Interactive Alpine Linux iptables firewall script (no NAT changes)
+
+set -e
+
+RULES_DIR="/etc"
+BEFORE_RULES="$RULES_DIR/rules.bs"
+AFTER_RULES="$RULES_DIR/rules.as"
+
+ask() {
+    while true; do
+        printf "%s [y/n]: " "$1"
+        read ans
+        case "$ans" in
+            y|Y) return 0 ;;
+            n|N) return 1 ;;
+            *) echo "Please answer y or n." ;;
+        esac
+    done
+}
+
+prompt() {
+    printf "%s: " "$1"
+    read value
+    echo "$value"
+}
+
+echo "-> Saving current rules"
+iptables-save > "$BEFORE_RULES"
+
+# -------------------------
+# FLUSH RULES
+# -------------------------
+if ask "Flush current filter rules?"; then
+    echo "-> Flushing filter table rules"
+    iptables -F
+    iptables -X
+fi
+
+# -------------------------
+# ESTABLISHED / RELATED
+# -------------------------
+if ask "Allow established and related connections?"; then
+    iptables -A INPUT  -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    iptables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+    iptables -A FORWARD  -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+	echo "-> Established and related connections allowed"
+fi
+
+# -------------------------
+# INVALID
+# -------------------------
+if ask "Drop Invalid connections?"; then
+	iptables -A INPUT -m conntrack --ctstate INVALID -j DROP
+	iptables -A FORWARD -m conntrack --ctstate INVALID -j DROP
+	echo "-> Droping Invalid connections"
+fi
+
+# -------------------------
+# TRUSTED /24 TCP RULES
+# -------------------------
+if ask "Add TCP allow rules for a trusted /24 network?"; then
+	# Prompt for IP
+	printf "Enter the IP address to target: "
+	read TARGET_IP
+
+	if [ -z "$TARGET_IP" ]; then
+		echo "Error: No IP address entered."
+		exit 1
+	fi
+
+	# Prompt for TCP ports (comma-separated, max 15 for multiport)
+	printf "Enter multiple TCP port numbers (comma-separated, e.g., 22,80,443): "
+	read PORTS
+
+	if [ -z "$PORTS" ]; then
+		echo "Error: No port numbers entered."
+		exit 1
+	fi
+
+	# Count the number of ports
+	PORT_COUNT=$(echo "$PORTS" | awk -F',' '{print NF}')
+	if [ "$PORT_COUNT" -gt 15 ]; then
+		echo "Error: Multiport supports up to 15 ports per rule. Please reduce the number of ports."
+		exit 1
+	fi
+
+	# Add iptables rules using multiport
+	echo "Adding multiport rules for IP $TARGET_IP on TCP ports: $PORTS"
+
+	iptables -A INPUT -p tcp -s "$TARGET_IP" -m multiport --dports "$PORTS" -j ACCEPT
+	iptables -A FORWARD -p tcp -s "$TARGET_IP" -m multiport --dports "$PORTS" -j ACCEPT
+
+	echo "-> rule added successfully!"
+
+fi
+
+# -------------------------
+# TRUSTED /24 UDP RULES
+# -------------------------
+if ask "Add UDP allow rules for a trusted /24 network?"; then
+# Prompt for IP
+	printf "Enter the IP address to target: "
+	read TARGET_IP
+
+	if [ -z "$TARGET_IP" ]; then
+		echo "Error: No IP address entered."
+		exit 1
+	fi
+
+	# Prompt for UDP ports (comma-separated, max 15 for multiport)
+	printf "Enter multiple UDP port numbers (comma-separated, e.g., 53,123,137): "
+	read PORTS
+
+	if [ -z "$PORTS" ]; then
+		echo "Error: No port numbers entered."
+		exit 1
+	fi
+
+	# Count the number of ports
+	PORT_COUNT=$(echo "$PORTS" | awk -F',' '{print NF}')
+	if [ "$PORT_COUNT" -gt 15 ]; then
+		echo "Error: Multiport supports up to 15 ports per rule. Please reduce the number of ports."
+		exit 1
+	fi
+
+	# Add iptables rules using multiport
+	echo "Adding multiport rules for IP $TARGET_IP on UDP ports: $PORTS"
+
+	iptables -A INPUT -p udp -s "$TARGET_IP" -m multiport --dports "$PORTS" -j ACCEPT
+	iptables -A FORWARD -p udp -s "$TARGET_IP" -m multiport --dports "$PORTS" -j ACCEPT
+
+	echo "-> rule added successfully!"
+fi
+
+# -------------------------
+# DEFAULT POLICIES
+# -------------------------
+if ask "Block all traffic by default?"; then
+	iptables -P INPUT DROP
+	iptables -P OUTPUT DROP
+	iptables -P FORWARD DROP
+	echo "-> Setting default policies to DROP"
+fi
+
+# -------------------------
+# LOOPBACK
+# -------------------------
+if ask "Allow loopback (lo) traffic?"; then
+    iptables -A INPUT -i lo -j ACCEPT
+    iptables -A OUTPUT -o lo -j ACCEPT
+    iptables -A FORWARD -i lo -j ACCEPT
+	echo "-> Loopback allowed"
+fi
+
+# -------------------------
+# ICMP (PING)
+# -------------------------
+if ask "Allow ICMP (ping)?"; then
+    iptables -A INPUT  -p icmp -j ACCEPT
+    iptables -A OUTPUT -p icmp -j ACCEPT
+    iptables -A FORWARD -p icmp -j ACCEPT
+	echo "-> ICMP allowed"
+fi
+
+# -------------------------
+# SSH AND RDP BRUTE FORCE PROTECTION AND ALLOW
+# -------------------------
+if ask "Enable SSH AND RDP brute-force protection (rate limiting)?"; then
+    iptables -A INPUT -p tcp --dport 22 -m conntrack --ctstate NEW \
+    -m limit --limit 1/min --limit-burst 5 -j ACCEPT
+    iptables -A FORWARD -p tcp --dport 22 -m conntrack --ctstate NEW \
+    -m limit --limit 1/min --limit-burst 5 -j ACCEPT
+	iptables -A INPUT -p tcp --dport 3389 -m conntrack --ctstate NEW \
+    -m limit --limit 1/min --limit-burst 5 -j ACCEPT
+    iptables -A FORWARD -p tcp --dport 3389 -m conntrack --ctstate NEW \
+    -m limit --limit 1/min --limit-burst 5 -j ACCEPT
+	echo "-> SSH AND RDP brute-force protection enabled"
+fi
+
+# -------------------------
+# REMOTE ACCESS
+# -------------------------
+if ask "Allow remote access (SSH 22 / RDP 3389)?"; then
+    iptables -A INPUT -p tcp -m multiport --dports 22,3389 -j ACCEPT
+    iptables -A INPUT -p udp -m multiport --dports 22,3389 -j ACCEPT
+    iptables -A FORWARD -p tcp -m multiport --dports 22,3389 -j ACCEPT
+    iptables -A FORWARD -p udp -m multiport --dports 22,3389 -j ACCEPT
+	echo "-> Remote access allowed"
+fi
+
+# -------------------------
+# SAVE RULES
+# -------------------------
+echo "-> Saving final rules"
+iptables-save > "$AFTER_RULES"
+echo "-> Firewall configuration complete"
+echo "-> Backup before: /etc/rule.bs"
+echo "-> Active rules: /etc/rule.as"
+echo "-> Check rules with (iptables -nvL)"
