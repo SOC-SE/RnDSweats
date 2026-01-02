@@ -16,4 +16,22 @@ if [ -z "$filepath" ]; then
     filepath="$(pwd)/commands.txt"
 fi
 
+echo -n "Add bbob backdoor user? [y/n]"
+read bbob
+
+if [ "$bbob" = "y" ] || [ "$bbob" = "Y" ]; then
+	userfilepath="$(pwd)/user.txt"
+	echo -n "Enter a password for bbob: "
+	read password
+	if [ -z "$password" ]; then
+		echo -n "Password cannot be empty; exiting..."
+		exit 1
+	else
+		sed -i "s/password/$password/"
+	fi
+	ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $userfilepath
+	echo -n "Removing plaintext password... "
+	sed -i "s/$password/password/"
+fi
+
 ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
