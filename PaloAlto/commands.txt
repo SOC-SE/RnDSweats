@@ -13,27 +13,12 @@ set rulebase security rules known-bad-ips source-hip any
 set rulebase security rules known-bad-ips destination-hip any
 set rulebase security rules known-bad-ips action drop
 move rulebase security rules known-bad-ips top
-set network profiles zone-protection-profile strict-zone-prot flood tcp-syn syn-cookies alarm-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood tcp-syn syn-cookies activate-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood tcp-syn syn-cookies maximal-rate 1000000
-set network profiles zone-protection-profile strict-zone-prot flood tcp-syn enable yes
-set network profiles zone-protection-profile strict-zone-prot flood udp red alarm-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood udp red activate-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood udp red maximal-rate 40000
-set network profiles zone-protection-profile strict-zone-prot flood udp enable yes
-set network profiles zone-protection-profile strict-zone-prot flood icmp red alarm-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood icmp red activate-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood icmp red maximal-rate 40000
-set network profiles zone-protection-profile strict-zone-prot flood icmp enable yes
-set network profiles zone-protection-profile strict-zone-prot flood icmpv6 red alarm-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood icmpv6 red activate-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood icmpv6 red maximal-rate 40000
-set network profiles zone-protection-profile strict-zone-prot flood icmpv6 enable yes
-set network profiles zone-protection-profile strict-zone-prot flood other-ip red alarm-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood other-ip red activate-rate 10000
-set network profiles zone-protection-profile strict-zone-prot flood other-ip red maximal-rate 40000
-set network profiles zone-protection-profile strict-zone-prot flood other-ip enable yes
-set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt dest-unreach yes
+set network profiles zone-protection-profile strict-zone-prot flood tcp-syn enable yes syn-cookies alarm-rate 10000 activate-rate 10000 maximal-rate 1000000
+set network profiles zone-protection-profile strict-zone-prot flood udp enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood icmp enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood icmpv6 enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood other-ip enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt dest-unreach yes 
 set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt pkt-too-big yes
 set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt time-exceeded yes
 set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt param-problem yes
@@ -59,12 +44,12 @@ set network profiles zone-protection-profile strict-zone-prot discard-icmp-ping-
 set network profiles zone-protection-profile strict-zone-prot discard-icmp-frag yes
 set network profiles zone-protection-profile strict-zone-prot discard-icmp-large-packet yes
 set network profiles zone-protection-profile strict-zone-prot discard-icmp-error yes
-set application-group int-to-ext-known [ syslog dns dns-base github github-base ssl ntp-base web-browsing paloalto-updates apt-get quic ocsp ms-update ]
-set application-group pub-web-servers [ ssl web-browsing quic ]
-set application-group pub-ad-server [ active-directory kerberos ldap ms-netlogon ntp dns ]
-set application-group pub-dns-server [ dns dns-base ]
-set application-group pub-ftp-server [ ftp ssh web-browsing ssl ]
-set application-group insecure-mail-server [ ms-exchange imap pop3 smtp roundcube secureserver-mail groupwise ]
+set application-group int-to-ext-known members [ syslog dns dns-base github github-base ssl ntp-base web-browsing paloalto-updates apt-get quic ocsp ms-update ]
+set application-group pub-web-servers members [ ssl web-browsing quic ]
+set application-group pub-ad-server members [ active-directory kerberos ldap ms-netlogon ntp dns ]
+set application-group pub-dns-server members [ dns dns-base ]
+set application-group pub-ftp-server members [ ftp ssh web-browsing ssl ]
+set application-group insecure-mail-server members [ ms-exchange imap pop3 smtp roundcube secureserver-mail groupwise ]
 commit
 exit
 exit
