@@ -126,10 +126,6 @@ sed -i "s/^port=.*/port=$RDP_PORT/" /etc/xrdp/xrdp.ini
 
 # Configure xrdp for better performance with Guacamole
 log "Optimizing xrdp settings..."
-cat > /etc/xrdp/xrdp.ini.d/guacamole.ini << 'EOF'
-; Guacamole optimization settings
-; These are applied via the main xrdp.ini
-EOF
 
 # Update main xrdp.ini for performance
 sed -i 's/^max_bpp=.*/max_bpp=24/' /etc/xrdp/xrdp.ini
