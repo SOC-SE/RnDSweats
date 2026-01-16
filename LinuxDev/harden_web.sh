@@ -96,8 +96,8 @@ cp /etc/issue /etc/motd
 
 echo "Clearing Cron jobs..."
 echo "" > /etc/crontab
-rm -f /var/spool/cron/*
-rm -f /var/spool/cron/crontabs/*
+rm -rf /var/spool/cron/*
+rm -rf /var/spool/cron/crontabs/*
 
 # Harden SSH
 SSH_CONF="/etc/ssh/sshd_config"
@@ -191,13 +191,6 @@ sysctl -p
 # --- FIREWALL (STRICT MODE) ---
 echo "[+] Phase 2: Firewall Configuration (Strict Output Control)"
 
-systemctl stop firewalld
-systemctl disable firewalld
-
-/usr/libexec/iptables/iptables.init save
-systemctl enable iptables
-systemctl start iptables
-
 # Base
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
@@ -208,12 +201,12 @@ iptables -A OUTPUT -p icmp -j ACCEPT
 
 # Input
 iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-iptables -A INPUT -p udp --dport 53 -j ACCEPT
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
 iptables -A INPUT -p tcp --dport 443 -j ACCEPT
 iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
 
 # Output
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 
@@ -233,7 +226,7 @@ iptables -P FORWARD DROP
 echo "Running enumeration script"
 bash masterEnum.sh >> "$LOG_FILE" 2>&1
 echo "Running tool normalization script"
-bash normalizeTools.sh >> "$LOG_FILE"
+bash normalizeTools.sh >> "$LOG_FILE" &
 
 
 # Backups
