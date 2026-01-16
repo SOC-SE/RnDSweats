@@ -249,8 +249,8 @@ cp -r /etc/ssh "$BACKUP_DIR/ssh_config_$TIMESTAMP"
 # Backup apache configs
 cp -r /etc/apache2 "$BACKUP_DIR/apache2_config_$TIMESTAMP" 2>/dev/null
 
-# Backup network configs
-cp -r /etc/sysconfig/network-scripts "$BACKUP_DIR/network_scripts_$TIMESTAMP"
+# Backup mysql configs
+cp -r /etc/mysql "$BACKUP_DIR/mysql_$TIMESTAMP"
 
 echo "==================================================="
 echo "        SYSTEM HARDENING COMPLETE"
