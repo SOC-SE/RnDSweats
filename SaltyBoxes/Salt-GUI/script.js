@@ -233,10 +233,43 @@ document.addEventListener('DOMContentLoaded', () => {
             const devices = data.return ? data.return[0] : {};
             
             deviceCache = devices;
-            renderDeviceList(devices);
-            updateDeviceSelects(Object.keys(devices));
             elements.minionCounter.textContent = `Devices: ${Object.keys(devices).length}`;
             logToConsole(`Found ${Object.keys(devices).length} device(s).`, 'success');
+            
+            // Fetch grains for OS info
+            try {
+                const grainsResponse = await fetchWithTimeout(`${proxyUrl}/proxy`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client: 'local', tgt: '*', fun: 'grains.item', arg: ['os', 'osrelease', 'kernel'] })
+                }, 15000);
+                
+                const grainsData = await grainsResponse.json();
+                const grains = grainsData.return ? grainsData.return[0] : {};
+                
+                // Merge grains into device cache
+                Object.keys(grains).forEach(device => {
+                    if (deviceCache[device] !== undefined) {
+                        deviceCache[device] = {
+                            online: deviceCache[device],
+                            os: grains[device]?.os || 'Unknown',
+                            osrelease: grains[device]?.osrelease || '',
+                            kernel: grains[device]?.kernel || ''
+                        };
+                    }
+                });
+            } catch (grainError) {
+                logToConsole('Could not fetch OS info: ' + grainError.message, 'warn');
+                // Convert simple cache to object format
+                Object.keys(deviceCache).forEach(device => {
+                    if (typeof deviceCache[device] !== 'object') {
+                        deviceCache[device] = { online: deviceCache[device], os: 'Unknown' };
+                    }
+                });
+            }
+            
+            renderDeviceList(deviceCache);
+            updateDeviceSelects(Object.keys(devices));
         } catch (error) {
             logToConsole('Error fetching devices: ' + error.message, 'error');
             elements.deviceList.innerHTML = '<li class="disabled">Error loading devices</li>';
@@ -256,7 +289,31 @@ document.addEventListener('DOMContentLoaded', () => {
         
         deviceNames.forEach(name => {
             const li = document.createElement('li');
-            li.textContent = name;
+            const deviceInfo = devices[name];
+            const isOnline = typeof deviceInfo === 'object' ? deviceInfo.online : deviceInfo;
+            const os = typeof deviceInfo === 'object' ? deviceInfo.os : 'Unknown';
+            const kernel = typeof deviceInfo === 'object' ? deviceInfo.kernel : '';
+            
+            // OS indicator
+            let osIndicator = '[?]';
+            const osLower = os.toLowerCase();
+            if (osLower.includes('windows')) {
+                osIndicator = '[Win]';
+            } else if (osLower.includes('ubuntu') || osLower.includes('debian')) {
+                osIndicator = '[Deb]';
+            } else if (osLower.includes('centos') || osLower.includes('rhel') || osLower.includes('red hat') || osLower.includes('oracle') || osLower.includes('fedora') || osLower.includes('rocky') || osLower.includes('alma')) {
+                osIndicator = '[RHEL]';
+            } else if (kernel === 'Linux') {
+                osIndicator = '[Lin]';
+            } else if (kernel === 'Darwin') {
+                osIndicator = '[Mac]';
+            }
+            
+            // Status indicator
+            const statusClass = isOnline ? 'device-online' : 'device-offline';
+            const statusDot = isOnline ? '●' : '○';
+            
+            li.innerHTML = `<span class="device-status ${statusClass}">${statusDot}</span> <span class="device-os">${osIndicator}</span> ${escapeHtml(name)}`;
             li.dataset.device = name;
             li.addEventListener('click', (e) => {
                 if (e.ctrlKey || e.metaKey) {
@@ -890,12 +947,15 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.auditLogBody.innerHTML = '';
             entries.forEach(entry => {
                 const tr = document.createElement('tr');
+                // Map server format (timestamp, ip, method, path, body) to display
+                const action = entry.method ? `${entry.method} ${entry.path || ''}` : (entry.action || '');
+                const details = entry.body || entry.details || {};
                 tr.innerHTML = `
                     <td>${escapeHtml(entry.timestamp || '')}</td>
-                    <td>${escapeHtml(entry.user || '')}</td>
+                    <td>${escapeHtml(entry.user || '-')}</td>
                     <td>${escapeHtml(entry.ip || '')}</td>
-                    <td>${escapeHtml(entry.action || '')}</td>
-                    <td><code>${escapeHtml(JSON.stringify(entry.details || {}))}</code></td>
+                    <td>${escapeHtml(action)}</td>
+                    <td><code>${escapeHtml(JSON.stringify(details))}</code></td>
                 `;
                 elements.auditLogBody.appendChild(tr);
             });
@@ -1052,6 +1112,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.btn-connect')?.addEventListener('click', () => {
         elements.connectDeviceModal.style.display = 'block';
         loadKeyLists();
+    });
+    
+    // Global refresh button
+    document.getElementById('refresh-all')?.addEventListener('click', async () => {
+        logToConsole('Refreshing all connections...');
+        await fetchAvailableDevices();
+        await checkHealth();
+        await checkUnacceptedKeys();
+        logToConsole('Refresh complete.', 'success');
     });
     
     elements.selectAllDevices?.addEventListener('click', () => {

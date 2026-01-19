@@ -251,6 +251,11 @@ header {
 .item-list li.disabled { color: var(--text-muted); cursor: default; font-style: italic; }
 .item-list li.disabled:hover { background: transparent; }
 
+.device-status { margin-right: 4px; }
+.device-online { color: var(--success-color); }
+.device-offline { color: var(--danger-color); }
+.device-os { color: var(--text-muted); font-size: 0.75rem; margin-right: 4px; }
+
 .device-actions { display: flex; gap: 8px; }
 
 #script-type-selector {
