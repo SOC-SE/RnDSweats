@@ -61,7 +61,7 @@ echo "==================================================="
 
 #Enumeration
 echo "Performing first enumeration cycle"
-
+bash ../../LinuxDev/masterEnum.sh
 
 
 # --- PASSWORD PROMPTS (Gather all creds first) ---
