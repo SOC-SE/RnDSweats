@@ -1,14 +1,23 @@
 {
-  "name": "salt-gui-development",
-  "version": "1.0.0",
-  "main": "script.js",
+  "name": "salt-gui-competition",
+  "version": "2.0.0",
+  "description": "Enhanced Salt GUI for CCDC-style cyber defense competitions with security hardening, emergency controls, and cross-browser support",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "saltstack",
+    "salt",
+    "gui",
+    "ccdc",
+    "cybersecurity",
+    "competition",
+    "remote-administration"
+  ],
+  "author": "Samuel Brucker",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "axios": "^1.12.2",
     "cors": "^2.8.5",

@@ -1,0 +1,78 @@
+{
+  "name": "Threat Hunt - Persistence",
+  "description": "Search for common persistence mechanisms that attackers may have installed",
+  "category": "incident-response",
+  "severity": "high",
+  "steps": [
+    {
+      "name": "Check crontabs for all users",
+      "function": "cmd.run",
+      "command": "for user in $(cut -f1 -d: /etc/passwd); do echo \"=== $user ===\"; crontab -u $user -l 2>/dev/null || echo 'No crontab'; done",
+      "timeout": 30000,
+      "required": false
+    },
+    {
+      "name": "Check /etc/cron.d and cron directories",
+      "function": "cmd.run",
+      "command": "ls -la /etc/cron.* 2>/dev/null; cat /etc/cron.d/* 2>/dev/null",
+      "timeout": 30000,
+      "required": false
+    },
+    {
+      "name": "List systemd services (enabled)",
+      "function": "cmd.run",
+      "command": "systemctl list-unit-files --type=service --state=enabled 2>/dev/null || chkconfig --list 2>/dev/null",
+      "timeout": 30000,
+      "required": false
+    },
+    {
+      "name": "Check for suspicious SUID binaries",
+      "function": "cmd.run",
+      "command": "find / -perm -4000 -type f 2>/dev/null | head -50",
+      "timeout": 60000,
+      "required": false
+    },
+    {
+      "name": "Check /etc/passwd for unusual shells",
+      "function": "cmd.run",
+      "command": "cat /etc/passwd | grep -v 'nologin\\|false\\|sync' | grep -E ':[0-9]+:[0-9]+:'",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Check /etc/shadow for accounts with passwords",
+      "function": "cmd.run",
+      "command": "cat /etc/shadow | awk -F: '$2 !~ /^[!*]/ {print $1}'",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Check authorized_keys files",
+      "function": "cmd.run",
+      "command": "find /home /root -name 'authorized_keys' -exec echo '=== {} ===' \\; -exec cat {} \\; 2>/dev/null",
+      "timeout": 30000,
+      "required": false
+    },
+    {
+      "name": "Check for hidden files in /tmp and /var/tmp",
+      "function": "cmd.run",
+      "command": "ls -la /tmp/.[!.]* /var/tmp/.[!.]* 2>/dev/null || echo 'No hidden files found'",
+      "timeout": 30000,
+      "required": false
+    },
+    {
+      "name": "Check loaded kernel modules",
+      "function": "cmd.run",
+      "command": "lsmod | head -30",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Check active network connections",
+      "function": "cmd.run",
+      "command": "netstat -tulpn 2>/dev/null || ss -tulpn",
+      "timeout": 30000,
+      "required": false
+    }
+  ]
+}

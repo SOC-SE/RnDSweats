@@ -1,206 +1,296 @@
+/**
+ * Salt GUI Frontend - Enhanced Competition Edition
+ * 
+ * Cross-browser compatible (Chrome, Firefox, Safari, Edge)
+ * Enhanced features for competition use
+ * 
+ * Samuel Brucker 2025-2026
+ * Enhanced by Claude
+ */
+
 document.addEventListener('DOMContentLoaded', () => {
-    const deviceList = document.getElementById('device-list');
-    const scriptList = document.getElementById('script-list');
-    const outputConsole = document.getElementById('output-console');
-    const scriptArgsContainer = document.getElementById('script-args-container');
-    const scriptTypeSelector = document.getElementById('script-type-selector');
-    const notificationBadge = document.querySelector('.notification-badge');
-    const settingsIcon = document.getElementById('settings-icon');
-    const settingsModal = document.getElementById('settings-modal');
-    const monitoringDeviceSelect = document.getElementById('monitoring-device-select');
-    const monitoringViewSelect = document.getElementById('monitoring-view-select');
-    const monitoringOutputContent = document.querySelector('.system-monitoring-output-content');
-    const settingsCloseButton = document.getElementById('settings-close-button');
-    const settingsForm = document.getElementById('settings-form');
-    const scriptViewerModal = document.getElementById('script-viewer-modal');
-    const scriptViewerCloseButton = document.getElementById('script-viewer-close-button');
-    const scriptViewerTitle = document.getElementById('script-viewer-title');
-    const scriptViewerContent = document.getElementById('script-viewer-content');
-    const contextMenu = document.getElementById('custom-script-context-menu');
-    // --- Terminal Modal Elements ---
-    const openTerminalBtn = document.getElementById('open-terminal-btn'); // This ID is now in the HTML
-    const terminalModal = document.getElementById('terminal-modal');
-    const terminalCloseButton = document.getElementById('terminal-close-button');
-    const terminalTitle = document.getElementById('terminal-title');
-    const terminalOutput = document.getElementById('terminal-output');
-    const terminalCommandInput = document.getElementById('terminal-command-input');
+    // --- Element References ---
+    const elements = {
+        // Device list
+        deviceList: document.getElementById('device-list'),
+        deviceSearch: document.getElementById('device-search'),
+        selectAllDevices: document.getElementById('select-all-devices'),
+        deselectAllDevices: document.getElementById('deselect-all-devices'),
+        
+        // Script list
+        scriptList: document.getElementById('script-list'),
+        scriptSearch: document.getElementById('script-search'),
+        scriptArgsContainer: document.getElementById('script-args-container'),
+        scriptTypeSelector: document.getElementById('script-type-selector'),
+        
+        // Console
+        outputConsole: document.getElementById('output-console'),
+        clearConsole: document.getElementById('clear-console'),
+        toggleConsole: document.getElementById('toggle-console'),
+        
+        // Status
+        notificationBadge: document.querySelector('.notification-badge'),
+        minionCounter: document.querySelector('.minion-counter'),
+        runningJobsCounter: document.querySelector('.running-scripts-counter'),
+        saltStatus: document.getElementById('salt-status'),
+        
+        // Modals
+        settingsModal: document.getElementById('settings-modal'),
+        settingsIcon: document.getElementById('settings-icon'),
+        settingsForm: document.getElementById('settings-form'),
+        connectDeviceModal: document.getElementById('connect-device-modal'),
+        terminalModal: document.getElementById('terminal-modal'),
+        terminalOutput: document.getElementById('terminal-output'),
+        terminalCommandInput: document.getElementById('terminal-command-input'),
+        terminalTitle: document.getElementById('terminal-title'),
+        scriptViewerModal: document.getElementById('script-viewer-modal'),
+        emergencyModal: document.getElementById('emergency-modal'),
+        
+        // Monitoring
+        monitoringDeviceSelect: document.getElementById('monitoring-device-select'),
+        monitoringViewSelect: document.getElementById('monitoring-view-select'),
+        monitoringContent: document.getElementById('monitoring-content'),
+        
+        // Services
+        serviceDeviceSelect: document.getElementById('service-device-select'),
+        serviceName: document.getElementById('service-name'),
+        serviceOutput: document.getElementById('service-output'),
+        
+        // Playbooks
+        playbooksList: document.getElementById('playbooks-list'),
+        playbookTitle: document.getElementById('playbook-title'),
+        playbookDescription: document.getElementById('playbook-description'),
+        playbookSteps: document.getElementById('playbook-steps'),
+        playbookTargets: document.getElementById('playbook-targets'),
+        playbookResults: document.getElementById('playbook-results'),
+        
+        // Audit
+        auditLogBody: document.getElementById('audit-log-body'),
+        
+        // Quick terminal
+        quickTerminalDevice: document.getElementById('quick-terminal-device'),
+        quickCommand: document.getElementById('quick-command'),
+        quickOutput: document.getElementById('quick-output'),
+        
+        // Context menu
+        contextMenu: document.getElementById('custom-script-context-menu')
+    };
 
-    let proxyUrl = 'http://localhost:3000'; // Default value, will be updated from settings
-    let currentArgSpec = null; // Variable to cache the argspec
+    // --- State ---
+    let proxyUrl = 'http://localhost:3000';
+    let currentArgSpec = null;
+    let selectedPlaybook = null;
+    let commandHistory = [];
+    let historyIndex = -1;
+    let deviceCache = {};
+    let consoleCollapsed = false;
 
-    // --- Settings Management ---
+    // --- Utility Functions ---
+
+    function logToConsole(message, type = 'info') {
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry = document.createElement('div');
+        logEntry.classList.add('log-entry', `log-${type}`);
+        
+        // Sanitize HTML in message except for <pre> tags
+        const sanitizedMessage = message.replace(/<(?!pre|\/pre)[^>]*>/g, '');
+        logEntry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${sanitizedMessage}`;
+        
+        elements.outputConsole.appendChild(logEntry);
+        elements.outputConsole.scrollTop = elements.outputConsole.scrollHeight;
+    }
+
+    function showNotification(message, type = 'info') {
+        // Create a toast notification for important messages
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        
+        // Trigger animation
+        requestAnimationFrame(() => {
+            toast.classList.add('show');
+        });
+        
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    function updateNotificationBadge(count) {
+        if (count > 0) {
+            elements.notificationBadge.textContent = count;
+            elements.notificationBadge.style.display = 'block';
+        } else {
+            elements.notificationBadge.style.display = 'none';
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    // --- API Functions ---
+
+    async function fetchWithTimeout(url, options = {}, timeout = 30000) {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+        
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            return response;
+        } catch (error) {
+            clearTimeout(id);
+            throw error;
+        }
+    }
+
     async function loadSettings() {
         try {
-            const response = await fetch('/api/settings');
+            const response = await fetchWithTimeout(`${proxyUrl}/api/settings`);
             const settings = await response.json();
-            document.getElementById('proxyURL').value = settings.proxyURL;
-            document.getElementById('saltAPIUrl').value = settings.saltAPIUrl;
-            document.getElementById('username').value = settings.username;
-            document.getElementById('password').value = settings.password;
-            document.getElementById('eauth').value = settings.eauth;
-            proxyUrl = settings.proxyURL;
+            
+            document.getElementById('proxyURL').value = settings.proxyURL || '';
+            document.getElementById('saltAPIUrl').value = settings.saltAPIUrl || '';
+            document.getElementById('username').value = settings.username || '';
+            document.getElementById('password').value = settings.password || '';
+            document.getElementById('eauth').value = settings.eauth || 'pam';
+            document.getElementById('enableAuth').checked = settings.enableAuth || false;
+            document.getElementById('authPassword').value = settings.authPassword || '';
+            document.getElementById('alertWebhook').value = settings.alertWebhook || '';
+            
+            proxyUrl = settings.proxyURL || proxyUrl;
         } catch (error) {
             console.error('Error loading settings:', error);
-            logToConsole('Error loading settings. Using default values.', 'error');
+            logToConsole('Error loading settings. Using defaults.', 'error');
         }
     }
 
     async function saveSettings(event) {
         event.preventDefault();
-        const formData = new FormData(settingsForm);
+        const formData = new FormData(elements.settingsForm);
         const settings = Object.fromEntries(formData.entries());
+        settings.enableAuth = document.getElementById('enableAuth').checked;
 
         try {
-            const response = await fetch('/api/settings', {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/settings`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings),
             });
+            
             if (response.ok) {
                 logToConsole('Settings saved successfully.', 'success');
-                settingsModal.style.display = 'none';
-                proxyUrl = settings.proxyURL; // Update proxyUrl after saving
+                showNotification('Settings saved!', 'success');
+                elements.settingsModal.style.display = 'none';
+                proxyUrl = settings.proxyURL || proxyUrl;
             } else {
-                logToConsole('Failed to save settings.', 'error');
+                const error = await response.json();
+                throw new Error(error.message);
             }
         } catch (error) {
             console.error('Error saving settings:', error);
-            logToConsole('Error saving settings.', 'error');
+            logToConsole(`Error saving settings: ${error.message}`, 'error');
         }
     }
 
-    settingsIcon.addEventListener('click', () => {
-        settingsModal.style.display = 'block';
-    });
-
-    settingsCloseButton.addEventListener('click', () => {
-        settingsModal.style.display = 'none';
-    });
-
-    settingsForm.addEventListener('submit', saveSettings);
-
-    // --- Helper Functions ---
-    function logToConsole(message, type = 'info') {
-        const timestamp = new Date().toLocaleTimeString();
-        const logEntry = document.createElement('div');
-        logEntry.classList.add('log-entry', `log-${type}`);
-        logEntry.innerHTML = `<span class="timestamp">${timestamp}</span>${message}`;
-        outputConsole.appendChild(logEntry);
-        outputConsole.scrollTop = outputConsole.scrollHeight; // Auto-scroll
-    }
-
-    function updateNotificationBadge(count) {
-        if (count > 0) {
-            notificationBadge.textContent = count;
-            notificationBadge.style.display = 'block';
-        } else {
-            notificationBadge.style.display = 'none';
+    async function checkHealth() {
+        const statusDot = elements.saltStatus.querySelector('.status-dot');
+        const statusText = elements.saltStatus.querySelector('.status-text');
+        
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/health`, {}, 5000);
+            const health = await response.json();
+            
+            if (health.saltApi === 'ok') {
+                statusDot.className = 'status-dot status-ok';
+                statusText.textContent = 'Connected';
+                
+                // Update minion counts
+                const up = health.minionStatus?.up?.length || 0;
+                const down = health.minionStatus?.down?.length || 0;
+                elements.minionCounter.textContent = `Devices: ${up}/${up + down}`;
+            } else {
+                statusDot.className = 'status-dot status-error';
+                statusText.textContent = 'Salt API Error';
+            }
+            
+            // Update job count
+            elements.runningJobsCounter.textContent = `Jobs: ${health.activeJobs || 0}`;
+        } catch (error) {
+            statusDot.className = 'status-dot status-error';
+            statusText.textContent = 'Disconnected';
         }
     }
 
     async function checkUnacceptedKeys() {
         try {
-            const response = await fetch(`${proxyUrl}/keys`);
-            if (!response.ok) {
-                return; // Silently fail, maybe log to console instead of UI
-            }
+            const response = await fetchWithTimeout(`${proxyUrl}/keys`);
+            if (!response.ok) return;
+            
             const data = await response.json();
-            const keys = data.return[0].data.return;
-            const unacceptedKeys = keys.minions_pre;
+            const keys = data.return[0]?.data?.return || {};
+            const unacceptedKeys = keys.minions_pre || [];
             updateNotificationBadge(unacceptedKeys.length);
         } catch (error) {
-            console.error('Error checking unaccepted keys:', error);
+            console.error('Error checking keys:', error);
         }
     }
 
-    const handleSelection = (list, event) => {
-        const item = event.target;
-        if (item.tagName !== 'LI') return;
-
-        if (list.id === 'device-list') {
-            // Device list multi-select with Ctrl key
-            if (!event.ctrlKey) {
-                const selectedItems = list.querySelectorAll('.selected');
-                selectedItems.forEach(selected => selected.classList.remove('selected'));
-            }
-            item.classList.toggle('selected');
-        } else if (list.id === 'script-list') {
-            // Script list multi-select with Ctrl key
-            if (!event.ctrlKey) {
-                const selectedItems = list.querySelectorAll('.selected');
-                selectedItems.forEach(selected => selected.classList.remove('selected'));
-            }
-            item.classList.toggle('selected');
-
-            const selectedScripts = list.querySelectorAll('.selected');
-            const scriptType = document.querySelector('input[name="script-type"]:checked').value;
-            
-            // Clear manual inputs when selection changes
-            document.getElementById('manual-args').value = '';
-            document.getElementById('append-command').value = '';
-
-            if (selectedScripts.length > 1) {
-                // Multiple scripts selected, clear and hide args
-                scriptArgsContainer.innerHTML = '';
-                scriptArgsContainer.style.display = 'none';
-                currentArgSpec = null;
-            } else if (selectedScripts.length === 1) {
-                // Single script selected
-                scriptArgsContainer.style.display = 'block';
-                if (scriptType === 'salt') {
-                    displayScriptArguments(selectedScripts[0].textContent);
-                } else {
-                    // For custom scripts, clear the arguments section
-                    scriptArgsContainer.innerHTML = '';
-                    currentArgSpec = null;
-                }
-            } else {
-                // No scripts selected
-                scriptArgsContainer.innerHTML = '';
-                scriptArgsContainer.style.display = 'block';
-                currentArgSpec = null;
-            }
-        }
-    };
-
-    // --- Salt API Functions ---
+    // --- Device Management ---
 
     async function fetchAvailableDevices() {
         logToConsole('Fetching available devices...');
+        
         try {
-            const response = await fetch(`${proxyUrl}/proxy`, {
+            const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     client: 'local',
                     tgt: '*',
                     fun: 'grains.item',
-                    arg: ['os']
+                    arg: ['os', 'kernel', 'ip4_interfaces']
                 })
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(`API request failed: ${errorData.message || response.statusText}`);
+                throw new Error(errorData.message || response.statusText);
             }
 
             const data = await response.json();
-            const minions = (data.return && typeof data.return[0] === 'object' && data.return[0] !== null) ? data.return[0] : {};
+            const minions = (data.return && typeof data.return[0] === 'object') ? data.return[0] : {};
+            
+            deviceCache = minions;
             const activeMinions = Object.keys(minions);
-            const minionCounter = document.querySelector('.minion-counter');
-            minionCounter.textContent = `Devices Connected: ${activeMinions.length}`;
-
-            logToConsole(`Found ${activeMinions.length} active minions.`, 'info');
+            
+            logToConsole(`Found ${activeMinions.length} active devices.`, 'success');
             updateDeviceList(minions);
-            logToConsole('Successfully fetched and updated device list.', 'success');
-
+            populateDeviceSelects(minions);
+            
+            // Fetch scripts
+            const scriptType = document.querySelector('input[name="script-type"]:checked').value;
             if (activeMinions.length > 0) {
-                // Fetch scripts based on the selected script type
-                const scriptType = document.querySelector('input[name="script-type"]:checked').value;
                 if (scriptType === 'salt') {
                     fetchAvailableScripts(activeMinions[0]);
                 } else {
@@ -213,10 +303,77 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function updateDeviceList(minions) {
+        elements.deviceList.innerHTML = '';
+        const deviceNames = Object.keys(minions);
+
+        if (deviceNames.length === 0) {
+            const li = document.createElement('li');
+            li.textContent = 'No active devices found';
+            li.classList.add('disabled');
+            elements.deviceList.appendChild(li);
+            return;
+        }
+
+        deviceNames.sort().forEach(deviceName => {
+            const info = minions[deviceName] || {};
+            const os = info.os || 'Unknown';
+            const kernel = info.kernel || '';
+            
+            const li = document.createElement('li');
+            li.innerHTML = `
+                <span class="device-name">${escapeHtml(deviceName)}</span>
+                <span class="device-info">${escapeHtml(os)} (${escapeHtml(kernel)})</span>
+            `;
+            li.dataset.deviceName = deviceName;
+            li.dataset.os = os;
+            li.dataset.kernel = kernel;
+            elements.deviceList.appendChild(li);
+        });
+    }
+
+    function populateDeviceSelects(minions) {
+        const deviceNames = Object.keys(minions).sort();
+        const selects = [
+            elements.monitoringDeviceSelect,
+            elements.serviceDeviceSelect,
+            elements.quickTerminalDevice,
+            document.getElementById('playbook-targets'),
+            document.getElementById('emergency-targets')
+        ];
+
+        selects.forEach(select => {
+            if (!select) return;
+            
+            const isMultiple = select.multiple;
+            const currentValue = select.value;
+            
+            // Clear existing options (keep first if it's a placeholder)
+            while (select.options.length > (isMultiple ? 0 : 1)) {
+                select.remove(isMultiple ? 0 : 1);
+            }
+            
+            deviceNames.forEach(deviceName => {
+                const option = document.createElement('option');
+                option.value = deviceName;
+                option.textContent = deviceName;
+                select.appendChild(option);
+            });
+            
+            // Restore selection if possible
+            if (currentValue && !isMultiple) {
+                select.value = currentValue;
+            }
+        });
+    }
+
+    // --- Script Management ---
+
     async function fetchAvailableScripts(minionId) {
-        logToConsole(`Fetching available scripts from ${minionId}...`);
+        logToConsole(`Fetching Salt functions from ${minionId}...`);
+        
         try {
-            const response = await fetch(`${proxyUrl}/proxy`, {
+            const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -226,16 +383,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
             });
 
-            if (!response.ok) throw new Error('API request to fetch scripts failed');
+            if (!response.ok) throw new Error('API request failed');
 
             const data = await response.json();
-            const scripts = data.return && data.return[0] && data.return[0][minionId] ? data.return[0][minionId] : [];
+            const scripts = data.return?.[0]?.[minionId] || [];
 
             if (scripts.length > 0) {
-                logToConsole(`Successfully fetched ${scripts.length} scripts.`, 'success');
+                logToConsole(`Fetched ${scripts.length} Salt functions.`, 'success');
                 updateScriptList(scripts);
             } else {
-                logToConsole('No scripts returned from minion.', 'warn');
+                logToConsole('No Salt functions returned.', 'warn');
                 updateScriptList([]);
             }
         } catch (error) {
@@ -246,14 +403,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function fetchCustomScripts() {
         logToConsole('Fetching custom scripts...');
+        
         try {
-            const response = await fetch(`${proxyUrl}/custom-scripts`);
-            if (!response.ok) {
-                throw new Error('API request to fetch custom scripts failed');
-            }
+            const response = await fetchWithTimeout(`${proxyUrl}/custom-scripts`);
+            if (!response.ok) throw new Error('API request failed');
+            
             const scripts = await response.json();
+            
             if (scripts.length > 0) {
-                logToConsole(`Successfully fetched ${scripts.length} custom scripts.`, 'success');
+                logToConsole(`Fetched ${scripts.length} custom scripts.`, 'success');
                 updateScriptList(scripts);
             } else {
                 logToConsole('No custom scripts found.', 'warn');
@@ -265,19 +423,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function displayScriptArguments(scriptName) {
-        scriptArgsContainer.innerHTML = ''; // Clear previous arguments
-        currentArgSpec = null; // Reset cached argspec
-        const firstDevice = deviceList.querySelector('li:not(.disabled)');
-        if (!firstDevice) {
-            logToConsole('Please ensure at least one device is available to fetch script documentation.', 'warn');
+    function updateScriptList(scripts) {
+        elements.scriptList.innerHTML = '';
+
+        if (scripts.length === 0) {
+            const li = document.createElement('li');
+            li.textContent = 'No scripts found';
+            li.classList.add('disabled');
+            elements.scriptList.appendChild(li);
             return;
         }
-        const minionId = firstDevice.dataset.deviceName;
 
-        logToConsole(`Fetching arguments for ${scriptName} using sys.argspec...`);
+        scripts.sort().forEach(scriptName => {
+            const li = document.createElement('li');
+            li.textContent = scriptName;
+            elements.scriptList.appendChild(li);
+        });
+    }
+
+    async function displayScriptArguments(scriptName) {
+        elements.scriptArgsContainer.innerHTML = '';
+        currentArgSpec = null;
+        
+        const firstDevice = elements.deviceList.querySelector('li:not(.disabled)');
+        if (!firstDevice) {
+            logToConsole('No devices available to fetch script documentation.', 'warn');
+            return;
+        }
+        
+        const minionId = firstDevice.dataset.deviceName;
+        logToConsole(`Fetching arguments for ${scriptName}...`);
+        
         try {
-            const response = await fetch(`${proxyUrl}/proxy`, {
+            const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -288,163 +466,102 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
             });
 
-            if (!response.ok) throw new Error('Failed to fetch script argspec.');
+            if (!response.ok) throw new Error('Failed to fetch argspec');
 
             const data = await response.json();
-            const argspec = data.return[0][minionId][scriptName];
-            currentArgSpec = argspec; // Cache the result
+            const argspec = data.return?.[0]?.[minionId]?.[scriptName];
+            currentArgSpec = argspec;
 
-            logToConsole(`Raw argspec for ${scriptName}: <pre>${JSON.stringify(argspec, null, 2)}</pre>`);
-
-            let allArgs = [];
             if (argspec && Object.keys(argspec).length > 0) {
                 const posArgs = argspec.args || [];
                 const keywordArgs = Object.keys(argspec.kwargs || {});
-                allArgs = [...posArgs, ...keywordArgs];
-                logToConsole(`Successfully parsed arguments from sys.argspec.`, 'success');
-            } else {
-                logToConsole('sys.argspec returned no data. Falling back to sys.doc parsing...', 'warn');
-                await parseArgumentsFromDocstring(scriptName, minionId);
-                return;
+                const allArgs = [...posArgs, ...keywordArgs];
+                
+                const ignoredArgs = new Set([
+                    'timeout', 'job_id', 'expr_form', 'tgt_type', 'tgt',
+                    'kwarg', 'fun', 'client', 'arg', 'user', 'password', 'eauth'
+                ]);
+                
+                const filteredArgs = allArgs.filter(arg => 
+                    arg && !ignoredArgs.has(arg.split('=')[0].trim())
+                );
+
+                if (filteredArgs.length > 0) {
+                    logToConsole(`Found ${filteredArgs.length} arguments for ${scriptName}.`, 'info');
+                    
+                    const formHtml = filteredArgs.map(arg => {
+                        const isKwarg = argspec.kwargs && arg in argspec.kwargs;
+                        const argName = arg.split('=')[0].trim();
+                        const defaultValue = isKwarg ? argspec.kwargs[arg] : '';
+                        
+                        return `
+                            <div class="script-arg-item">
+                                <label for="arg-${argName}">${argName}${isKwarg ? ' (optional)' : ''}</label>
+                                <input type="text" id="arg-${argName}" name="${argName}" 
+                                       placeholder="${defaultValue || 'Enter value'}">
+                            </div>
+                        `;
+                    }).join('');
+                    
+                    elements.scriptArgsContainer.innerHTML = formHtml;
+                }
             }
-
-            const ignoredArgs = new Set(['timeout', 'job_id', 'expr_form', 'tgt_type', 'tgt', 'kwarg', 'fun', 'client', 'arg', 'user', 'password', 'eauth']);
-            const filteredArgs = allArgs.filter(argName => argName && !ignoredArgs.has(argName.split('=')[0].trim()));
-
-            if (filteredArgs.length > 0) {
-                logToConsole(`Found arguments for ${scriptName}: ${filteredArgs.join(', ')}`, 'info');
-                const formHtml = filteredArgs.map(arg => {
-                    const isKwarg = (argspec.kwargs && arg in argspec.kwargs);
-                    const argName = arg.split('=')[0].trim();
-                    const defaultValue = isKwarg ? argspec.kwargs[arg] : '';
-                    return `
-                        <div class="script-arg-item">
-                            <label for="arg-${argName}">${argName} ${isKwarg ? '(optional)' : ''}</label>
-                            <input type="text" id="arg-${argName}" name="${argName}" placeholder="${defaultValue || 'Enter value'}">
-                        </div>
-                    `;
-                }).join('');
-                scriptArgsContainer.innerHTML = formHtml;
-            } else {
-                logToConsole(`No user-configurable arguments found for ${scriptName}.`, 'info');
-            }
-
         } catch (error) {
             console.error('Fetch Argspec Error:', error);
-            logToConsole(`Error fetching arguments for ${scriptName}: ${error.message}. Trying to parse docstring...`, 'error');
-            await parseArgumentsFromDocstring(scriptName, minionId);
+            logToConsole(`Could not fetch arguments: ${error.message}`, 'warn');
         }
     }
 
-    async function parseArgumentsFromDocstring(scriptName, minionId) {
-        logToConsole(`Fetching docstring for ${scriptName} to parse arguments...`);
-        try {
-            const response = await fetch(`${proxyUrl}/proxy`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    client: 'local',
-                    tgt: minionId,
-                    fun: 'sys.doc',
-                    arg: [scriptName]
-                })
-            });
-
-            if (!response.ok) throw new Error('Failed to fetch script documentation.');
-
-            const data = await response.json();
-            const docstring = data.return[0][minionId][scriptName];
-
-            if (!docstring) {
-                logToConsole(`No documentation found for ${scriptName}. Assuming no arguments needed.`, 'info');
-                return;
-            }
-
-            const paramRegex = /:param(?:\s+\w+)?\s+([^:]+):/g;
-            let match;
-            const args = [];
-            while ((match = paramRegex.exec(docstring)) !== null) {
-                if (match.index === paramRegex.lastIndex) paramRegex.lastIndex++;
-                args.push(match[1].trim());
-            }
-
-            const ignoredArgs = new Set(['timeout', 'job_id', 'expr_form', 'tgt_type', 'tgt', 'kwarg', 'fun', 'client', 'arg', 'user', 'password', 'eauth']);
-            const filteredArgs = args.map(arg => arg.split('=')[0].trim()).filter(argName => argName && !ignoredArgs.has(argName));
-
-            if (filteredArgs.length > 0) {
-                logToConsole(`Found arguments via docstring for ${scriptName}: ${filteredArgs.join(', ')}`, 'info');
-                const formHtml = filteredArgs.map(arg => `
-                    <div class="script-arg-item">
-                        <label for="arg-${arg}">${arg}</label>
-                        <input type="text" id="arg-${arg}" name="${arg}" placeholder="Enter value for ${arg}">
-                    </div>
-                `).join('');
-                scriptArgsContainer.innerHTML = formHtml;
-            } else {
-                logToConsole(`No user-configurable arguments found in docstring for ${scriptName}.`, 'info');
-            }
-        } catch (error) {
-            console.error('Fetch Doc Error:', error);
-            logToConsole(`Error parsing docstring for ${scriptName}: ${error.message}`, 'error');
-            scriptArgsContainer.innerHTML = '<p style="color: red;">Could not fetch or parse argument details.</p>';
-        }
-    }
+    // --- Script Deployment ---
 
     async function deployScripts() {
-        const selectedDevices = [...deviceList.querySelectorAll('.selected')].map(item => item.dataset.deviceName);
-        const selectedScriptItems = [...scriptList.querySelectorAll('.selected')];
+        const selectedDevices = [...elements.deviceList.querySelectorAll('.selected')]
+            .map(item => item.dataset.deviceName);
+        const selectedScriptItems = [...elements.scriptList.querySelectorAll('.selected')];
         const manualArgsInput = document.getElementById('manual-args');
         const appendCommandInput = document.getElementById('append-command');
         const errorMessage = document.getElementById('error-message');
 
-        errorMessage.textContent = ''; // Clear previous error messages
+        errorMessage.textContent = '';
 
         if (selectedDevices.length === 0) {
+            errorMessage.textContent = 'Please select at least one device.';
             logToConsole('Please select at least one device.', 'warn');
             return;
         }
 
         if (selectedScriptItems.length === 0) {
+            errorMessage.textContent = 'Please select at least one script.';
             logToConsole('Please select at least one script to deploy.', 'warn');
             return;
         }
 
-        if (selectedScriptItems.length > 1 && (manualArgsInput.value.trim() !== '' || appendCommandInput.value.trim() !== '')) {
-            errorMessage.textContent = 'Arguments or appended commands can only be provided when a single script is selected.';
-            logToConsole('Arguments or appended commands can only be provided when a single script is selected.', 'error');
-            return;
-        }
+        const scriptType = document.querySelector('input[name="script-type"]:checked').value;
+        const appendCommand = appendCommandInput.value.trim();
 
         for (const scriptItem of selectedScriptItems) {
             const scriptName = scriptItem.textContent;
-            const scriptType = document.querySelector('input[name="script-type"]:checked').value;
-            const appendCommand = appendCommandInput.value.trim();
-            
             let payload;
             let saltArgs = [];
             let saltKwargs = {};
 
-            // Prioritize manual arguments if provided
+            // Parse arguments
             if (manualArgsInput.value.trim() !== '') {
-                logToConsole('Using manual arguments.', 'info');
                 saltArgs = manualArgsInput.value.trim().split(',').map(s => s.trim()).filter(s => s);
             } else if (selectedScriptItems.length === 1) {
-                // Otherwise, use dynamic fields for single script selections
-                const argInputs = scriptArgsContainer.querySelectorAll('input');
-                if (argInputs.length > 0) {
-                    logToConsole('Using dynamically generated argument fields.', 'info');
-                    argInputs.forEach(input => {
-                        if (input.value) {
-                            if (currentArgSpec && currentArgSpec.args && currentArgSpec.args.includes(input.name)) {
-                                saltArgs.push(input.value);
-                            } else {
-                                saltKwargs[input.name] = input.value;
-                            }
+                const argInputs = elements.scriptArgsContainer.querySelectorAll('input');
+                argInputs.forEach(input => {
+                    if (input.value) {
+                        if (currentArgSpec?.args?.includes(input.name)) {
+                            saltArgs.push(input.value);
+                        } else {
+                            saltKwargs[input.name] = input.value;
                         }
-                    });
-                }
+                    }
+                });
             }
 
+            // Build payload
             if (scriptType === 'custom') {
                 const customArgsString = saltArgs.join(' ');
                 
@@ -466,12 +583,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         arg: [`salt://${scriptName}`, customArgsString]
                     };
                 }
-
-            } else { // 'salt'
+            } else {
                 if (appendCommand) {
-                    // If there's an append command, we must use cmd.run with salt-call
                     const argsString = saltArgs.map(arg => `'${arg}'`).join(' ');
-                    const kwargsString = Object.entries(saltKwargs).map(([key, value]) => `${key}='${value}'`).join(' ');
+                    const kwargsString = Object.entries(saltKwargs)
+                        .map(([key, value]) => `${key}='${value}'`).join(' ');
                     const command = `salt-call --local ${scriptName} ${argsString} ${kwargsString} ${appendCommand}`.trim();
                     
                     payload = {
@@ -482,28 +598,21 @@ document.addEventListener('DOMContentLoaded', () => {
                         arg: [command]
                     };
                 } else {
-                    // Standard Salt execution
                     payload = {
                         client: 'local',
                         tgt: selectedDevices,
                         tgt_type: 'list',
                         fun: scriptName,
                     };
-                    if (saltArgs.length > 0) {
-                        payload.arg = saltArgs;
-                    }
-                    if (Object.keys(saltKwargs).length > 0) {
-                        payload.kwarg = saltKwargs;
-                    }
+                    if (saltArgs.length > 0) payload.arg = saltArgs;
+                    if (Object.keys(saltKwargs).length > 0) payload.kwarg = saltKwargs;
                 }
             }
 
-            const kwargString = payload.kwarg ? ` with kwargs: ${JSON.stringify(payload.kwarg)}` : '';
-            const argString = payload.arg ? ` with args: ${JSON.stringify(payload.arg)}` : '';
-            logToConsole(`Deploying ${scriptName} to ${selectedDevices.join(', ')}${argString}${kwargString}...`, 'info');
+            logToConsole(`Deploying ${scriptName} to ${selectedDevices.join(', ')}...`, 'info');
 
             try {
-                const response = await fetch(`${proxyUrl}/proxy`, {
+                const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -511,517 +620,902 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(`Execution failed: ${errorData.message || response.statusText}`);
+                    throw new Error(errorData.message || response.statusText);
                 }
 
                 const data = await response.json();
                 logToConsole(`Result for ${scriptName}: <pre>${JSON.stringify(data.return[0], null, 2)}</pre>`, 'success');
+                showNotification(`${scriptName} deployed successfully`, 'success');
             } catch (error) {
                 console.error(`Error executing ${scriptName}:`, error);
                 logToConsole(`Error executing ${scriptName}: ${error.message}`, 'error');
+                showNotification(`Failed to deploy ${scriptName}`, 'error');
             }
         }
     }
 
-    function updateDeviceList(minions) {
-        deviceList.innerHTML = '';
-        monitoringDeviceSelect.innerHTML = '<option value="">Select a device</option>';
+    // --- Selection Handling ---
 
-        const deviceNames = Object.keys(minions);
+    function handleSelection(list, event) {
+        const item = event.target.closest('li');
+        if (!item || item.classList.contains('disabled')) return;
 
-        if (deviceNames.length === 0) {
-            logToConsole('No active devices found.', 'warn');
-            const li = document.createElement('li');
-            li.textContent = 'No active devices found';
-            li.classList.add('disabled');
-            deviceList.appendChild(li);
+        if (!event.ctrlKey && !event.metaKey) {
+            list.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+        }
+        item.classList.toggle('selected');
+
+        if (list.id === 'script-list') {
+            const selectedScripts = list.querySelectorAll('.selected');
+            const scriptType = document.querySelector('input[name="script-type"]:checked').value;
+
+            document.getElementById('manual-args').value = '';
+            document.getElementById('append-command').value = '';
+
+            if (selectedScripts.length === 1 && scriptType === 'salt') {
+                elements.scriptArgsContainer.style.display = 'block';
+                displayScriptArguments(selectedScripts[0].textContent);
+            } else {
+                elements.scriptArgsContainer.innerHTML = '';
+                elements.scriptArgsContainer.style.display = 'none';
+                currentArgSpec = null;
+            }
+        }
+    }
+
+    // --- Terminal Functions ---
+
+    function openTerminal() {
+        const deviceId = elements.quickTerminalDevice.value || elements.monitoringDeviceSelect.value;
+        if (!deviceId) {
+            showNotification('Please select a device first', 'warn');
             return;
         }
 
-        deviceNames.forEach(deviceName => {
-            const os = minions[deviceName] && minions[deviceName]['os'] ? minions[deviceName]['os'] : 'N/A';
-            const displayName = `${deviceName} (${os})`;
-
-            const li = document.createElement('li');
-            li.textContent = displayName;
-            li.dataset.deviceName = deviceName;
-            deviceList.appendChild(li);
-            
-            const option = document.createElement('option');
-            option.text = displayName;
-            option.value = deviceName;
-            monitoringDeviceSelect.add(option);
-        });
+        elements.terminalTitle.textContent = `📺 Terminal: ${deviceId}`;
+        elements.terminalOutput.innerHTML = `<div class="terminal-welcome">Connected to ${escapeHtml(deviceId)}\nType commands below. Use Ctrl+L to clear.\n${'─'.repeat(50)}</div>`;
+        elements.terminalCommandInput.value = '';
+        elements.terminalModal.style.display = 'block';
+        elements.terminalModal.dataset.deviceId = deviceId;
+        
+        // Focus input after modal animation
+        setTimeout(() => elements.terminalCommandInput.focus(), 100);
     }
 
-    function updateScriptList(scripts) {
-        scriptList.innerHTML = '';
-
-        if (scripts.length === 0) {
-            logToConsole('No scripts found.', 'warn');
-            const li = document.createElement('li');
-            li.textContent = 'No scripts found';
-            li.classList.add('disabled');
-            scriptList.appendChild(li);
+    async function executeTerminalCommand(event) {
+        // Handle special keys
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (historyIndex < commandHistory.length - 1) {
+                historyIndex++;
+                elements.terminalCommandInput.value = commandHistory[commandHistory.length - 1 - historyIndex];
+            }
             return;
         }
+        
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (historyIndex > 0) {
+                historyIndex--;
+                elements.terminalCommandInput.value = commandHistory[commandHistory.length - 1 - historyIndex];
+            } else if (historyIndex === 0) {
+                historyIndex = -1;
+                elements.terminalCommandInput.value = '';
+            }
+            return;
+        }
+        
+        if (event.ctrlKey && event.key === 'l') {
+            event.preventDefault();
+            elements.terminalOutput.innerHTML = '';
+            return;
+        }
+        
+        if (event.key !== 'Enter') return;
 
-        scripts.forEach(scriptName => {
-            const li = document.createElement('li');
-            li.textContent = scriptName;
-            scriptList.appendChild(li);
-        });
-    }
+        const command = elements.terminalCommandInput.value.trim();
+        const deviceId = elements.terminalModal.dataset.deviceId;
 
-    // --- System Monitoring Functions ---
-    async function getDeviceOS(deviceId) {
+        if (!command || !deviceId) return;
+
+        // Add to history
+        if (commandHistory[commandHistory.length - 1] !== command) {
+            commandHistory.push(command);
+            if (commandHistory.length > 100) commandHistory.shift();
+        }
+        historyIndex = -1;
+
+        // Echo command
+        const echoEntry = document.createElement('div');
+        echoEntry.className = 'terminal-command';
+        echoEntry.innerHTML = `<span class="terminal-prompt">$</span> ${escapeHtml(command)}`;
+        elements.terminalOutput.appendChild(echoEntry);
+        elements.terminalCommandInput.value = '';
+
         try {
-            const response = await fetch(`${proxyUrl}/proxy`, {
+            const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     client: 'local',
                     tgt: deviceId,
-                    fun: 'grains.get',
-                    arg: ['kernel'] // 'kernel' grain returns 'Windows', 'Linux', etc.
+                    fun: 'cmd.run',
+                    arg: [command]
                 })
             });
-            if (!response.ok) return 'Unknown';
-            const data = await response.json();
-            return data.return[0][deviceId];
-        } catch (error) {
-            console.error(`Error fetching OS for ${deviceId}:`, error);
-            logToConsole(`Could not determine OS for ${deviceId}.`, 'warn');
-            return 'Unknown';
-        }
-    }
-
-
-    async function fetchMonitoringData() {
-        const deviceId = monitoringDeviceSelect.value;
-        const view = monitoringViewSelect.value;
-
-        if (!deviceId || !view) {
-            monitoringOutputContent.innerHTML = '<p>Please select a device and a view.</p>';
-            return;
-        }
-
-        logToConsole(`Fetching '${view}' for device '${deviceId}'...`, 'info');
-        monitoringOutputContent.innerHTML = '<p>Loading...</p>';
-
-        let payload;
-        if (view === 'firewall-rules') {
-            const os = await getDeviceOS(deviceId);
-            logToConsole(`Detected OS: ${os} for ${deviceId}.`, 'info');
-
-            if (os === 'Windows') {
-                payload = { client: 'local', tgt: deviceId, fun: 'win_firewall.get_rules' };
-            } else { // Assume Linux/other Unix-like
-                payload = {
-                    client: 'local',
-                    tgt: deviceId,
-                    fun: 'iptables.list',
-                    arg: ['filter'] // List all chains in the filter table
-                };
-            }
-        } else if (view === 'running-processes') {
-            payload = {
-                client: 'local',
-                tgt: deviceId,
-                fun: 'status.procs'
-            };
-        } else {
-            return; // Should not happen
-        }
-
-        try {
-            const response = await fetch(`${proxyUrl}/proxy`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(`API request failed: ${errorData.message || response.statusText}`);
-            }
 
             const data = await response.json();
-            const result = data.return[0][deviceId];
+            let result = data.return?.[0]?.[deviceId];
 
-            // Check for specific error indicating iptables is not installed and try fallbacks
-            if (
-                view === 'firewall-rules' &&
-                typeof result === 'string' &&
-                result.includes("'iptables' __virtual__ returned False")
-            ) {
-                logToConsole('iptables not found. Trying nftables...', 'warn');
-                try {
-                    // --- Try nftables ---
-                    const nftResponse = await fetch(`${proxyUrl}/proxy`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ client: 'local', tgt: deviceId, fun: 'nftables.list_rules' })
-                    });
-                    if (!nftResponse.ok) throw new Error('nftables request failed');
-                    const nftData = await nftResponse.json();
-                    const nftResult = nftData.return[0][deviceId];
-
-                    if (typeof nftResult === 'string' && nftResult.includes('is not available')) {
-                        throw new Error('nftables module not available');
-                    }
-
-                    monitoringOutputContent.innerHTML = `<pre>${JSON.stringify(nftResult, null, 2)}</pre>`;
-                    logToConsole(`Successfully fetched firewall rules using nftables for '${deviceId}'.`, 'success');
-                } catch (nftError) {
-                    logToConsole('nftables not found. Trying firewalld...', 'warn');
-                    try {
-                        // --- Try firewalld ---
-                        const firewalldResponse = await fetch(`${proxyUrl}/proxy`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ client: 'local', tgt: deviceId, fun: 'firewalld.list_all' })
-                        });
-                        if (!firewalldResponse.ok) throw new Error('firewalld request failed');
-                        const firewalldData = await firewalldResponse.json();
-                        const firewalldResult = firewalldData.return[0][deviceId];
-
-                        if (typeof firewalldResult === 'string' && firewalldResult.includes('is not available')) {
-                             throw new Error('firewalld module not available');
-                        }
-
-                        monitoringOutputContent.innerHTML = `<pre>${JSON.stringify(firewalldResult, null, 2)}</pre>`;
-                        logToConsole(`Successfully fetched firewall rules using firewalld for '${deviceId}'.`, 'success');
-                    } catch (firewalldError) {
-                        logToConsole('No compatible firewall module (iptables, nftables, firewalld) found on the minion.', 'error');
-                        monitoringOutputContent.innerHTML = `<p style="color: orange;">Could not find a compatible firewall module on '${deviceId}'.</p>`;
-                    }
-                }
-            } else {
-                // Format the output as preformatted text to preserve spacing and line breaks
-                monitoringOutputContent.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
-                logToConsole(`Successfully fetched '${view}' for '${deviceId}'.`, 'success');
-            }
-        } catch (error) {
-            console.error(`Error fetching monitoring data for ${deviceId}:`, error);
-            logToConsole(`Error fetching '${view}' for '${deviceId}': ${error.message}`, 'error');
-            monitoringOutputContent.innerHTML = `<p style="color: red;">Error fetching data: ${error.message}</p>`;
-        }
-    }
-
-    async function viewScriptContent(scriptName) {
-        scriptViewerTitle.textContent = `Viewing: ${scriptName}`;
-        scriptViewerContent.innerHTML = '<pre><code>Loading script content...</code></pre>';
-        scriptViewerModal.style.display = 'block';
-
-        try {
-            const response = await fetch(`${proxyUrl}/custom-script-content?path=${encodeURIComponent(scriptName)}`);
-            if (!response.ok) {
-                // Check if the response is JSON before trying to parse it
-                const contentType = response.headers.get('content-type');
-                if (contentType && contentType.includes('application/json')) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || 'Failed to fetch script content.');
-                } else {
-                    const errorText = await response.text();
-                    throw new Error(`Server returned a non-JSON error: ${errorText}`);
-                }
-            }
-            const data = await response.json();
-            // Escape HTML to prevent rendering issues and potential XSS
-            const escapedContent = data.content.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            scriptViewerContent.innerHTML = `<pre><code>${escapedContent}</code></pre>`;
-        } catch (error) {
-            scriptViewerContent.innerHTML = `<pre><code style="color: red;">Error: ${error.message}</code></pre>`;
-            console.error('Error viewing script content:', error);
-        }
-    }
-    // --- Event Listeners ---
-    deviceList.addEventListener('click', (event) => handleSelection(deviceList, event));
-    scriptList.addEventListener('click', (event) => handleSelection(scriptList, event));
-
-    document.querySelector('.btn-deploy').addEventListener('click', deployScripts);
-    document.querySelector('.btn-refresh').addEventListener('click', fetchAvailableDevices);
-
-    scriptTypeSelector.addEventListener('change', (event) => {
-        const scriptType = event.target.value;
-        scriptArgsContainer.innerHTML = ''; // Clear args on switch
-        currentArgSpec = null;
-        updateScriptList([]); // Clear script list while loading
-
-        if (scriptType === 'salt') {
-            const firstDevice = deviceList.querySelector('li:not(.disabled)');
-            if (firstDevice) {
-                fetchAvailableScripts(firstDevice.dataset.deviceName);
-            } else {
-                logToConsole('Select a device to fetch Salt scripts.', 'warn');
-            }
-        } else if (scriptType === 'custom') {
-            fetchCustomScripts();
-        }
-    });
-
-    const scriptSearch = document.getElementById('script-search');
-    scriptSearch.addEventListener('input', () => {
-        const searchTerm = scriptSearch.value.toLowerCase();
-        const scripts = scriptList.getElementsByTagName('li');
-        for (const script of scripts) {
-            const scriptName = script.textContent.toLowerCase();
-            if (scriptName.includes(searchTerm)) {
-                script.style.display = '';
-            } else {
-                script.style.display = 'none';
-            }
-        }
-    });
-
-    monitoringDeviceSelect.addEventListener('change', fetchMonitoringData);
-    monitoringViewSelect.addEventListener('change', fetchMonitoringData);
-
-    scriptList.addEventListener('contextmenu', (event) => {
-        event.preventDefault(); // Prevent the default browser right-click menu
-        const scriptType = document.querySelector('input[name="script-type"]:checked').value;
-        const targetItem = event.target.closest('li');
-
-        if (scriptType === 'custom' && targetItem && !targetItem.classList.contains('disabled')) {
-            contextMenu.style.top = `${event.clientY}px`;
-            contextMenu.style.left = `${event.clientX}px`;
-            contextMenu.style.display = 'block';
-            contextMenu.dataset.scriptName = targetItem.textContent; // Store the script name
-        }
-    });
-
-    document.addEventListener('click', (event) => {
-        // Hide context menu if clicking anywhere else
-        if (!contextMenu.contains(event.target)) {
-            contextMenu.style.display = 'none';
-        }
-    });
-
-    document.getElementById('context-menu-view').addEventListener('click', () => {
-        const scriptName = contextMenu.dataset.scriptName;
-        if (scriptName) {
-            viewScriptContent(scriptName);
-        }
-        contextMenu.style.display = 'none'; // Hide menu after action
-    });
-
-    // --- Terminal Functions ---
-    function openTerminal() {
-        const deviceId = monitoringDeviceSelect.value;
-        if (!deviceId) {
-            logToConsole('Please select a device from the System Monitoring section to open a terminal.', 'warn');
-            alert('Please select a device to open the terminal.');
-            return;
-        }
-
-        terminalTitle.textContent = `Terminal: ${deviceId}`;
-        terminalOutput.innerHTML = `<span>Connecting to ${deviceId}...</span><br>`;
-        terminalCommandInput.value = '';
-        terminalModal.style.display = 'block';
-        terminalCommandInput.focus();
-    }
-
-    function closeTerminal() {
-        terminalModal.style.display = 'none';
-    }
-
-    async function executeTerminalCommand(event) {
-        if (event.key !== 'Enter') return;
-
-        const command = terminalCommandInput.value.trim();
-        const deviceId = monitoringDeviceSelect.value; // Assumes the device doesn't change while modal is open
-
-        if (!command || !deviceId) return;
-
-        // Echo the command to the terminal
-        const echoEntry = document.createElement('div');
-        echoEntry.innerHTML = `<span class="terminal-prompt">&gt;</span> <span class="command-echo">${command}</span>`;
-        terminalOutput.appendChild(echoEntry);
-        terminalCommandInput.value = ''; // Clear input
-        terminalOutput.scrollTop = terminalOutput.scrollHeight;
-
-        const payload = {
-            client: 'local',
-            tgt: deviceId,
-            fun: 'cmd.run',
-            arg: [command]
-        };
-
-        try {
-            const response = await fetch(`${proxyUrl}/proxy`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const data = await response.json();
-            let result = data.return[0][deviceId];
-
-            // If the result is an empty string, it's a successful command with no stdout.
-            // Show a confirmation message. Also handle null/undefined cases. A non-empty string
-            // (even with just whitespace) should be displayed.
             if (result === null || result === undefined) {
-                result = 'Error executing command.';
-            } else if (result.trim() === '') {
-                result = 'Command finished successfully (no output).';
+                result = 'Error: No response from device';
+            } else if (typeof result === 'string' && result.trim() === '') {
+                result = '(command completed with no output)';
             }
 
             const resultEntry = document.createElement('div');
-            resultEntry.className = response.ok ? 'command-result' : 'terminal-error';
-            const pre = document.createElement('pre');
-            pre.textContent = result;
-            resultEntry.appendChild(pre);
-            terminalOutput.appendChild(resultEntry);
+            resultEntry.className = response.ok ? 'terminal-result' : 'terminal-error';
+            resultEntry.textContent = result;
+            elements.terminalOutput.appendChild(resultEntry);
         } catch (error) {
             const errorEntry = document.createElement('div');
             errorEntry.className = 'terminal-error';
             errorEntry.textContent = `Error: ${error.message}`;
-            terminalOutput.appendChild(errorEntry);
-        } finally {
-            terminalOutput.scrollTop = terminalOutput.scrollHeight; // Auto-scroll
+            elements.terminalOutput.appendChild(errorEntry);
+        }
+
+        elements.terminalOutput.scrollTop = elements.terminalOutput.scrollHeight;
+    }
+
+    // --- Quick Command ---
+
+    async function executeQuickCommand() {
+        const deviceId = elements.quickTerminalDevice.value;
+        const command = elements.quickCommand.value.trim();
+
+        if (!deviceId) {
+            showNotification('Please select a device', 'warn');
+            return;
+        }
+        if (!command) {
+            showNotification('Please enter a command', 'warn');
+            return;
+        }
+
+        elements.quickOutput.innerHTML = '<p class="loading">Executing...</p>';
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/quick-cmd`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: deviceId, cmd: command })
+            });
+
+            const data = await response.json();
+            const result = data.return?.[0]?.[deviceId] || 'No output';
+            
+            elements.quickOutput.innerHTML = `<pre>${escapeHtml(result)}</pre>`;
+        } catch (error) {
+            elements.quickOutput.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
         }
     }
-    // Terminal Event Listeners
-    openTerminalBtn.addEventListener('click', openTerminal);
-    terminalCloseButton.addEventListener('click', closeTerminal);
-    terminalCommandInput.addEventListener('keydown', executeTerminalCommand);
 
-    scriptViewerCloseButton.addEventListener('click', () => {
-        scriptViewerModal.style.display = 'none';
-    });
+    // --- Monitoring Functions ---
 
-    const connectDeviceModal = document.getElementById('connect-device-modal');
-    const closeButton = document.querySelector('.close-button');
-    const unacceptedKeysList = document.getElementById('unaccepted-keys-list');
-    const acceptedKeysList = document.getElementById('accepted-keys-list');
-    const modalContent = document.querySelector('.modal-content');
+    async function fetchMonitoringData() {
+        const deviceId = elements.monitoringDeviceSelect.value;
+        const view = elements.monitoringViewSelect.value;
+
+        if (!deviceId || !view) {
+            elements.monitoringContent.innerHTML = '<p class="hint">Please select a device and view.</p>';
+            return;
+        }
+
+        elements.monitoringContent.innerHTML = '<p class="loading">Loading...</p>';
+
+        let payload;
+        switch (view) {
+            case 'firewall-rules':
+                payload = { client: 'local', tgt: deviceId, fun: 'iptables.get_rules' };
+                break;
+            case 'running-processes':
+                payload = { client: 'local', tgt: deviceId, fun: 'status.procs' };
+                break;
+            case 'network-connections':
+                payload = { client: 'local', tgt: deviceId, fun: 'network.active_tcp' };
+                break;
+            case 'system-info':
+                payload = { client: 'local', tgt: deviceId, fun: 'grains.items' };
+                break;
+            case 'users':
+                payload = { client: 'local', tgt: deviceId, fun: 'user.list_users' };
+                break;
+            case 'services':
+                payload = { client: 'local', tgt: deviceId, fun: 'service.get_all' };
+                break;
+            default:
+                return;
+        }
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error('API request failed');
+
+            const data = await response.json();
+            const result = data.return?.[0]?.[deviceId];
+
+            elements.monitoringContent.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+            document.getElementById('mon-last-update').textContent = `Last Update: ${new Date().toLocaleTimeString()}`;
+            document.getElementById('mon-device-status').textContent = `Device: ${deviceId}`;
+            
+            const deviceInfo = deviceCache[deviceId];
+            if (deviceInfo) {
+                document.getElementById('mon-os').textContent = `OS: ${deviceInfo.os || 'Unknown'}`;
+            }
+        } catch (error) {
+            elements.monitoringContent.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    // --- Service Management ---
+
+    async function manageService(action) {
+        const deviceId = elements.serviceDeviceSelect.value;
+        const serviceName = elements.serviceName.value.trim();
+
+        if (!deviceId) {
+            showNotification('Please select a device', 'warn');
+            return;
+        }
+        if (!serviceName && action !== 'list') {
+            showNotification('Please enter a service name', 'warn');
+            return;
+        }
+
+        elements.serviceOutput.innerHTML = '<p class="loading">Processing...</p>';
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/services/manage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    targets: [deviceId],
+                    service: serviceName,
+                    action: action
+                })
+            });
+
+            const data = await response.json();
+            elements.serviceOutput.innerHTML = `<pre>${JSON.stringify(data.result?.return?.[0] || data, null, 2)}</pre>`;
+            showNotification(`Service ${action} completed`, 'success');
+        } catch (error) {
+            elements.serviceOutput.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    async function listServices(filter = 'all') {
+        const deviceId = elements.serviceDeviceSelect.value;
+        if (!deviceId) {
+            showNotification('Please select a device', 'warn');
+            return;
+        }
+
+        elements.serviceOutput.innerHTML = '<p class="loading">Loading services...</p>';
+
+        const fun = filter === 'running' ? 'service.get_running' : 'service.get_all';
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    client: 'local',
+                    tgt: deviceId,
+                    fun: fun
+                })
+            });
+
+            const data = await response.json();
+            const services = data.return?.[0]?.[deviceId] || [];
+            
+            if (Array.isArray(services)) {
+                elements.serviceOutput.innerHTML = `<pre>${services.sort().join('\n')}</pre>`;
+            } else {
+                elements.serviceOutput.innerHTML = `<pre>${JSON.stringify(services, null, 2)}</pre>`;
+            }
+        } catch (error) {
+            elements.serviceOutput.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    // --- Playbooks ---
+
+    async function loadPlaybooks() {
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/playbooks`);
+            const playbooks = await response.json();
+
+            elements.playbooksList.innerHTML = '';
+            
+            if (playbooks.length === 0) {
+                elements.playbooksList.innerHTML = '<li class="disabled">No playbooks found</li>';
+                return;
+            }
+
+            playbooks.forEach(pb => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <span class="playbook-name">${escapeHtml(pb.name)}</span>
+                    <span class="playbook-steps-count">${pb.steps} steps</span>
+                `;
+                li.dataset.filename = pb.filename;
+                li.addEventListener('click', () => loadPlaybookDetails(pb.filename.replace('.json', '')));
+                elements.playbooksList.appendChild(li);
+            });
+        } catch (error) {
+            elements.playbooksList.innerHTML = `<li class="disabled">Error loading playbooks</li>`;
+            console.error('Error loading playbooks:', error);
+        }
+    }
+
+    async function loadPlaybookDetails(name) {
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/playbooks/${name}`);
+            const playbook = await response.json();
+
+            selectedPlaybook = name;
+            elements.playbookTitle.textContent = playbook.name;
+            elements.playbookDescription.textContent = playbook.description || 'No description';
+
+            elements.playbookSteps.innerHTML = playbook.steps.map((step, i) => `
+                <div class="playbook-step">
+                    <span class="step-number">${i + 1}</span>
+                    <div class="step-content">
+                        <strong>${escapeHtml(step.name)}</strong>
+                        <code>${escapeHtml(step.function)}</code>
+                        ${step.args ? `<small>Args: ${escapeHtml(JSON.stringify(step.args))}</small>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            document.querySelector('.playbook-execute-section').style.display = 'block';
+            elements.playbookResults.innerHTML = '';
+        } catch (error) {
+            elements.playbookTitle.textContent = 'Error Loading Playbook';
+            elements.playbookDescription.textContent = error.message;
+        }
+    }
+
+    async function executePlaybook() {
+        if (!selectedPlaybook) {
+            showNotification('Please select a playbook', 'warn');
+            return;
+        }
+
+        const targets = [...elements.playbookTargets.selectedOptions].map(opt => opt.value);
+        if (targets.length === 0) {
+            showNotification('Please select target devices', 'warn');
+            return;
+        }
+
+        elements.playbookResults.innerHTML = '<p class="loading">Executing playbook...</p>';
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/playbooks/${selectedPlaybook}/execute`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targets })
+            }, 300000); // 5 minute timeout for playbooks
+
+            const data = await response.json();
+
+            let resultsHtml = `<h4>Results (${data.completedSteps}/${data.totalSteps} steps)</h4>`;
+            data.results.forEach(result => {
+                const statusClass = result.status === 'completed' ? 'success' : 'error';
+                resultsHtml += `
+                    <div class="playbook-result ${statusClass}">
+                        <strong>${escapeHtml(result.step)}</strong>: ${result.status}
+                        ${result.error ? `<br><small>${escapeHtml(result.error)}</small>` : ''}
+                    </div>
+                `;
+            });
+
+            elements.playbookResults.innerHTML = resultsHtml;
+            showNotification(`Playbook completed: ${data.completedSteps}/${data.totalSteps} steps`, 
+                data.completedSteps === data.totalSteps ? 'success' : 'warn');
+        } catch (error) {
+            elements.playbookResults.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    // --- Audit Log ---
+
+    async function loadAuditLog() {
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/audit?limit=100`);
+            const entries = await response.json();
+
+            if (entries.length === 0) {
+                elements.auditLogBody.innerHTML = '<tr><td colspan="5">No audit entries found</td></tr>';
+                return;
+            }
+
+            elements.auditLogBody.innerHTML = entries.map(entry => `
+                <tr>
+                    <td>${entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'N/A'}</td>
+                    <td>${escapeHtml(entry.ip || 'N/A')}</td>
+                    <td>${escapeHtml(entry.method || 'N/A')}</td>
+                    <td>${escapeHtml(entry.path || 'N/A')}</td>
+                    <td><code>${escapeHtml(JSON.stringify(entry.body || {}).substring(0, 100))}</code></td>
+                </tr>
+            `).join('');
+        } catch (error) {
+            elements.auditLogBody.innerHTML = `<tr><td colspan="5">Error: ${escapeHtml(error.message)}</td></tr>`;
+        }
+    }
+
+    // --- Emergency Functions ---
+
+    async function blockAllTraffic() {
+        const targets = [...document.getElementById('emergency-targets').selectedOptions].map(opt => opt.value);
+        if (targets.length === 0) {
+            showNotification('Select target devices', 'warn');
+            return;
+        }
+
+        if (!confirm(`⚠️ This will DROP all incoming traffic except SSH on ${targets.length} devices. Continue?`)) {
+            return;
+        }
+
+        const output = document.getElementById('emergency-output');
+        output.innerHTML = '<p class="loading">Applying emergency firewall rules...</p>';
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/emergency/block-all-traffic`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targets })
+            });
+
+            const data = await response.json();
+            output.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            showNotification('Emergency firewall rules applied', 'success');
+            logToConsole('EMERGENCY: Blocked all traffic on ' + targets.join(', '), 'warn');
+        } catch (error) {
+            output.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    async function killConnections() {
+        const targets = [...document.getElementById('emergency-targets').selectedOptions].map(opt => opt.value);
+        const port = document.getElementById('emergency-port').value.trim();
+
+        if (targets.length === 0) {
+            showNotification('Select target devices', 'warn');
+            return;
+        }
+
+        if (!confirm(`⚠️ This will kill ${port ? 'port ' + port : 'ALL'} connections on ${targets.length} devices. Continue?`)) {
+            return;
+        }
+
+        const output = document.getElementById('emergency-output');
+        output.innerHTML = '<p class="loading">Killing connections...</p>';
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/emergency/kill-connections`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targets, port: port || null })
+            });
+
+            const data = await response.json();
+            output.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            showNotification('Connections killed', 'success');
+        } catch (error) {
+            output.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    async function changePasswords() {
+        const targets = [...document.getElementById('emergency-targets').selectedOptions].map(opt => opt.value);
+        const usersInput = document.getElementById('emergency-users').value.trim();
+        const newPassword = document.getElementById('emergency-new-password').value;
+
+        if (targets.length === 0) {
+            showNotification('Select target devices', 'warn');
+            return;
+        }
+        if (!usersInput) {
+            showNotification('Enter usernames', 'warn');
+            return;
+        }
+        if (!newPassword) {
+            showNotification('Enter new password', 'warn');
+            return;
+        }
+
+        const users = usersInput.split(',').map(u => u.trim()).filter(u => u);
+
+        if (!confirm(`⚠️ This will change passwords for ${users.length} users on ${targets.length} devices. Continue?`)) {
+            return;
+        }
+
+        const output = document.getElementById('emergency-output');
+        output.innerHTML = '<p class="loading">Changing passwords...</p>';
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/emergency/change-passwords`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targets, users, newPassword })
+            });
+
+            const data = await response.json();
+            output.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            showNotification('Password changes attempted', 'success');
+            logToConsole('EMERGENCY: Password change for ' + users.join(', '), 'warn');
+        } catch (error) {
+            output.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    // --- Key Management ---
 
     async function openConnectDeviceModal() {
-        logToConsole('Fetching keys...');
         try {
-            const response = await fetch(`${proxyUrl}/keys`);
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(JSON.stringify(errorData.error));
-            }
+            const response = await fetchWithTimeout(`${proxyUrl}/keys`);
+            if (!response.ok) throw new Error('Failed to fetch keys');
+
             const data = await response.json();
-            const keys = data.return[0].data.return;
-            const unacceptedKeys = keys.minions_pre;
-            const acceptedKeys = keys.minions;
+            const keys = data.return?.[0]?.data?.return || {};
+            const unacceptedKeys = keys.minions_pre || [];
+            const acceptedKeys = keys.minions || [];
 
             updateNotificationBadge(unacceptedKeys.length);
 
-            unacceptedKeysList.innerHTML = ''; // Clear previous list
-            acceptedKeysList.innerHTML = ''; // Clear previous list
+            const unacceptedList = document.getElementById('unaccepted-keys-list');
+            const acceptedList = document.getElementById('accepted-keys-list');
 
-            if (unacceptedKeys.length > 0) {
-                unacceptedKeys.forEach(key => {
-                    const li = document.createElement('li');
-                    li.textContent = key;
-                    const acceptButton = document.createElement('button');
-                    acceptButton.textContent = 'Accept';
-                    acceptButton.classList.add('btn', 'btn-accept');
-                    acceptButton.dataset.minionId = key;
-                    li.appendChild(acceptButton);
-                    unacceptedKeysList.appendChild(li);
-                });
-            } else {
-                const li = document.createElement('li');
-                li.textContent = 'No devices awaiting acceptance.';
-                unacceptedKeysList.appendChild(li);
-            }
+            unacceptedList.innerHTML = unacceptedKeys.length > 0 
+                ? unacceptedKeys.map(key => `
+                    <li>
+                        <span>${escapeHtml(key)}</span>
+                        <button class="btn btn-accept btn-small" data-minion-id="${escapeHtml(key)}">Accept</button>
+                    </li>
+                `).join('')
+                : '<li class="disabled">No pending keys</li>';
 
-            if (acceptedKeys.length > 0) {
-                acceptedKeys.forEach(key => {
-                    const li = document.createElement('li');
-                    li.textContent = key;
-                    const removeButton = document.createElement('button');
-                    removeButton.textContent = 'Remove';
-                    removeButton.classList.add('btn', 'btn-remove');
-                    removeButton.dataset.minionId = key;
-                    li.appendChild(removeButton);
-                    acceptedKeysList.appendChild(li);
-                });
-            } else {
-                const li = document.createElement('li');
-                li.textContent = 'No accepted devices found.';
-                acceptedKeysList.appendChild(li);
-            }
+            acceptedList.innerHTML = acceptedKeys.length > 0
+                ? acceptedKeys.map(key => `
+                    <li>
+                        <span>${escapeHtml(key)}</span>
+                        <button class="btn btn-remove btn-small" data-minion-id="${escapeHtml(key)}">Remove</button>
+                    </li>
+                `).join('')
+                : '<li class="disabled">No accepted devices</li>';
 
-            connectDeviceModal.style.display = 'block';
+            elements.connectDeviceModal.style.display = 'block';
         } catch (error) {
             console.error('Error fetching keys:', error);
             logToConsole(`Error fetching keys: ${error.message}`, 'error');
         }
     }
 
-    function closeConnectDeviceModal() {
-        connectDeviceModal.style.display = 'none';
-    }
-
     async function acceptKey(minionId) {
-        logToConsole(`Accepting key for ${minionId}...`);
         try {
-            const response = await fetch(`${proxyUrl}/keys/accept`, {
+            const response = await fetchWithTimeout(`${proxyUrl}/keys/accept`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ minionId })
             });
 
-            if (!response.ok) {
-                throw new Error(`Failed to accept key for ${minionId}.`);
-            }
+            if (!response.ok) throw new Error('Failed to accept key');
 
-            logToConsole(`Successfully accepted key for ${minionId}.`, 'success');
-            openConnectDeviceModal(); // Refresh the modal
-            fetchAvailableDevices(); // Refresh the main device list
+            logToConsole(`Accepted key for ${minionId}`, 'success');
+            showNotification(`Key accepted: ${minionId}`, 'success');
+            openConnectDeviceModal();
+            fetchAvailableDevices();
         } catch (error) {
-            console.error('Error accepting key:', error);
-            logToConsole(`Error accepting key for ${minionId}: ${error.message}`, 'error');
+            logToConsole(`Error accepting key: ${error.message}`, 'error');
         }
     }
 
     async function removeKey(minionId) {
-        logToConsole(`Removing key for ${minionId}...`);
+        if (!confirm(`Remove key for ${minionId}?`)) return;
+
         try {
-            const response = await fetch(`${proxyUrl}/keys/delete`, {
+            const response = await fetchWithTimeout(`${proxyUrl}/keys/delete`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ minionId })
             });
 
-            if (!response.ok) {
-                throw new Error(`Failed to remove key for ${minionId}.`);
-            }
+            if (!response.ok) throw new Error('Failed to remove key');
 
-            logToConsole(`Successfully removed key for ${minionId}.`, 'success');
-            openConnectDeviceModal(); // Refresh the modal
-            fetchAvailableDevices(); // Refresh the main device list
+            logToConsole(`Removed key for ${minionId}`, 'success');
+            openConnectDeviceModal();
+            fetchAvailableDevices();
         } catch (error) {
-            console.error('Error removing key:', error);
-            logToConsole(`Error removing key for ${minionId}: ${error.message}`, 'error');
+            logToConsole(`Error removing key: ${error.message}`, 'error');
         }
     }
 
-    document.querySelector('.btn-connect').addEventListener('click', openConnectDeviceModal);
-    closeButton.addEventListener('click', closeConnectDeviceModal);
-    modalContent.addEventListener('click', (event) => {
-        if (event.target.classList.contains('btn-accept')) {
-            const minionId = event.target.dataset.minionId;
-            acceptKey(minionId);
-        } else if (event.target.classList.contains('btn-remove')) {
-            const minionId = event.target.dataset.minionId;
-            removeKey(minionId);
+    async function acceptAllKeys() {
+        if (!confirm('Accept ALL pending keys?')) return;
+
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/keys/accept-all`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (!response.ok) throw new Error('Failed to accept all keys');
+
+            logToConsole('Accepted all pending keys', 'success');
+            showNotification('All keys accepted', 'success');
+            openConnectDeviceModal();
+            fetchAvailableDevices();
+        } catch (error) {
+            logToConsole(`Error accepting all keys: ${error.message}`, 'error');
+        }
+    }
+
+    // --- Script Viewer ---
+
+    async function viewScriptContent(scriptName) {
+        const titleEl = document.getElementById('script-viewer-title');
+        const contentEl = document.getElementById('script-viewer-content');
+        
+        titleEl.textContent = `📄 ${scriptName}`;
+        contentEl.innerHTML = '<pre><code>Loading...</code></pre>';
+        elements.scriptViewerModal.style.display = 'block';
+
+        try {
+            const response = await fetchWithTimeout(
+                `${proxyUrl}/custom-script-content?path=${encodeURIComponent(scriptName)}`
+            );
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Failed to fetch script');
+            }
+
+            const data = await response.json();
+            contentEl.innerHTML = `<pre><code>${escapeHtml(data.content)}</code></pre>`;
+        } catch (error) {
+            contentEl.innerHTML = `<pre><code class="error">Error: ${escapeHtml(error.message)}</code></pre>`;
+        }
+    }
+
+    // --- Tab Navigation ---
+
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.toggle('active', content.id === `tab-${tabName}`);
+        });
+
+        // Load data for tab
+        switch (tabName) {
+            case 'audit':
+                loadAuditLog();
+                break;
+            case 'playbooks':
+                loadPlaybooks();
+                break;
+        }
+    }
+
+    // --- Event Listeners ---
+
+    // Tab navigation
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    // Device list
+    elements.deviceList.addEventListener('click', e => handleSelection(elements.deviceList, e));
+    elements.selectAllDevices?.addEventListener('click', () => {
+        elements.deviceList.querySelectorAll('li:not(.disabled)').forEach(li => li.classList.add('selected'));
+    });
+    elements.deselectAllDevices?.addEventListener('click', () => {
+        elements.deviceList.querySelectorAll('.selected').forEach(li => li.classList.remove('selected'));
+    });
+
+    // Device search
+    elements.deviceSearch?.addEventListener('input', debounce(e => {
+        const term = e.target.value.toLowerCase();
+        elements.deviceList.querySelectorAll('li').forEach(li => {
+            const name = li.dataset.deviceName?.toLowerCase() || '';
+            const os = li.dataset.os?.toLowerCase() || '';
+            li.style.display = (name.includes(term) || os.includes(term)) ? '' : 'none';
+        });
+    }, 150));
+
+    // Script list
+    elements.scriptList.addEventListener('click', e => handleSelection(elements.scriptList, e));
+
+    // Script search
+    elements.scriptSearch?.addEventListener('input', debounce(e => {
+        const term = e.target.value.toLowerCase();
+        elements.scriptList.querySelectorAll('li').forEach(li => {
+            li.style.display = li.textContent.toLowerCase().includes(term) ? '' : 'none';
+        });
+    }, 150));
+
+    // Script type selector
+    elements.scriptTypeSelector?.addEventListener('change', e => {
+        const scriptType = e.target.value;
+        elements.scriptArgsContainer.innerHTML = '';
+        currentArgSpec = null;
+
+        const firstDevice = elements.deviceList.querySelector('li:not(.disabled)');
+        if (scriptType === 'salt' && firstDevice) {
+            fetchAvailableScripts(firstDevice.dataset.deviceName);
+        } else if (scriptType === 'custom') {
+            fetchCustomScripts();
         }
     });
 
-    // --- Initial Load ---
+    // Deploy button
+    document.querySelector('.btn-deploy')?.addEventListener('click', deployScripts);
+
+    // Settings
+    elements.settingsIcon?.addEventListener('click', () => {
+        elements.settingsModal.style.display = 'block';
+    });
+    document.getElementById('settings-close-button')?.addEventListener('click', () => {
+        elements.settingsModal.style.display = 'none';
+    });
+    elements.settingsForm?.addEventListener('submit', saveSettings);
+
+    // Connect device modal
+    document.querySelector('.btn-connect')?.addEventListener('click', openConnectDeviceModal);
+    document.querySelector('#connect-device-modal .close-button')?.addEventListener('click', () => {
+        elements.connectDeviceModal.style.display = 'none';
+    });
+    document.getElementById('accept-all-keys')?.addEventListener('click', acceptAllKeys);
+
+    // Key accept/remove delegation
+    document.getElementById('unaccepted-keys-list')?.addEventListener('click', e => {
+        if (e.target.classList.contains('btn-accept')) {
+            acceptKey(e.target.dataset.minionId);
+        }
+    });
+    document.getElementById('accepted-keys-list')?.addEventListener('click', e => {
+        if (e.target.classList.contains('btn-remove')) {
+            removeKey(e.target.dataset.minionId);
+        }
+    });
+
+    // Terminal
+    document.getElementById('open-terminal-btn')?.addEventListener('click', openTerminal);
+    document.getElementById('terminal-close-button')?.addEventListener('click', () => {
+        elements.terminalModal.style.display = 'none';
+    });
+    elements.terminalCommandInput?.addEventListener('keydown', executeTerminalCommand);
+
+    // Quick command
+    document.getElementById('quick-cmd-btn')?.addEventListener('click', executeQuickCommand);
+    elements.quickCommand?.addEventListener('keypress', e => {
+        if (e.key === 'Enter') executeQuickCommand();
+    });
+
+    // Monitoring
+    document.getElementById('monitoring-refresh')?.addEventListener('click', fetchMonitoringData);
+    elements.monitoringDeviceSelect?.addEventListener('change', fetchMonitoringData);
+    elements.monitoringViewSelect?.addEventListener('change', fetchMonitoringData);
+
+    // Services
+    document.querySelectorAll('.service-buttons .btn').forEach(btn => {
+        btn.addEventListener('click', () => manageService(btn.dataset.action));
+    });
+    document.getElementById('list-all-services')?.addEventListener('click', () => listServices('all'));
+    document.getElementById('list-running-services')?.addEventListener('click', () => listServices('running'));
+
+    // Playbooks
+    document.getElementById('refresh-playbooks')?.addEventListener('click', loadPlaybooks);
+    document.getElementById('execute-playbook')?.addEventListener('click', executePlaybook);
+
+    // Audit
+    document.getElementById('refresh-audit')?.addEventListener('click', loadAuditLog);
+
+    // Emergency
+    document.getElementById('emergency-btn')?.addEventListener('click', () => {
+        elements.emergencyModal.style.display = 'block';
+    });
+    document.getElementById('emergency-close-button')?.addEventListener('click', () => {
+        elements.emergencyModal.style.display = 'none';
+    });
+    document.getElementById('emergency-block-traffic')?.addEventListener('click', blockAllTraffic);
+    document.getElementById('emergency-kill-connections')?.addEventListener('click', killConnections);
+    document.getElementById('emergency-change-passwords')?.addEventListener('click', changePasswords);
+
+    // Script viewer
+    document.getElementById('script-viewer-close-button')?.addEventListener('click', () => {
+        elements.scriptViewerModal.style.display = 'none';
+    });
+
+    // Context menu
+    elements.scriptList?.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        const scriptType = document.querySelector('input[name="script-type"]:checked').value;
+        const targetItem = e.target.closest('li');
+
+        if (scriptType === 'custom' && targetItem && !targetItem.classList.contains('disabled')) {
+            elements.contextMenu.style.top = `${e.clientY}px`;
+            elements.contextMenu.style.left = `${e.clientX}px`;
+            elements.contextMenu.style.display = 'block';
+            elements.contextMenu.dataset.scriptName = targetItem.textContent;
+        }
+    });
+
+    document.getElementById('context-menu-view')?.addEventListener('click', () => {
+        viewScriptContent(elements.contextMenu.dataset.scriptName);
+        elements.contextMenu.style.display = 'none';
+    });
+
+    document.getElementById('context-menu-copy')?.addEventListener('click', () => {
+        navigator.clipboard?.writeText(elements.contextMenu.dataset.scriptName);
+        showNotification('Script name copied', 'success');
+        elements.contextMenu.style.display = 'none';
+    });
+
+    document.addEventListener('click', e => {
+        if (!elements.contextMenu?.contains(e.target)) {
+            elements.contextMenu.style.display = 'none';
+        }
+    });
+
+    // Console controls
+    elements.clearConsole?.addEventListener('click', () => {
+        elements.outputConsole.innerHTML = '';
+    });
+    elements.toggleConsole?.addEventListener('click', () => {
+        consoleCollapsed = !consoleCollapsed;
+        elements.outputConsole.style.display = consoleCollapsed ? 'none' : 'block';
+        elements.toggleConsole.textContent = consoleCollapsed ? '▲' : '▼';
+    });
+
+    // Close modals on outside click
+    window.addEventListener('click', e => {
+        if (e.target.classList.contains('modal')) {
+            e.target.style.display = 'none';
+        }
+    });
+
+    // Close modals on Escape
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.style.display = 'none';
+            });
+        }
+    });
+
+    // --- Initialization ---
+
     async function initializeApp() {
+        logToConsole('🧂 Salt GUI starting up...', 'info');
+        
         await loadSettings();
-        fetchAvailableDevices();
-        checkUnacceptedKeys();
-        setInterval(checkUnacceptedKeys, 30000); // Check every 30 seconds
+        await fetchAvailableDevices();
+        await checkHealth();
+        await checkUnacceptedKeys();
+
+        // Periodic updates
+        setInterval(checkHealth, 30000);
+        setInterval(checkUnacceptedKeys, 30000);
+
+        logToConsole('✅ Salt GUI ready.', 'success');
     }
 
     initializeApp();

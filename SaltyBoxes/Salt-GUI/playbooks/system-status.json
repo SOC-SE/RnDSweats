@@ -1,0 +1,71 @@
+{
+  "name": "System Status Check",
+  "description": "Quick system health and status check for competition monitoring",
+  "category": "monitoring",
+  "severity": "low",
+  "steps": [
+    {
+      "name": "System uptime and load",
+      "function": "cmd.run",
+      "command": "uptime",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Memory usage",
+      "function": "cmd.run",
+      "command": "free -h",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Disk usage",
+      "function": "cmd.run",
+      "command": "df -h | grep -v tmpfs | head -10",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Top CPU processes",
+      "function": "cmd.run",
+      "command": "ps aux --sort=-%cpu | head -10",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Listening services",
+      "function": "cmd.run",
+      "command": "netstat -tulpn 2>/dev/null || ss -tulpn",
+      "timeout": 20000,
+      "required": false
+    },
+    {
+      "name": "Established connections",
+      "function": "cmd.run",
+      "command": "netstat -tn 2>/dev/null | grep ESTABLISHED | wc -l; netstat -tn 2>/dev/null | grep ESTABLISHED | awk '{print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn | head -10",
+      "timeout": 20000,
+      "required": false
+    },
+    {
+      "name": "Failed login attempts",
+      "function": "cmd.run",
+      "command": "grep 'Failed password' /var/log/auth.log 2>/dev/null | tail -10 || grep 'Failed password' /var/log/secure 2>/dev/null | tail -10 || echo 'No failed logins found'",
+      "timeout": 20000,
+      "required": false
+    },
+    {
+      "name": "Critical services status",
+      "function": "cmd.run",
+      "command": "for svc in sshd nginx apache2 httpd mysql mariadb postgresql docker; do systemctl is-active $svc 2>/dev/null && echo \"$svc: running\" || true; done",
+      "timeout": 30000,
+      "required": false
+    },
+    {
+      "name": "Recent system errors",
+      "function": "cmd.run",
+      "command": "journalctl -p err -n 10 --no-pager 2>/dev/null || tail -20 /var/log/syslog 2>/dev/null || tail -20 /var/log/messages 2>/dev/null",
+      "timeout": 20000,
+      "required": false
+    }
+  ]
+}
