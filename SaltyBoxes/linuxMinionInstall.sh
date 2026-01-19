@@ -1,173 +1,418 @@
 #!/bin/bash
-
 # ==============================================================================
-# Salt Minion Manual Installer (Universal SHA-1 Fix Edition)
+# Salt Minion Installer - Hardened Edition
 # Targets: Salt 3007 LTS
 # ==============================================================================
 #
-#   Installation script to install the Salt Minion on most RHEL-like and Debian-like machines.
+# Improvements over original:
+# - Supports both interactive and non-interactive (scripted) execution
+# - Idempotent - safe to run multiple times
+# - Retry logic for network operations
+# - Better error handling and logging
+# - Validation of inputs
 #
-#   Samuel Brucker 2025-2026
+# Usage:
+#   Interactive:     sudo ./linuxMinionInstall.sh
+#   Non-interactive: sudo ./linuxMinionInstall.sh -m 172.20.242.20 -i myminion
+#   With tools:      sudo ./linuxMinionInstall.sh -m 172.20.242.20 -t /path/to/tools
 #
+# Samuel Brucker 2025-2026
+# ==============================================================================
 
+set -euo pipefail
+
+# --- Configuration ---
 DEFAULT_MASTER_IP="172.20.242.20"
+SALT_VERSION="3007"
+MAX_RETRIES=3
+RETRY_DELAY=5
+
+# --- Colors ---
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
+BLUE='\033[0;34m'
 NC='\033[0m'
 
-log() { echo -e "${GREEN}[INFO] $1${NC}"; }
-warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
-error() { echo -e "${RED}[ERROR] $1${NC}"; exit 1; }
+# --- Logging Functions ---
+log()   { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
+debug() { [[ "${DEBUG:-0}" == "1" ]] && echo -e "${BLUE}[DEBUG]${NC} $1" || true; }
 
-echo "#####################################################"
-echo "# Salt Minion  Installer #"
-echo "#####################################################"
+die() {
+    error "$1"
+    exit "${2:-1}"
+}
 
-if [ "$EUID" -ne 0 ]; then
-    error "This script must be run with root privileges. Try: sudo $0"
-fi
-
-read -p "Enter Salt Master IP [Default: $DEFAULT_MASTER_IP]: " INPUT_IP
-SALT_MASTER_IP=${INPUT_IP:-$DEFAULT_MASTER_IP}
-log "Using Master IP: $SALT_MASTER_IP"
-
-read -p "Enter a unique Minion ID (Press ENTER to use system hostname): " MINION_ID
-if [ -z "$MINION_ID" ]; then
-    MINION_ID=$(hostname -f)
-fi
-log "Using Minion ID: $MINION_ID"
-
-log "Cleaning up any existing service states..."
-systemctl stop salt-minion 2>/dev/null || true
-
-log "Detecting OS and configuring repositories for Salt 3007..."
-
-if command -v apt-get &> /dev/null; then
-    PKG_MGR="apt-get"
+# --- Utility Functions ---
+retry_command() {
+    local cmd="$1"
+    local description="${2:-command}"
+    local attempt=1
     
-    # Ubuntu 24.04+ blocks SHA-1 by default via OpenSSL config.
-    # We lower SECLEVEL from 2 to 1 to allow SHA-1 (matching RHEL's DEFAULT:SHA1 policy).
-    if grep -q "SECLEVEL=2" /etc/ssl/openssl.cnf; then
-        log "Lowering OpenSSL Security Level to allow SHA-1..."
-        sed -i 's/SECLEVEL=2/SECLEVEL=1/g' /etc/ssl/openssl.cnf
+    while [[ $attempt -le $MAX_RETRIES ]]; do
+        log "Attempt $attempt/$MAX_RETRIES: $description"
+        if eval "$cmd"; then
+            return 0
+        fi
+        warn "Attempt $attempt failed. Retrying in ${RETRY_DELAY}s..."
+        sleep $RETRY_DELAY
+        ((attempt++))
+    done
+    
+    error "All $MAX_RETRIES attempts failed for: $description"
+    return 1
+}
+
+validate_ip() {
+    local ip="$1"
+    if [[ $ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        local IFS='.'
+        read -ra octets <<< "$ip"
+        for octet in "${octets[@]}"; do
+            [[ $octet -gt 255 ]] && return 1
+        done
+        return 0
     fi
-    # --------------------------------
-    
-    $PKG_MGR update -y > /dev/null
-    $PKG_MGR install -y curl gnupg2 > /dev/null
-
-    mkdir -p /etc/apt/keyrings
-    # Remove old key if exists to ensure we have the latest
-    rm -f /etc/apt/keyrings/salt-archive-keyring.pgp
-    curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null
-    
-    ARCH=$(dpkg --print-architecture)
-    
-    log "Detected System: Debian/Ubuntu [$ARCH]"
-
-    echo "deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$ARCH] https://packages.broadcom.com/artifactory/saltproject-deb/ stable main" | tee /etc/apt/sources.list.d/salt.list > /dev/null
-    
-    # Pin Priority (Force version 3007 to avoid unexpected upgrades)
-    cat <<EOF > /etc/apt/preferences.d/salt-pin-1001
-Package: salt-*
-Pin: version 3007.*
-Pin-Priority: 1001
-EOF
-    $PKG_MGR update -y
-    INSTALL_CMD="$PKG_MGR install -y salt-minion"
-
-
-elif command -v dnf &> /dev/null || command -v yum &> /dev/null; then
-    if command -v dnf &> /dev/null; then PKG_MGR="dnf"; else PKG_MGR="yum"; fi
-    
-    if command -v update-crypto-policies &> /dev/null; then
-        log "Enabling SHA-1 Crypto Policy for Salt compatibility..."
-        update-crypto-policies --set DEFAULT:SHA1
+    # Also allow hostnames
+    if [[ $ip =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$ ]]; then
+        return 0
     fi
-    
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        # For Fedora, we treat it like RHEL 9 for the repo URL usually, or detect specific version
+    return 1
+}
+
+detect_package_manager() {
+    if command -v apt-get &> /dev/null; then
+        echo "apt"
+    elif command -v dnf &> /dev/null; then
+        echo "dnf"
+    elif command -v yum &> /dev/null; then
+        echo "yum"
+    else
+        echo "unknown"
+    fi
+}
+
+get_el_version() {
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
         if [[ "$ID" == "fedora" ]]; then
-             EL_VERSION="9" 
+            echo "9"  # Fedora uses RHEL 9 compatible repos
         else
-             EL_VERSION=$(echo $VERSION_ID | cut -d. -f1)
+            echo "${VERSION_ID%%.*}"
         fi
     else
-        EL_VERSION=$(rpm -E %rhel)
+        rpm -E %rhel 2>/dev/null || echo "9"
+    fi
+}
+
+# --- Installation Functions ---
+setup_crypto_policy() {
+    local pkg_mgr="$1"
+    
+    log "Configuring crypto policy for SHA-1 compatibility..."
+    
+    case "$pkg_mgr" in
+        apt)
+            if [[ -f /etc/ssl/openssl.cnf ]] && grep -q "SECLEVEL=2" /etc/ssl/openssl.cnf; then
+                log "Lowering OpenSSL Security Level to allow SHA-1..."
+                sed -i 's/SECLEVEL=2/SECLEVEL=1/g' /etc/ssl/openssl.cnf
+            fi
+            ;;
+        dnf|yum)
+            if command -v update-crypto-policies &> /dev/null; then
+                log "Setting crypto policy to DEFAULT:SHA1..."
+                update-crypto-policies --set DEFAULT:SHA1
+            fi
+            ;;
+    esac
+}
+
+setup_apt_repo() {
+    log "Setting up Salt repository for Debian/Ubuntu..."
+    
+    apt-get update -qq
+    apt-get install -y -qq curl gnupg2 > /dev/null
+    
+    mkdir -p /etc/apt/keyrings
+    rm -f /etc/apt/keyrings/salt-archive-keyring.pgp
+    
+    retry_command \
+        "curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null" \
+        "Download Salt GPG key"
+    
+    local arch
+    arch=$(dpkg --print-architecture)
+    
+    cat > /etc/apt/sources.list.d/salt.list <<EOF
+deb [signed-by=/etc/apt/keyrings/salt-archive-keyring.pgp arch=$arch] https://packages.broadcom.com/artifactory/saltproject-deb/ stable main
+EOF
+
+    cat > /etc/apt/preferences.d/salt-pin-1001 <<EOF
+Package: salt-*
+Pin: version ${SALT_VERSION}.*
+Pin-Priority: 1001
+EOF
+
+    apt-get update -qq
+}
+
+setup_rpm_repo() {
+    local pkg_mgr="$1"
+    local el_version
+    el_version=$(get_el_version)
+    
+    log "Setting up Salt repository for RHEL/Fedora (EL${el_version})..."
+    
+    # Clean up old repos
+    rpm -e --nodeps salt-repo 2>/dev/null || true
+    rm -f /etc/yum.repos.d/salt.repo
+    
+    local repo_url="https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${el_version}/x86_64/${SALT_VERSION}/salt-repo-${SALT_VERSION}-${el_version}.noarch.rpm"
+    
+    retry_command \
+        "$pkg_mgr install -y '$repo_url'" \
+        "Install Salt repository RPM"
+    
+    $pkg_mgr clean expire-cache
+}
+
+install_salt_minion() {
+    local pkg_mgr="$1"
+    
+    log "Installing Salt Minion..."
+    
+    case "$pkg_mgr" in
+        apt)
+            retry_command \
+                "apt-get install -y -qq salt-minion" \
+                "Install salt-minion package"
+            ;;
+        dnf|yum)
+            retry_command \
+                "$pkg_mgr install -y salt-minion" \
+                "Install salt-minion package"
+            ;;
+    esac
+}
+
+configure_minion() {
+    local master_ip="$1"
+    local minion_id="$2"
+    
+    log "Configuring Salt Minion..."
+    
+    # Stop service for configuration
+    systemctl stop salt-minion 2>/dev/null || true
+    
+    # Create config directory
+    mkdir -p /etc/salt/minion.d
+    
+    # Write master configuration
+    cat > /etc/salt/minion.d/master.conf <<EOF
+master: $master_ip
+EOF
+
+    # Set minion ID
+    echo "$minion_id" > /etc/salt/minion_id
+    
+    # Remove any stale keys from previous installations
+    rm -f /etc/salt/pki/minion/minion_master.pub 2>/dev/null || true
+    
+    log "Configuration complete: master=$master_ip, id=$minion_id"
+}
+
+start_minion_service() {
+    log "Starting Salt Minion service..."
+    
+    systemctl daemon-reload
+    systemctl enable salt-minion
+    systemctl start salt-minion
+    
+    # Wait for service to stabilize
+    sleep 3
+    
+    # Debian/Ubuntu often need a restart to properly connect
+    if [[ -f /etc/debian_version ]]; then
+        log "Performing stability restart (Debian/Ubuntu fix)..."
+        sleep 2
+        systemctl restart salt-minion
     fi
     
-    log "Detected System: RHEL/Fedora/EL Version $EL_VERSION"
-
-
-    REPO_RPM_URL="https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${EL_VERSION}/x86_64/3007/salt-repo-3007-${EL_VERSION}.noarch.rpm"
+    # Verify service is running
+    local attempts=0
+    while [[ $attempts -lt 5 ]]; do
+        if systemctl is-active --quiet salt-minion; then
+            log "Salt Minion service is running."
+            return 0
+        fi
+        ((attempts++))
+        sleep 2
+    done
     
-    log "Installing Repo RPM..."
-    $PKG_MGR install -y "$REPO_RPM_URL" || log "Repo RPM might already be installed."
+    warn "Service may not be running properly. Check with: systemctl status salt-minion"
+    return 1
+}
 
-    $PKG_MGR clean expire-cache
-    INSTALL_CMD="$PKG_MGR install -y salt-minion"
-
-else
-    error "Unsupported OS. Only apt (Debian/Ubuntu) and dnf/yum (RHEL/Fedora) are supported."
-fi
-
-log "Installing Salt Minion package..."
-eval $INSTALL_CMD || error "Failed to install salt-minion."
-
-# Ubuntu Fix. Yay. 
-log "Stopping service for configuration..."
-systemctl stop salt-minion
-systemctl disable salt-minion 2>/dev/null || true
-
-log "Configuring /etc/salt/minion.d/master.conf..."
-mkdir -p /etc/salt/minion.d
-# Revert to standard config (no hash_type enforcement) since we are allowing SHA1 at OS level
-echo "master: $SALT_MASTER_IP" > /etc/salt/minion.d/master.conf
-
-log "Setting Minion ID to $MINION_ID..."
-echo "$MINION_ID" > /etc/salt/minion_id
-
-log "Enabling and Starting Salt Minion..."
-systemctl enable salt-minion
-systemctl start salt-minion
-
-log "Waiting for initialization (5s)..."
-sleep 5
-
-# Ubuntu/Debian often fail DNS resolution or binding on the very first start.
-# This forced restart clears that state and ensures a clean connection.
-log "Performing stability restart..."
-systemctl restart salt-minion
-
-if systemctl is-active --quiet salt-minion; then
-    log "Service is ACTIVE."
-else
-    warn "Service NOT active. Retrying one last time..."
-    sleep 5
-    systemctl restart salt-minion
-    if systemctl is-active --quiet salt-minion; then
-        log "Service is ACTIVE after retry."
-    else
-        warn "Service failed to start. Run 'systemctl status salt-minion' to debug."
+copy_tools() {
+    local tools_path="$1"
+    
+    if [[ -z "$tools_path" ]]; then
+        debug "No tools path specified, skipping tools copy"
+        return 0
     fi
-fi
-
-if [ -d "../Tools" ]; then
-    log "Copying tools to /etc/runtl..."
+    
+    if [[ ! -d "$tools_path" ]]; then
+        warn "Tools directory not found: $tools_path"
+        return 0
+    fi
+    
+    log "Copying tools from $tools_path to /etc/runtl..."
     mkdir -p /etc/runtl
-    cp -r ../Tools/* /etc/runtl/
-else
-    log "Tools directory not found, skipping copy." 
-fi
+    cp -r "$tools_path"/* /etc/runtl/
+    chmod -R 750 /etc/runtl
+}
 
-echo ""
-echo "#####################################################"
-echo "# MINION SETUP COMPLETE" 
-echo "#####################################################"
-echo "Minion ID: $MINION_ID"
-echo "Master IP: $SALT_MASTER_IP"
-echo "Crypto:    SHA-1 Permitted"
-echo "Status:    $(systemctl is-active salt-minion)"
-echo "#####################################################"
+# --- Parse Arguments ---
+usage() {
+    cat <<EOF
+Usage: $0 [OPTIONS]
+
+Options:
+    -m, --master IP     Salt Master IP address (default: $DEFAULT_MASTER_IP)
+    -i, --id ID         Minion ID (default: system hostname)
+    -t, --tools PATH    Path to tools directory to copy to /etc/runtl
+    -d, --debug         Enable debug output
+    -h, --help          Show this help message
+
+Examples:
+    $0                                    # Interactive mode
+    $0 -m 10.0.0.1 -i webserver01        # Non-interactive
+    $0 -m 10.0.0.1 -t /opt/tools         # With tools copy
+EOF
+    exit 0
+}
+
+SALT_MASTER_IP=""
+MINION_ID=""
+TOOLS_PATH=""
+INTERACTIVE=true
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -m|--master)
+            SALT_MASTER_IP="$2"
+            INTERACTIVE=false
+            shift 2
+            ;;
+        -i|--id)
+            MINION_ID="$2"
+            shift 2
+            ;;
+        -t|--tools)
+            TOOLS_PATH="$2"
+            shift 2
+            ;;
+        -d|--debug)
+            DEBUG=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            die "Unknown option: $1. Use -h for help."
+            ;;
+    esac
+done
+
+# --- Main Execution ---
+main() {
+    echo "#####################################################"
+    echo "# Salt Minion Installer - Hardened Edition          #"
+    echo "#####################################################"
+    echo
+    
+    # Root check
+    if [[ $EUID -ne 0 ]]; then
+        die "This script must be run as root. Try: sudo $0"
+    fi
+    
+    # Detect package manager
+    local pkg_mgr
+    pkg_mgr=$(detect_package_manager)
+    if [[ "$pkg_mgr" == "unknown" ]]; then
+        die "No supported package manager found (apt/dnf/yum required)"
+    fi
+    log "Detected package manager: $pkg_mgr"
+    
+    # Get master IP
+    if [[ -z "$SALT_MASTER_IP" ]]; then
+        if [[ "$INTERACTIVE" == "true" ]]; then
+            read -rp "Enter Salt Master IP [Default: $DEFAULT_MASTER_IP]: " SALT_MASTER_IP
+        fi
+        SALT_MASTER_IP="${SALT_MASTER_IP:-$DEFAULT_MASTER_IP}"
+    fi
+    
+    if ! validate_ip "$SALT_MASTER_IP"; then
+        die "Invalid IP address or hostname: $SALT_MASTER_IP"
+    fi
+    log "Master IP: $SALT_MASTER_IP"
+    
+    # Get minion ID
+    if [[ -z "$MINION_ID" ]]; then
+        if [[ "$INTERACTIVE" == "true" ]]; then
+            read -rp "Enter Minion ID [Default: $(hostname -f)]: " MINION_ID
+        fi
+        MINION_ID="${MINION_ID:-$(hostname -f)}"
+    fi
+    log "Minion ID: $MINION_ID"
+    
+    # Check for existing installation
+    if systemctl is-active --quiet salt-minion; then
+        warn "Salt Minion is already running. Stopping for reconfiguration..."
+        systemctl stop salt-minion
+    fi
+    
+    # Setup crypto policy
+    setup_crypto_policy "$pkg_mgr"
+    
+    # Setup repository
+    case "$pkg_mgr" in
+        apt)
+            setup_apt_repo
+            ;;
+        dnf|yum)
+            setup_rpm_repo "$pkg_mgr"
+            ;;
+    esac
+    
+    # Install minion
+    install_salt_minion "$pkg_mgr"
+    
+    # Configure minion
+    configure_minion "$SALT_MASTER_IP" "$MINION_ID"
+    
+    # Copy tools if specified
+    copy_tools "$TOOLS_PATH"
+    
+    # Start service
+    start_minion_service
+    
+    # Summary
+    echo
+    echo "#####################################################"
+    echo "# MINION SETUP COMPLETE                             #"
+    echo "#####################################################"
+    echo "Minion ID:  $MINION_ID"
+    echo "Master IP:  $SALT_MASTER_IP"
+    echo "Crypto:     SHA-1 Permitted"
+    echo "Status:     $(systemctl is-active salt-minion 2>/dev/null || echo 'unknown')"
+    echo "#####################################################"
+    echo
+    echo "Next step: Accept the key on the master with:"
+    echo "  salt-key -a '$MINION_ID'"
+}
+
+main "$@"

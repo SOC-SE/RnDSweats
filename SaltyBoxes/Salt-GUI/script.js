@@ -1,40 +1,27 @@
 /**
- * Salt GUI Frontend - Enhanced Competition Edition
+ * Salt GUI Frontend - Competition Edition
  * 
  * Cross-browser compatible (Chrome, Firefox, Safari, Edge)
- * Enhanced features for competition use
- * 
  * Samuel Brucker 2025-2026
- * Enhanced by Claude
  */
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- Element References ---
     const elements = {
-        // Device list
         deviceList: document.getElementById('device-list'),
         deviceSearch: document.getElementById('device-search'),
         selectAllDevices: document.getElementById('select-all-devices'),
         deselectAllDevices: document.getElementById('deselect-all-devices'),
-        
-        // Script list
         scriptList: document.getElementById('script-list'),
         scriptSearch: document.getElementById('script-search'),
         scriptArgsContainer: document.getElementById('script-args-container'),
-        scriptTypeSelector: document.getElementById('script-type-selector'),
-        
-        // Console
         outputConsole: document.getElementById('output-console'),
         clearConsole: document.getElementById('clear-console'),
         toggleConsole: document.getElementById('toggle-console'),
-        
-        // Status
         notificationBadge: document.querySelector('.notification-badge'),
         minionCounter: document.querySelector('.minion-counter'),
         runningJobsCounter: document.querySelector('.running-scripts-counter'),
         saltStatus: document.getElementById('salt-status'),
-        
-        // Modals
         settingsModal: document.getElementById('settings-modal'),
         settingsIcon: document.getElementById('settings-icon'),
         settingsForm: document.getElementById('settings-form'),
@@ -45,39 +32,29 @@ document.addEventListener('DOMContentLoaded', () => {
         terminalTitle: document.getElementById('terminal-title'),
         scriptViewerModal: document.getElementById('script-viewer-modal'),
         emergencyModal: document.getElementById('emergency-modal'),
-        
-        // Monitoring
         monitoringDeviceSelect: document.getElementById('monitoring-device-select'),
         monitoringViewSelect: document.getElementById('monitoring-view-select'),
         monitoringContent: document.getElementById('monitoring-content'),
-        
-        // Services
         serviceDeviceSelect: document.getElementById('service-device-select'),
         serviceName: document.getElementById('service-name'),
         serviceOutput: document.getElementById('service-output'),
-        
-        // Playbooks
         playbooksList: document.getElementById('playbooks-list'),
         playbookTitle: document.getElementById('playbook-title'),
         playbookDescription: document.getElementById('playbook-description'),
         playbookSteps: document.getElementById('playbook-steps'),
         playbookTargets: document.getElementById('playbook-targets'),
         playbookResults: document.getElementById('playbook-results'),
-        
-        // Audit
         auditLogBody: document.getElementById('audit-log-body'),
-        
-        // Quick terminal
         quickTerminalDevice: document.getElementById('quick-terminal-device'),
         quickCommand: document.getElementById('quick-command'),
         quickOutput: document.getElementById('quick-output'),
-        
-        // Context menu
         contextMenu: document.getElementById('custom-script-context-menu')
     };
 
     // --- State ---
-    let proxyUrl = 'http://localhost:3000';
+    // CRITICAL: Use window.location.origin to get the actual server address
+    // This ensures the client talks to the server it loaded from, not localhost
+    let proxyUrl = window.location.origin;
     let currentArgSpec = null;
     let selectedPlaybook = null;
     let commandHistory = [];
@@ -91,27 +68,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const timestamp = new Date().toLocaleTimeString();
         const logEntry = document.createElement('div');
         logEntry.classList.add('log-entry', `log-${type}`);
-        
-        // Sanitize HTML in message except for <pre> tags
         const sanitizedMessage = message.replace(/<(?!pre|\/pre)[^>]*>/g, '');
         logEntry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${sanitizedMessage}`;
-        
         elements.outputConsole.appendChild(logEntry);
         elements.outputConsole.scrollTop = elements.outputConsole.scrollHeight;
     }
 
     function showNotification(message, type = 'info') {
-        // Create a toast notification for important messages
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.textContent = message;
         document.body.appendChild(toast);
-        
-        // Trigger animation
-        requestAnimationFrame(() => {
-            toast.classList.add('show');
-        });
-        
+        requestAnimationFrame(() => toast.classList.add('show'));
         setTimeout(() => {
             toast.classList.remove('show');
             setTimeout(() => toast.remove(), 300);
@@ -150,12 +118,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchWithTimeout(url, options = {}, timeout = 30000) {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeout);
-        
         try {
-            const response = await fetch(url, {
-                ...options,
-                signal: controller.signal
-            });
+            const response = await fetch(url, { ...options, signal: controller.signal });
             clearTimeout(id);
             return response;
         } catch (error) {
@@ -174,85 +138,83 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('username').value = settings.username || '';
             document.getElementById('password').value = settings.password || '';
             document.getElementById('eauth').value = settings.eauth || 'pam';
-            document.getElementById('enableAuth').checked = settings.enableAuth || false;
-            document.getElementById('authPassword').value = settings.authPassword || '';
-            document.getElementById('alertWebhook').value = settings.alertWebhook || '';
             
-            proxyUrl = settings.proxyURL || proxyUrl;
+            if (document.getElementById('enableAuth')) {
+                document.getElementById('enableAuth').checked = settings.enableAuth || false;
+            }
+            if (document.getElementById('authPassword')) {
+                document.getElementById('authPassword').value = settings.authPassword || '';
+            }
+            if (document.getElementById('alertWebhook')) {
+                document.getElementById('alertWebhook').value = settings.alertWebhook || '';
+            }
         } catch (error) {
-            console.error('Error loading settings:', error);
-            logToConsole('Error loading settings. Using defaults.', 'error');
+            logToConsole('Error loading settings. Using defaults.', 'warn');
         }
     }
 
-    async function saveSettings(event) {
-        event.preventDefault();
-        const formData = new FormData(elements.settingsForm);
-        const settings = Object.fromEntries(formData.entries());
-        settings.enableAuth = document.getElementById('enableAuth').checked;
+    async function saveSettings(e) {
+        e.preventDefault();
+        const settings = {
+            proxyURL: document.getElementById('proxyURL').value,
+            saltAPIUrl: document.getElementById('saltAPIUrl').value,
+            username: document.getElementById('username').value,
+            password: document.getElementById('password').value,
+            eauth: document.getElementById('eauth').value
+        };
+        
+        if (document.getElementById('enableAuth')) {
+            settings.enableAuth = document.getElementById('enableAuth').checked;
+        }
+        if (document.getElementById('authPassword')) {
+            settings.authPassword = document.getElementById('authPassword').value;
+        }
+        if (document.getElementById('alertWebhook')) {
+            settings.alertWebhook = document.getElementById('alertWebhook').value;
+        }
 
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/settings`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings),
+                body: JSON.stringify(settings)
             });
             
             if (response.ok) {
                 logToConsole('Settings saved successfully.', 'success');
-                showNotification('Settings saved!', 'success');
                 elements.settingsModal.style.display = 'none';
-                proxyUrl = settings.proxyURL || proxyUrl;
             } else {
-                const error = await response.json();
-                throw new Error(error.message);
+                throw new Error('Failed to save');
             }
         } catch (error) {
-            console.error('Error saving settings:', error);
-            logToConsole(`Error saving settings: ${error.message}`, 'error');
+            logToConsole('Error saving settings: ' + error.message, 'error');
         }
     }
 
+    // --- Health Check ---
+
     async function checkHealth() {
-        const statusDot = elements.saltStatus.querySelector('.status-dot');
-        const statusText = elements.saltStatus.querySelector('.status-text');
-        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/health`, {}, 5000);
             const health = await response.json();
             
+            const statusDot = elements.saltStatus.querySelector('.status-dot');
+            const statusText = elements.saltStatus.querySelector('.status-text');
+            
             if (health.saltApi === 'ok') {
                 statusDot.className = 'status-dot status-ok';
                 statusText.textContent = 'Connected';
-                
-                // Update minion counts
-                const up = health.minionStatus?.up?.length || 0;
-                const down = health.minionStatus?.down?.length || 0;
-                elements.minionCounter.textContent = `Devices: ${up}/${up + down}`;
             } else {
                 statusDot.className = 'status-dot status-error';
-                statusText.textContent = 'Salt API Error';
+                statusText.textContent = 'API Error';
             }
             
-            // Update job count
             elements.runningJobsCounter.textContent = `Jobs: ${health.activeJobs || 0}`;
         } catch (error) {
+            const statusDot = elements.saltStatus.querySelector('.status-dot');
+            const statusText = elements.saltStatus.querySelector('.status-text');
             statusDot.className = 'status-dot status-error';
             statusText.textContent = 'Disconnected';
-        }
-    }
-
-    async function checkUnacceptedKeys() {
-        try {
-            const response = await fetchWithTimeout(`${proxyUrl}/keys`);
-            if (!response.ok) return;
-            
-            const data = await response.json();
-            const keys = data.return[0]?.data?.return || {};
-            const unacceptedKeys = keys.minions_pre || [];
-            updateNotificationBadge(unacceptedKeys.length);
-        } catch (error) {
-            console.error('Error checking keys:', error);
         }
     }
 
@@ -260,676 +222,564 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function fetchAvailableDevices() {
         logToConsole('Fetching available devices...');
-        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    client: 'local',
-                    tgt: '*',
-                    fun: 'grains.item',
-                    arg: ['os', 'kernel', 'ip4_interfaces']
-                })
+                body: JSON.stringify({ client: 'local', tgt: '*', fun: 'test.ping' })
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || response.statusText);
-            }
-
+            
             const data = await response.json();
-            const minions = (data.return && typeof data.return[0] === 'object') ? data.return[0] : {};
+            const devices = data.return ? data.return[0] : {};
             
-            deviceCache = minions;
-            const activeMinions = Object.keys(minions);
-            
-            logToConsole(`Found ${activeMinions.length} active devices.`, 'success');
-            updateDeviceList(minions);
-            populateDeviceSelects(minions);
-            
-            // Fetch scripts
-            const scriptType = document.querySelector('input[name="script-type"]:checked').value;
-            if (activeMinions.length > 0) {
-                if (scriptType === 'salt') {
-                    fetchAvailableScripts(activeMinions[0]);
-                } else {
-                    fetchCustomScripts();
-                }
-            }
+            deviceCache = devices;
+            renderDeviceList(devices);
+            updateDeviceSelects(Object.keys(devices));
+            elements.minionCounter.textContent = `Devices: ${Object.keys(devices).length}`;
+            logToConsole(`Found ${Object.keys(devices).length} device(s).`, 'success');
         } catch (error) {
-            console.error('Fetch Devices Error:', error);
-            logToConsole(`Error fetching devices: ${error.message}`, 'error');
+            logToConsole('Error fetching devices: ' + error.message, 'error');
+            elements.deviceList.innerHTML = '<li class="disabled">Error loading devices</li>';
         }
     }
 
-    function updateDeviceList(minions) {
+    function renderDeviceList(devices, filter = '') {
         elements.deviceList.innerHTML = '';
-        const deviceNames = Object.keys(minions);
-
+        const deviceNames = Object.keys(devices).filter(name => 
+            name.toLowerCase().includes(filter.toLowerCase())
+        );
+        
         if (deviceNames.length === 0) {
-            const li = document.createElement('li');
-            li.textContent = 'No active devices found';
-            li.classList.add('disabled');
-            elements.deviceList.appendChild(li);
+            elements.deviceList.innerHTML = '<li class="disabled">No devices found</li>';
             return;
         }
-
-        deviceNames.sort().forEach(deviceName => {
-            const info = minions[deviceName] || {};
-            const os = info.os || 'Unknown';
-            const kernel = info.kernel || '';
-            
+        
+        deviceNames.forEach(name => {
             const li = document.createElement('li');
-            li.innerHTML = `
-                <span class="device-name">${escapeHtml(deviceName)}</span>
-                <span class="device-info">${escapeHtml(os)} (${escapeHtml(kernel)})</span>
-            `;
-            li.dataset.deviceName = deviceName;
-            li.dataset.os = os;
-            li.dataset.kernel = kernel;
+            li.textContent = name;
+            li.dataset.device = name;
+            li.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    li.classList.toggle('selected');
+                } else {
+                    elements.deviceList.querySelectorAll('li').forEach(el => el.classList.remove('selected'));
+                    li.classList.add('selected');
+                }
+            });
             elements.deviceList.appendChild(li);
         });
     }
 
-    function populateDeviceSelects(minions) {
-        const deviceNames = Object.keys(minions).sort();
+    function updateDeviceSelects(devices) {
         const selects = [
-            elements.monitoringDeviceSelect,
-            elements.serviceDeviceSelect,
             elements.quickTerminalDevice,
-            document.getElementById('playbook-targets'),
-            document.getElementById('emergency-targets')
+            elements.monitoringDeviceSelect,
+            elements.serviceDeviceSelect
         ];
-
+        
         selects.forEach(select => {
             if (!select) return;
-            
-            const isMultiple = select.multiple;
             const currentValue = select.value;
-            
-            // Clear existing options (keep first if it's a placeholder)
-            while (select.options.length > (isMultiple ? 0 : 1)) {
-                select.remove(isMultiple ? 0 : 1);
-            }
-            
-            deviceNames.forEach(deviceName => {
+            select.innerHTML = '<option value="">Select device...</option>';
+            devices.forEach(device => {
                 const option = document.createElement('option');
-                option.value = deviceName;
-                option.textContent = deviceName;
+                option.value = device;
+                option.textContent = device;
                 select.appendChild(option);
             });
-            
-            // Restore selection if possible
-            if (currentValue && !isMultiple) {
+            if (currentValue && devices.includes(currentValue)) {
                 select.value = currentValue;
             }
         });
+        
+        // Update playbook targets (multi-select)
+        if (elements.playbookTargets) {
+            elements.playbookTargets.innerHTML = '';
+            devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device;
+                option.textContent = device;
+                elements.playbookTargets.appendChild(option);
+            });
+        }
+        
+        // Update emergency modal targets
+        const emergencyTargets = document.getElementById('emergency-targets');
+        if (emergencyTargets) {
+            emergencyTargets.innerHTML = '';
+            devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device;
+                option.textContent = device;
+                emergencyTargets.appendChild(option);
+            });
+        }
+    }
+
+    function getSelectedDevices() {
+        const selected = elements.deviceList.querySelectorAll('li.selected');
+        return Array.from(selected).map(li => li.dataset.device);
     }
 
     // --- Script Management ---
 
-    async function fetchAvailableScripts(minionId) {
-        logToConsole(`Fetching Salt functions from ${minionId}...`);
-        
+    async function fetchCustomScripts() {
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/custom-scripts`);
+            const scripts = await response.json();
+            renderScriptList(scripts);
+        } catch (error) {
+            logToConsole('Error fetching scripts: ' + error.message, 'error');
+        }
+    }
+
+    async function fetchSaltFunctions() {
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    client: 'local',
-                    tgt: minionId,
-                    fun: 'sys.list_functions'
-                })
+                body: JSON.stringify({ client: 'local', tgt: '*', fun: 'sys.list_functions' })
             });
-
-            if (!response.ok) throw new Error('API request failed');
-
+            
             const data = await response.json();
-            const scripts = data.return?.[0]?.[minionId] || [];
-
-            if (scripts.length > 0) {
-                logToConsole(`Fetched ${scripts.length} Salt functions.`, 'success');
-                updateScriptList(scripts);
-            } else {
-                logToConsole('No Salt functions returned.', 'warn');
-                updateScriptList([]);
-            }
+            const functions = data.return ? Object.values(data.return[0])[0] || [] : [];
+            renderScriptList(functions, true);
         } catch (error) {
-            console.error('Fetch Scripts Error:', error);
-            logToConsole(`Error fetching scripts: ${error.message}`, 'error');
+            logToConsole('Error fetching Salt functions: ' + error.message, 'error');
         }
     }
 
-    async function fetchCustomScripts() {
-        logToConsole('Fetching custom scripts...');
-        
-        try {
-            const response = await fetchWithTimeout(`${proxyUrl}/custom-scripts`);
-            if (!response.ok) throw new Error('API request failed');
-            
-            const scripts = await response.json();
-            
-            if (scripts.length > 0) {
-                logToConsole(`Fetched ${scripts.length} custom scripts.`, 'success');
-                updateScriptList(scripts);
-            } else {
-                logToConsole('No custom scripts found.', 'warn');
-                updateScriptList([]);
-            }
-        } catch (error) {
-            console.error('Fetch Custom Scripts Error:', error);
-            logToConsole(`Error fetching custom scripts: ${error.message}`, 'error');
-        }
-    }
-
-    function updateScriptList(scripts) {
+    function renderScriptList(items, isSaltFunctions = false) {
+        const filter = elements.scriptSearch.value.toLowerCase();
         elements.scriptList.innerHTML = '';
-
-        if (scripts.length === 0) {
-            const li = document.createElement('li');
-            li.textContent = 'No scripts found';
-            li.classList.add('disabled');
-            elements.scriptList.appendChild(li);
+        
+        const filtered = items.filter(item => item.toLowerCase().includes(filter));
+        
+        if (filtered.length === 0) {
+            elements.scriptList.innerHTML = '<li class="disabled">No scripts found</li>';
             return;
         }
-
-        scripts.sort().forEach(scriptName => {
+        
+        filtered.forEach(item => {
             const li = document.createElement('li');
-            li.textContent = scriptName;
+            li.textContent = item;
+            li.dataset.script = item;
+            li.dataset.type = isSaltFunctions ? 'salt' : 'custom';
+            li.addEventListener('click', () => {
+                elements.scriptList.querySelectorAll('li').forEach(el => el.classList.remove('selected'));
+                li.classList.add('selected');
+                if (isSaltFunctions) {
+                    fetchArgSpec(item);
+                }
+            });
             elements.scriptList.appendChild(li);
         });
     }
 
-    async function displayScriptArguments(scriptName) {
-        elements.scriptArgsContainer.innerHTML = '';
-        currentArgSpec = null;
-        
-        const firstDevice = elements.deviceList.querySelector('li:not(.disabled)');
-        if (!firstDevice) {
-            logToConsole('No devices available to fetch script documentation.', 'warn');
-            return;
-        }
-        
-        const minionId = firstDevice.dataset.deviceName;
-        logToConsole(`Fetching arguments for ${scriptName}...`);
-        
+    async function fetchArgSpec(functionName) {
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     client: 'local',
-                    tgt: minionId,
+                    tgt: Object.keys(deviceCache)[0] || '*',
                     fun: 'sys.argspec',
-                    arg: [scriptName]
+                    arg: [functionName]
                 })
             });
-
-            if (!response.ok) throw new Error('Failed to fetch argspec');
-
+            
             const data = await response.json();
-            const argspec = data.return?.[0]?.[minionId]?.[scriptName];
-            currentArgSpec = argspec;
-
-            if (argspec && Object.keys(argspec).length > 0) {
-                const posArgs = argspec.args || [];
-                const keywordArgs = Object.keys(argspec.kwargs || {});
-                const allArgs = [...posArgs, ...keywordArgs];
-                
-                const ignoredArgs = new Set([
-                    'timeout', 'job_id', 'expr_form', 'tgt_type', 'tgt',
-                    'kwarg', 'fun', 'client', 'arg', 'user', 'password', 'eauth'
-                ]);
-                
-                const filteredArgs = allArgs.filter(arg => 
-                    arg && !ignoredArgs.has(arg.split('=')[0].trim())
-                );
-
-                if (filteredArgs.length > 0) {
-                    logToConsole(`Found ${filteredArgs.length} arguments for ${scriptName}.`, 'info');
-                    
-                    const formHtml = filteredArgs.map(arg => {
-                        const isKwarg = argspec.kwargs && arg in argspec.kwargs;
-                        const argName = arg.split('=')[0].trim();
-                        const defaultValue = isKwarg ? argspec.kwargs[arg] : '';
-                        
-                        return `
-                            <div class="script-arg-item">
-                                <label for="arg-${argName}">${argName}${isKwarg ? ' (optional)' : ''}</label>
-                                <input type="text" id="arg-${argName}" name="${argName}" 
-                                       placeholder="${defaultValue || 'Enter value'}">
-                            </div>
-                        `;
-                    }).join('');
-                    
-                    elements.scriptArgsContainer.innerHTML = formHtml;
-                }
-            }
+            const argSpec = data.return ? Object.values(data.return[0])[0] : null;
+            currentArgSpec = argSpec;
+            renderArgSpec(argSpec, functionName);
         } catch (error) {
-            console.error('Fetch Argspec Error:', error);
-            logToConsole(`Could not fetch arguments: ${error.message}`, 'warn');
+            logToConsole('Error fetching argument spec: ' + error.message, 'error');
         }
     }
 
-    // --- Script Deployment ---
+    function renderArgSpec(argSpec, functionName) {
+        elements.scriptArgsContainer.innerHTML = '';
+        
+        if (!argSpec || !argSpec[functionName]) return;
+        
+        const spec = argSpec[functionName];
+        const args = spec.args || [];
+        const defaults = spec.defaults || [];
+        
+        args.forEach((arg, index) => {
+            if (arg === 'self') return;
+            
+            const defaultIndex = index - (args.length - defaults.length);
+            const defaultValue = defaultIndex >= 0 ? defaults[defaultIndex] : '';
+            
+            const div = document.createElement('div');
+            div.className = 'script-arg-item';
+            div.innerHTML = `
+                <label for="arg-${arg}">${arg}</label>
+                <input type="text" id="arg-${arg}" name="${arg}" value="${defaultValue || ''}" placeholder="${arg}">
+            `;
+            elements.scriptArgsContainer.appendChild(div);
+        });
+    }
 
-    async function deployScripts() {
-        const selectedDevices = [...elements.deviceList.querySelectorAll('.selected')]
-            .map(item => item.dataset.deviceName);
-        const selectedScriptItems = [...elements.scriptList.querySelectorAll('.selected')];
-        const manualArgsInput = document.getElementById('manual-args');
-        const appendCommandInput = document.getElementById('append-command');
-        const errorMessage = document.getElementById('error-message');
+    // --- Deployment ---
 
-        errorMessage.textContent = '';
-
-        if (selectedDevices.length === 0) {
-            errorMessage.textContent = 'Please select at least one device.';
+    async function deployScript() {
+        const devices = getSelectedDevices();
+        const selectedScript = elements.scriptList.querySelector('li.selected');
+        
+        if (devices.length === 0) {
             logToConsole('Please select at least one device.', 'warn');
             return;
         }
-
-        if (selectedScriptItems.length === 0) {
-            errorMessage.textContent = 'Please select at least one script.';
-            logToConsole('Please select at least one script to deploy.', 'warn');
-            return;
-        }
-
-        const scriptType = document.querySelector('input[name="script-type"]:checked').value;
-        const appendCommand = appendCommandInput.value.trim();
-
-        for (const scriptItem of selectedScriptItems) {
-            const scriptName = scriptItem.textContent;
-            let payload;
-            let saltArgs = [];
-            let saltKwargs = {};
-
-            // Parse arguments
-            if (manualArgsInput.value.trim() !== '') {
-                saltArgs = manualArgsInput.value.trim().split(',').map(s => s.trim()).filter(s => s);
-            } else if (selectedScriptItems.length === 1) {
-                const argInputs = elements.scriptArgsContainer.querySelectorAll('input');
-                argInputs.forEach(input => {
-                    if (input.value) {
-                        if (currentArgSpec?.args?.includes(input.name)) {
-                            saltArgs.push(input.value);
-                        } else {
-                            saltKwargs[input.name] = input.value;
-                        }
-                    }
-                });
-            }
-
-            // Build payload
-            if (scriptType === 'custom') {
-                const customArgsString = saltArgs.join(' ');
-                
-                if (appendCommand) {
-                    const command = `(salt-call --local cp.get_url salt://${scriptName} - | sh -s -- ${customArgsString}) ${appendCommand}`.trim();
-                    payload = {
-                        client: 'local',
-                        tgt: selectedDevices,
-                        tgt_type: 'list',
-                        fun: 'cmd.run',
-                        arg: [command]
-                    };
-                } else {
-                    payload = {
-                        client: 'local',
-                        tgt: selectedDevices,
-                        tgt_type: 'list',
-                        fun: 'cmd.script',
-                        arg: [`salt://${scriptName}`, customArgsString]
-                    };
-                }
-            } else {
-                if (appendCommand) {
-                    const argsString = saltArgs.map(arg => `'${arg}'`).join(' ');
-                    const kwargsString = Object.entries(saltKwargs)
-                        .map(([key, value]) => `${key}='${value}'`).join(' ');
-                    const command = `salt-call --local ${scriptName} ${argsString} ${kwargsString} ${appendCommand}`.trim();
-                    
-                    payload = {
-                        client: 'local',
-                        tgt: selectedDevices,
-                        tgt_type: 'list',
-                        fun: 'cmd.run',
-                        arg: [command]
-                    };
-                } else {
-                    payload = {
-                        client: 'local',
-                        tgt: selectedDevices,
-                        tgt_type: 'list',
-                        fun: scriptName,
-                    };
-                    if (saltArgs.length > 0) payload.arg = saltArgs;
-                    if (Object.keys(saltKwargs).length > 0) payload.kwarg = saltKwargs;
-                }
-            }
-
-            logToConsole(`Deploying ${scriptName} to ${selectedDevices.join(', ')}...`, 'info');
-
-            try {
-                const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || response.statusText);
-                }
-
-                const data = await response.json();
-                logToConsole(`Result for ${scriptName}: <pre>${JSON.stringify(data.return[0], null, 2)}</pre>`, 'success');
-                showNotification(`${scriptName} deployed successfully`, 'success');
-            } catch (error) {
-                console.error(`Error executing ${scriptName}:`, error);
-                logToConsole(`Error executing ${scriptName}: ${error.message}`, 'error');
-                showNotification(`Failed to deploy ${scriptName}`, 'error');
-            }
-        }
-    }
-
-    // --- Selection Handling ---
-
-    function handleSelection(list, event) {
-        const item = event.target.closest('li');
-        if (!item || item.classList.contains('disabled')) return;
-
-        if (!event.ctrlKey && !event.metaKey) {
-            list.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
-        }
-        item.classList.toggle('selected');
-
-        if (list.id === 'script-list') {
-            const selectedScripts = list.querySelectorAll('.selected');
-            const scriptType = document.querySelector('input[name="script-type"]:checked').value;
-
-            document.getElementById('manual-args').value = '';
-            document.getElementById('append-command').value = '';
-
-            if (selectedScripts.length === 1 && scriptType === 'salt') {
-                elements.scriptArgsContainer.style.display = 'block';
-                displayScriptArguments(selectedScripts[0].textContent);
-            } else {
-                elements.scriptArgsContainer.innerHTML = '';
-                elements.scriptArgsContainer.style.display = 'none';
-                currentArgSpec = null;
-            }
-        }
-    }
-
-    // --- Terminal Functions ---
-
-    function openTerminal() {
-        const deviceId = elements.quickTerminalDevice.value || elements.monitoringDeviceSelect.value;
-        if (!deviceId) {
-            showNotification('Please select a device first', 'warn');
-            return;
-        }
-
-        elements.terminalTitle.textContent = `📺 Terminal: ${deviceId}`;
-        elements.terminalOutput.innerHTML = `<div class="terminal-welcome">Connected to ${escapeHtml(deviceId)}\nType commands below. Use Ctrl+L to clear.\n${'─'.repeat(50)}</div>`;
-        elements.terminalCommandInput.value = '';
-        elements.terminalModal.style.display = 'block';
-        elements.terminalModal.dataset.deviceId = deviceId;
         
-        // Focus input after modal animation
-        setTimeout(() => elements.terminalCommandInput.focus(), 100);
-    }
-
-    async function executeTerminalCommand(event) {
-        // Handle special keys
-        if (event.key === 'ArrowUp') {
-            event.preventDefault();
-            if (historyIndex < commandHistory.length - 1) {
-                historyIndex++;
-                elements.terminalCommandInput.value = commandHistory[commandHistory.length - 1 - historyIndex];
-            }
+        if (!selectedScript) {
+            logToConsole('Please select a script to deploy.', 'warn');
             return;
         }
         
-        if (event.key === 'ArrowDown') {
-            event.preventDefault();
-            if (historyIndex > 0) {
-                historyIndex--;
-                elements.terminalCommandInput.value = commandHistory[commandHistory.length - 1 - historyIndex];
-            } else if (historyIndex === 0) {
-                historyIndex = -1;
-                elements.terminalCommandInput.value = '';
-            }
-            return;
-        }
+        const scriptName = selectedScript.dataset.script;
+        const scriptType = selectedScript.dataset.type;
+        const manualArgs = document.getElementById('manual-args')?.value || '';
+        const appendCmd = document.getElementById('append-command')?.value || '';
         
-        if (event.ctrlKey && event.key === 'l') {
-            event.preventDefault();
-            elements.terminalOutput.innerHTML = '';
-            return;
-        }
+        logToConsole(`Deploying "${scriptName}" to ${devices.length} device(s)...`);
         
-        if (event.key !== 'Enter') return;
-
-        const command = elements.terminalCommandInput.value.trim();
-        const deviceId = elements.terminalModal.dataset.deviceId;
-
-        if (!command || !deviceId) return;
-
-        // Add to history
-        if (commandHistory[commandHistory.length - 1] !== command) {
-            commandHistory.push(command);
-            if (commandHistory.length > 100) commandHistory.shift();
-        }
-        historyIndex = -1;
-
-        // Echo command
-        const echoEntry = document.createElement('div');
-        echoEntry.className = 'terminal-command';
-        echoEntry.innerHTML = `<span class="terminal-prompt">$</span> ${escapeHtml(command)}`;
-        elements.terminalOutput.appendChild(echoEntry);
-        elements.terminalCommandInput.value = '';
-
-        try {
-            const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    client: 'local',
-                    tgt: deviceId,
-                    fun: 'cmd.run',
-                    arg: [command]
-                })
-            });
-
-            const data = await response.json();
-            let result = data.return?.[0]?.[deviceId];
-
-            if (result === null || result === undefined) {
-                result = 'Error: No response from device';
-            } else if (typeof result === 'string' && result.trim() === '') {
-                result = '(command completed with no output)';
-            }
-
-            const resultEntry = document.createElement('div');
-            resultEntry.className = response.ok ? 'terminal-result' : 'terminal-error';
-            resultEntry.textContent = result;
-            elements.terminalOutput.appendChild(resultEntry);
-        } catch (error) {
-            const errorEntry = document.createElement('div');
-            errorEntry.className = 'terminal-error';
-            errorEntry.textContent = `Error: ${error.message}`;
-            elements.terminalOutput.appendChild(errorEntry);
-        }
-
-        elements.terminalOutput.scrollTop = elements.terminalOutput.scrollHeight;
-    }
-
-    // --- Quick Command ---
-
-    async function executeQuickCommand() {
-        const deviceId = elements.quickTerminalDevice.value;
-        const command = elements.quickCommand.value.trim();
-
-        if (!deviceId) {
-            showNotification('Please select a device', 'warn');
-            return;
-        }
-        if (!command) {
-            showNotification('Please enter a command', 'warn');
-            return;
-        }
-
-        elements.quickOutput.innerHTML = '<p class="loading">Executing...</p>';
-
-        try {
-            const response = await fetchWithTimeout(`${proxyUrl}/api/quick-cmd`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target: deviceId, cmd: command })
-            });
-
-            const data = await response.json();
-            const result = data.return?.[0]?.[deviceId] || 'No output';
-            
-            elements.quickOutput.innerHTML = `<pre>${escapeHtml(result)}</pre>`;
-        } catch (error) {
-            elements.quickOutput.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
-        }
-    }
-
-    // --- Monitoring Functions ---
-
-    async function fetchMonitoringData() {
-        const deviceId = elements.monitoringDeviceSelect.value;
-        const view = elements.monitoringViewSelect.value;
-
-        if (!deviceId || !view) {
-            elements.monitoringContent.innerHTML = '<p class="hint">Please select a device and view.</p>';
-            return;
-        }
-
-        elements.monitoringContent.innerHTML = '<p class="loading">Loading...</p>';
-
         let payload;
-        switch (view) {
-            case 'firewall-rules':
-                payload = { client: 'local', tgt: deviceId, fun: 'iptables.get_rules' };
-                break;
-            case 'running-processes':
-                payload = { client: 'local', tgt: deviceId, fun: 'status.procs' };
-                break;
-            case 'network-connections':
-                payload = { client: 'local', tgt: deviceId, fun: 'network.active_tcp' };
-                break;
-            case 'system-info':
-                payload = { client: 'local', tgt: deviceId, fun: 'grains.items' };
-                break;
-            case 'users':
-                payload = { client: 'local', tgt: deviceId, fun: 'user.list_users' };
-                break;
-            case 'services':
-                payload = { client: 'local', tgt: deviceId, fun: 'service.get_all' };
-                break;
-            default:
-                return;
+        
+        if (scriptType === 'salt') {
+            // Salt function
+            const args = [];
+            elements.scriptArgsContainer.querySelectorAll('input').forEach(input => {
+                if (input.value) args.push(input.value);
+            });
+            if (manualArgs) {
+                args.push(...manualArgs.split(',').map(a => a.trim()));
+            }
+            
+            payload = {
+                client: 'local',
+                tgt: devices,
+                tgt_type: 'list',
+                fun: scriptName,
+                arg: args
+            };
+        } else {
+            // Custom script
+            let scriptPath = `salt://${scriptName}`;
+            let cmdArgs = manualArgs;
+            if (appendCmd) {
+                cmdArgs = cmdArgs ? `${cmdArgs} ${appendCmd}` : appendCmd;
+            }
+            
+            payload = {
+                client: 'local',
+                tgt: devices,
+                tgt_type: 'list',
+                fun: 'cmd.script',
+                arg: [scriptPath, cmdArgs].filter(Boolean)
+            };
         }
-
+        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) throw new Error('API request failed');
-
-            const data = await response.json();
-            const result = data.return?.[0]?.[deviceId];
-
-            elements.monitoringContent.innerHTML = `<pre>${JSON.stringify(result, null, 2)}</pre>`;
-            document.getElementById('mon-last-update').textContent = `Last Update: ${new Date().toLocaleTimeString()}`;
-            document.getElementById('mon-device-status').textContent = `Device: ${deviceId}`;
+            }, 120000);
             
-            const deviceInfo = deviceCache[deviceId];
-            if (deviceInfo) {
-                document.getElementById('mon-os').textContent = `OS: ${deviceInfo.os || 'Unknown'}`;
+            const data = await response.json();
+            
+            if (data.return) {
+                Object.entries(data.return[0]).forEach(([device, result]) => {
+                    logToConsole(`[${device}] Result:`, 'info');
+                    if (typeof result === 'object') {
+                        logToConsole(`<pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre>`, 'info');
+                    } else {
+                        logToConsole(`<pre>${escapeHtml(String(result))}</pre>`, 'info');
+                    }
+                });
             }
+            
+            logToConsole('Deployment complete.', 'success');
         } catch (error) {
-            elements.monitoringContent.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+            logToConsole('Deployment error: ' + error.message, 'error');
         }
     }
 
-    // --- Service Management ---
+    // --- Key Management ---
+
+    async function checkUnacceptedKeys() {
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/keys`);
+            const data = await response.json();
+            const keys = data.return ? data.return[0].data.return : {};
+            const unaccepted = keys.minions_pre || [];
+            updateNotificationBadge(unaccepted.length);
+        } catch (error) {
+            logToConsole('Error fetching keys: ' + error.message, 'error');
+        }
+    }
+
+    async function loadKeyLists() {
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/keys`);
+            const data = await response.json();
+            const keys = data.return ? data.return[0].data.return : {};
+            
+            const unacceptedList = document.getElementById('unaccepted-keys-list');
+            const acceptedList = document.getElementById('accepted-keys-list');
+            
+            // Unaccepted keys
+            unacceptedList.innerHTML = '';
+            (keys.minions_pre || []).forEach(key => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <span>${escapeHtml(key)}</span>
+                    <button class="btn btn-small btn-accept" data-key="${escapeHtml(key)}">Accept</button>
+                `;
+                unacceptedList.appendChild(li);
+            });
+            
+            if ((keys.minions_pre || []).length === 0) {
+                unacceptedList.innerHTML = '<li class="disabled">No pending keys</li>';
+            }
+            
+            // Accepted keys
+            acceptedList.innerHTML = '';
+            (keys.minions || []).forEach(key => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <span>${escapeHtml(key)}</span>
+                    <button class="btn btn-small btn-remove" data-key="${escapeHtml(key)}">Remove</button>
+                `;
+                acceptedList.appendChild(li);
+            });
+            
+            if ((keys.minions || []).length === 0) {
+                acceptedList.innerHTML = '<li class="disabled">No accepted keys</li>';
+            }
+        } catch (error) {
+            logToConsole('Error loading keys: ' + error.message, 'error');
+        }
+    }
+
+    async function acceptKey(minionId) {
+        try {
+            await fetchWithTimeout(`${proxyUrl}/keys/accept`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ minionId })
+            });
+            logToConsole(`Key accepted: ${minionId}`, 'success');
+            loadKeyLists();
+            checkUnacceptedKeys();
+            fetchAvailableDevices();
+        } catch (error) {
+            logToConsole('Error accepting key: ' + error.message, 'error');
+        }
+    }
+
+    async function acceptAllKeys() {
+        try {
+            await fetchWithTimeout(`${proxyUrl}/keys/accept-all`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            logToConsole('All keys accepted.', 'success');
+            loadKeyLists();
+            checkUnacceptedKeys();
+            fetchAvailableDevices();
+        } catch (error) {
+            logToConsole('Error accepting all keys: ' + error.message, 'error');
+        }
+    }
+
+    async function deleteKey(minionId) {
+        if (!confirm(`Remove key for "${minionId}"?`)) return;
+        
+        try {
+            await fetchWithTimeout(`${proxyUrl}/keys/delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ minionId })
+            });
+            logToConsole(`Key removed: ${minionId}`, 'success');
+            loadKeyLists();
+            fetchAvailableDevices();
+        } catch (error) {
+            logToConsole('Error removing key: ' + error.message, 'error');
+        }
+    }
+
+    // --- Terminal ---
+
+    let terminalDevice = null;
+
+    function openTerminal(device) {
+        terminalDevice = device;
+        elements.terminalTitle.textContent = `Terminal: ${device}`;
+        elements.terminalOutput.innerHTML = `<div class="terminal-welcome">Connected to ${device}\nType commands and press Enter to execute.\n</div>`;
+        elements.terminalModal.style.display = 'block';
+        elements.terminalCommandInput.focus();
+    }
+
+    async function executeTerminalCommand(cmd) {
+        if (!terminalDevice || !cmd.trim()) return;
+        
+        // Add to history
+        commandHistory.unshift(cmd);
+        if (commandHistory.length > 100) commandHistory.pop();
+        historyIndex = -1;
+        
+        // Display command
+        const cmdDiv = document.createElement('div');
+        cmdDiv.className = 'terminal-command';
+        cmdDiv.textContent = `$ ${cmd}`;
+        elements.terminalOutput.appendChild(cmdDiv);
+        
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/quick-cmd`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: terminalDevice, cmd, timeout: 30 })
+            });
+            
+            const data = await response.json();
+            const result = data.return ? data.return[0][terminalDevice] : 'No response';
+            
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'terminal-result';
+            resultDiv.textContent = typeof result === 'object' ? JSON.stringify(result, null, 2) : result;
+            elements.terminalOutput.appendChild(resultDiv);
+        } catch (error) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'terminal-error';
+            errorDiv.textContent = `Error: ${error.message}`;
+            elements.terminalOutput.appendChild(errorDiv);
+        }
+        
+        elements.terminalOutput.scrollTop = elements.terminalOutput.scrollHeight;
+        elements.terminalCommandInput.value = '';
+    }
+
+    // --- Quick Terminal ---
+
+    async function executeQuickCommand() {
+        const device = elements.quickTerminalDevice.value;
+        const cmd = elements.quickCommand.value;
+        
+        if (!device) {
+            logToConsole('Select a device first.', 'warn');
+            return;
+        }
+        
+        if (!cmd.trim()) return;
+        
+        elements.quickOutput.textContent = 'Executing...';
+        
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/quick-cmd`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: device, cmd, timeout: 30 })
+            });
+            
+            const data = await response.json();
+            const result = data.return ? data.return[0][device] : 'No response';
+            elements.quickOutput.textContent = typeof result === 'object' ? JSON.stringify(result, null, 2) : result;
+        } catch (error) {
+            elements.quickOutput.textContent = `Error: ${error.message}`;
+        }
+    }
+
+    // --- Monitoring ---
+
+    async function loadMonitoringView() {
+        const device = elements.monitoringDeviceSelect?.value;
+        const view = elements.monitoringViewSelect?.value;
+        
+        if (!device || !view) return;
+        
+        elements.monitoringContent.textContent = 'Loading...';
+        
+        const commands = {
+            firewall: 'iptables -L -n 2>/dev/null || nft list ruleset 2>/dev/null || firewall-cmd --list-all 2>/dev/null || echo "No firewall found"',
+            processes: 'ps aux --sort=-%cpu | head -30',
+            connections: 'netstat -tulpn 2>/dev/null || ss -tulpn',
+            sysinfo: 'echo "=== HOSTNAME ===" && hostname && echo "\\n=== UPTIME ===" && uptime && echo "\\n=== MEMORY ===" && free -h && echo "\\n=== DISK ===" && df -h | grep -v tmpfs',
+            users: 'echo "=== LOGGED IN ===" && who && echo "\\n=== ALL USERS ===" && cat /etc/passwd | grep -v nologin | grep -v false',
+            services: 'systemctl list-units --type=service --state=running 2>/dev/null | head -30 || service --status-all 2>/dev/null | grep "+"'
+        };
+        
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/quick-cmd`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: device, cmd: commands[view], timeout: 30 })
+            });
+            
+            const data = await response.json();
+            const result = data.return ? data.return[0][device] : 'No response';
+            elements.monitoringContent.textContent = result;
+        } catch (error) {
+            elements.monitoringContent.textContent = `Error: ${error.message}`;
+        }
+    }
+
+    // --- Services ---
 
     async function manageService(action) {
-        const deviceId = elements.serviceDeviceSelect.value;
-        const serviceName = elements.serviceName.value.trim();
-
-        if (!deviceId) {
-            showNotification('Please select a device', 'warn');
+        const device = elements.serviceDeviceSelect?.value;
+        const service = elements.serviceName?.value;
+        
+        if (!device || !service) {
+            logToConsole('Select device and enter service name.', 'warn');
             return;
         }
-        if (!serviceName && action !== 'list') {
-            showNotification('Please enter a service name', 'warn');
-            return;
-        }
-
-        elements.serviceOutput.innerHTML = '<p class="loading">Processing...</p>';
-
+        
+        elements.serviceOutput.textContent = `${action}ing ${service}...`;
+        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/services/manage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    targets: [deviceId],
-                    service: serviceName,
-                    action: action
-                })
+                body: JSON.stringify({ targets: [device], service, action })
             });
-
+            
             const data = await response.json();
-            elements.serviceOutput.innerHTML = `<pre>${JSON.stringify(data.result?.return?.[0] || data, null, 2)}</pre>`;
-            showNotification(`Service ${action} completed`, 'success');
+            elements.serviceOutput.textContent = JSON.stringify(data, null, 2);
+            logToConsole(`Service ${action}: ${service} on ${device}`, 'success');
         } catch (error) {
-            elements.serviceOutput.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+            elements.serviceOutput.textContent = `Error: ${error.message}`;
         }
     }
 
-    async function listServices(filter = 'all') {
-        const deviceId = elements.serviceDeviceSelect.value;
-        if (!deviceId) {
-            showNotification('Please select a device', 'warn');
-            return;
-        }
-
-        elements.serviceOutput.innerHTML = '<p class="loading">Loading services...</p>';
-
-        const fun = filter === 'running' ? 'service.get_running' : 'service.get_all';
-
+    async function checkServiceStatus() {
+        const device = elements.serviceDeviceSelect?.value;
+        const service = elements.serviceName?.value;
+        
+        if (!device || !service) return;
+        
+        elements.serviceOutput.textContent = 'Checking status...';
+        
         try {
-            const response = await fetchWithTimeout(`${proxyUrl}/proxy`, {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/quick-cmd`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    client: 'local',
-                    tgt: deviceId,
-                    fun: fun
+                body: JSON.stringify({ 
+                    target: device, 
+                    cmd: `systemctl status ${service} 2>/dev/null || service ${service} status 2>/dev/null`,
+                    timeout: 10 
                 })
             });
-
-            const data = await response.json();
-            const services = data.return?.[0]?.[deviceId] || [];
             
-            if (Array.isArray(services)) {
-                elements.serviceOutput.innerHTML = `<pre>${services.sort().join('\n')}</pre>`;
-            } else {
-                elements.serviceOutput.innerHTML = `<pre>${JSON.stringify(services, null, 2)}</pre>`;
-            }
+            const data = await response.json();
+            const result = data.return ? data.return[0][device] : 'No response';
+            elements.serviceOutput.textContent = result;
         } catch (error) {
-            elements.serviceOutput.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+            elements.serviceOutput.textContent = `Error: ${error.message}`;
         }
     }
 
@@ -939,97 +789,94 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/playbooks`);
             const playbooks = await response.json();
-
-            elements.playbooksList.innerHTML = '';
             
-            if (playbooks.length === 0) {
-                elements.playbooksList.innerHTML = '<li class="disabled">No playbooks found</li>';
-                return;
-            }
-
+            elements.playbooksList.innerHTML = '';
             playbooks.forEach(pb => {
                 const li = document.createElement('li');
                 li.innerHTML = `
-                    <span class="playbook-name">${escapeHtml(pb.name)}</span>
-                    <span class="playbook-steps-count">${pb.steps} steps</span>
+                    <div class="playbook-name">${escapeHtml(pb.name)}</div>
+                    <div class="playbook-steps-count">${pb.steps} steps</div>
                 `;
-                li.dataset.filename = pb.filename;
-                li.addEventListener('click', () => loadPlaybookDetails(pb.filename.replace('.json', '')));
+                li.dataset.name = pb.filename.replace('.json', '');
+                li.addEventListener('click', () => loadPlaybookDetail(li.dataset.name));
                 elements.playbooksList.appendChild(li);
             });
         } catch (error) {
-            elements.playbooksList.innerHTML = `<li class="disabled">Error loading playbooks</li>`;
-            console.error('Error loading playbooks:', error);
+            logToConsole('Error loading playbooks: ' + error.message, 'error');
         }
     }
 
-    async function loadPlaybookDetails(name) {
+    async function loadPlaybookDetail(name) {
+        selectedPlaybook = name;
+        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/playbooks/${name}`);
             const playbook = await response.json();
-
-            selectedPlaybook = name;
+            
             elements.playbookTitle.textContent = playbook.name;
-            elements.playbookDescription.textContent = playbook.description || 'No description';
-
-            elements.playbookSteps.innerHTML = playbook.steps.map((step, i) => `
-                <div class="playbook-step">
-                    <span class="step-number">${i + 1}</span>
+            elements.playbookDescription.textContent = playbook.description || '';
+            
+            elements.playbookSteps.innerHTML = '';
+            playbook.steps.forEach((step, index) => {
+                const div = document.createElement('div');
+                div.className = 'playbook-step';
+                div.innerHTML = `
+                    <div class="step-number">${index + 1}</div>
                     <div class="step-content">
                         <strong>${escapeHtml(step.name)}</strong>
-                        <code>${escapeHtml(step.function)}</code>
-                        ${step.args ? `<small>Args: ${escapeHtml(JSON.stringify(step.args))}</small>` : ''}
+                        <code>${escapeHtml(step.function || 'cmd.run')}</code>
+                        ${step.command ? `<small>${escapeHtml(step.command.substring(0, 80))}${step.command.length > 80 ? '...' : ''}</small>` : ''}
                     </div>
-                </div>
-            `).join('');
-
-            document.querySelector('.playbook-execute-section').style.display = 'block';
+                `;
+                elements.playbookSteps.appendChild(div);
+            });
+            
             elements.playbookResults.innerHTML = '';
         } catch (error) {
-            elements.playbookTitle.textContent = 'Error Loading Playbook';
-            elements.playbookDescription.textContent = error.message;
+            logToConsole('Error loading playbook: ' + error.message, 'error');
         }
     }
 
     async function executePlaybook() {
         if (!selectedPlaybook) {
-            showNotification('Please select a playbook', 'warn');
+            logToConsole('Select a playbook first.', 'warn');
             return;
         }
-
-        const targets = [...elements.playbookTargets.selectedOptions].map(opt => opt.value);
+        
+        const targets = Array.from(elements.playbookTargets.selectedOptions).map(o => o.value);
+        
         if (targets.length === 0) {
-            showNotification('Please select target devices', 'warn');
+            logToConsole('Select target devices.', 'warn');
             return;
         }
-
-        elements.playbookResults.innerHTML = '<p class="loading">Executing playbook...</p>';
-
+        
+        elements.playbookResults.innerHTML = '<div class="loading">Executing playbook...</div>';
+        logToConsole(`Executing playbook "${selectedPlaybook}" on ${targets.length} device(s)...`);
+        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/playbooks/${selectedPlaybook}/execute`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ targets })
-            }, 300000); // 5 minute timeout for playbooks
-
+            }, 300000);
+            
             const data = await response.json();
-
-            let resultsHtml = `<h4>Results (${data.completedSteps}/${data.totalSteps} steps)</h4>`;
+            
+            elements.playbookResults.innerHTML = '';
             data.results.forEach(result => {
-                const statusClass = result.status === 'completed' ? 'success' : 'error';
-                resultsHtml += `
-                    <div class="playbook-result ${statusClass}">
-                        <strong>${escapeHtml(result.step)}</strong>: ${result.status}
-                        ${result.error ? `<br><small>${escapeHtml(result.error)}</small>` : ''}
-                    </div>
+                const div = document.createElement('div');
+                div.className = `playbook-result ${result.status === 'completed' ? 'success' : 'error'}`;
+                div.innerHTML = `
+                    <strong>${escapeHtml(result.step)}</strong>
+                    <pre>${escapeHtml(JSON.stringify(result.result || result.error, null, 2))}</pre>
                 `;
+                elements.playbookResults.appendChild(div);
             });
-
-            elements.playbookResults.innerHTML = resultsHtml;
-            showNotification(`Playbook completed: ${data.completedSteps}/${data.totalSteps} steps`, 
-                data.completedSteps === data.totalSteps ? 'success' : 'warn');
+            
+            logToConsole(`Playbook complete: ${data.completedSteps}/${data.totalSteps} steps`, 'success');
         } catch (error) {
-            elements.playbookResults.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+            elements.playbookResults.innerHTML = `<div class="playbook-result error">Error: ${escapeHtml(error.message)}</div>`;
+            logToConsole('Playbook error: ' + error.message, 'error');
         }
     }
 
@@ -1039,390 +886,277 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/audit?limit=100`);
             const entries = await response.json();
-
-            if (entries.length === 0) {
-                elements.auditLogBody.innerHTML = '<tr><td colspan="5">No audit entries found</td></tr>';
-                return;
-            }
-
-            elements.auditLogBody.innerHTML = entries.map(entry => `
-                <tr>
-                    <td>${entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'N/A'}</td>
-                    <td>${escapeHtml(entry.ip || 'N/A')}</td>
-                    <td>${escapeHtml(entry.method || 'N/A')}</td>
-                    <td>${escapeHtml(entry.path || 'N/A')}</td>
-                    <td><code>${escapeHtml(JSON.stringify(entry.body || {}).substring(0, 100))}</code></td>
-                </tr>
-            `).join('');
+            
+            elements.auditLogBody.innerHTML = '';
+            entries.forEach(entry => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${escapeHtml(entry.timestamp || '')}</td>
+                    <td>${escapeHtml(entry.user || '')}</td>
+                    <td>${escapeHtml(entry.ip || '')}</td>
+                    <td>${escapeHtml(entry.action || '')}</td>
+                    <td><code>${escapeHtml(JSON.stringify(entry.details || {}))}</code></td>
+                `;
+                elements.auditLogBody.appendChild(tr);
+            });
         } catch (error) {
-            elements.auditLogBody.innerHTML = `<tr><td colspan="5">Error: ${escapeHtml(error.message)}</td></tr>`;
+            logToConsole('Error loading audit log: ' + error.message, 'error');
         }
     }
 
-    // --- Emergency Functions ---
+    // --- Emergency Controls ---
 
     async function blockAllTraffic() {
-        const targets = [...document.getElementById('emergency-targets').selectedOptions].map(opt => opt.value);
+        const targets = Array.from(document.getElementById('emergency-targets').selectedOptions).map(o => o.value);
+        const allowSSH = document.getElementById('emergency-allow-ssh')?.checked !== false;
+        
         if (targets.length === 0) {
-            showNotification('Select target devices', 'warn');
+            alert('Select target devices.');
             return;
         }
-
-        if (!confirm(`⚠️ This will DROP all incoming traffic except SSH on ${targets.length} devices. Continue?`)) {
+        
+        if (!confirm(`BLOCK ALL TRAFFIC on ${targets.length} device(s)? SSH will ${allowSSH ? 'remain open' : 'be blocked'}.`)) {
             return;
         }
-
-        const output = document.getElementById('emergency-output');
-        output.innerHTML = '<p class="loading">Applying emergency firewall rules...</p>';
-
+        
+        document.getElementById('emergency-output').textContent = 'Blocking traffic...';
+        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/emergency/block-all-traffic`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ targets })
+                body: JSON.stringify({ targets, allowSSH })
             });
-
+            
             const data = await response.json();
-            output.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
-            showNotification('Emergency firewall rules applied', 'success');
-            logToConsole('EMERGENCY: Blocked all traffic on ' + targets.join(', '), 'warn');
+            document.getElementById('emergency-output').textContent = JSON.stringify(data, null, 2);
+            logToConsole('Traffic blocked on ' + targets.join(', '), 'success');
         } catch (error) {
-            output.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+            document.getElementById('emergency-output').textContent = `Error: ${error.message}`;
         }
     }
 
     async function killConnections() {
-        const targets = [...document.getElementById('emergency-targets').selectedOptions].map(opt => opt.value);
-        const port = document.getElementById('emergency-port').value.trim();
-
+        const targets = Array.from(document.getElementById('emergency-targets').selectedOptions).map(o => o.value);
+        const port = document.getElementById('emergency-port')?.value;
+        
         if (targets.length === 0) {
-            showNotification('Select target devices', 'warn');
+            alert('Select target devices.');
             return;
         }
-
-        if (!confirm(`⚠️ This will kill ${port ? 'port ' + port : 'ALL'} connections on ${targets.length} devices. Continue?`)) {
+        
+        if (!confirm(`KILL ${port ? 'port ' + port : 'ALL'} connections on ${targets.length} device(s)?`)) {
             return;
         }
-
-        const output = document.getElementById('emergency-output');
-        output.innerHTML = '<p class="loading">Killing connections...</p>';
-
+        
+        document.getElementById('emergency-output').textContent = 'Killing connections...';
+        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/emergency/kill-connections`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ targets, port: port || null })
             });
-
+            
             const data = await response.json();
-            output.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
-            showNotification('Connections killed', 'success');
+            document.getElementById('emergency-output').textContent = JSON.stringify(data, null, 2);
+            logToConsole('Connections killed on ' + targets.join(', '), 'success');
         } catch (error) {
-            output.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
+            document.getElementById('emergency-output').textContent = `Error: ${error.message}`;
         }
     }
 
     async function changePasswords() {
-        const targets = [...document.getElementById('emergency-targets').selectedOptions].map(opt => opt.value);
-        const usersInput = document.getElementById('emergency-users').value.trim();
-        const newPassword = document.getElementById('emergency-new-password').value;
-
-        if (targets.length === 0) {
-            showNotification('Select target devices', 'warn');
+        const targets = Array.from(document.getElementById('emergency-targets').selectedOptions).map(o => o.value);
+        const users = document.getElementById('emergency-users')?.value.split(',').map(u => u.trim()).filter(Boolean);
+        const newPassword = document.getElementById('emergency-password')?.value;
+        
+        if (targets.length === 0 || users.length === 0 || !newPassword) {
+            alert('Select targets, enter users (comma-separated), and provide new password.');
             return;
         }
-        if (!usersInput) {
-            showNotification('Enter usernames', 'warn');
+        
+        if (!confirm(`Change password for ${users.join(', ')} on ${targets.length} device(s)?`)) {
             return;
         }
-        if (!newPassword) {
-            showNotification('Enter new password', 'warn');
-            return;
-        }
-
-        const users = usersInput.split(',').map(u => u.trim()).filter(u => u);
-
-        if (!confirm(`⚠️ This will change passwords for ${users.length} users on ${targets.length} devices. Continue?`)) {
-            return;
-        }
-
-        const output = document.getElementById('emergency-output');
-        output.innerHTML = '<p class="loading">Changing passwords...</p>';
-
+        
+        document.getElementById('emergency-output').textContent = 'Changing passwords...';
+        
         try {
             const response = await fetchWithTimeout(`${proxyUrl}/api/emergency/change-passwords`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ targets, users, newPassword })
             });
-
+            
             const data = await response.json();
-            output.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
-            showNotification('Password changes attempted', 'success');
-            logToConsole('EMERGENCY: Password change for ' + users.join(', '), 'warn');
+            document.getElementById('emergency-output').textContent = JSON.stringify(data, null, 2);
+            logToConsole('Passwords changed on ' + targets.join(', '), 'success');
         } catch (error) {
-            output.innerHTML = `<p class="error">Error: ${escapeHtml(error.message)}</p>`;
-        }
-    }
-
-    // --- Key Management ---
-
-    async function openConnectDeviceModal() {
-        try {
-            const response = await fetchWithTimeout(`${proxyUrl}/keys`);
-            if (!response.ok) throw new Error('Failed to fetch keys');
-
-            const data = await response.json();
-            const keys = data.return?.[0]?.data?.return || {};
-            const unacceptedKeys = keys.minions_pre || [];
-            const acceptedKeys = keys.minions || [];
-
-            updateNotificationBadge(unacceptedKeys.length);
-
-            const unacceptedList = document.getElementById('unaccepted-keys-list');
-            const acceptedList = document.getElementById('accepted-keys-list');
-
-            unacceptedList.innerHTML = unacceptedKeys.length > 0 
-                ? unacceptedKeys.map(key => `
-                    <li>
-                        <span>${escapeHtml(key)}</span>
-                        <button class="btn btn-accept btn-small" data-minion-id="${escapeHtml(key)}">Accept</button>
-                    </li>
-                `).join('')
-                : '<li class="disabled">No pending keys</li>';
-
-            acceptedList.innerHTML = acceptedKeys.length > 0
-                ? acceptedKeys.map(key => `
-                    <li>
-                        <span>${escapeHtml(key)}</span>
-                        <button class="btn btn-remove btn-small" data-minion-id="${escapeHtml(key)}">Remove</button>
-                    </li>
-                `).join('')
-                : '<li class="disabled">No accepted devices</li>';
-
-            elements.connectDeviceModal.style.display = 'block';
-        } catch (error) {
-            console.error('Error fetching keys:', error);
-            logToConsole(`Error fetching keys: ${error.message}`, 'error');
-        }
-    }
-
-    async function acceptKey(minionId) {
-        try {
-            const response = await fetchWithTimeout(`${proxyUrl}/keys/accept`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ minionId })
-            });
-
-            if (!response.ok) throw new Error('Failed to accept key');
-
-            logToConsole(`Accepted key for ${minionId}`, 'success');
-            showNotification(`Key accepted: ${minionId}`, 'success');
-            openConnectDeviceModal();
-            fetchAvailableDevices();
-        } catch (error) {
-            logToConsole(`Error accepting key: ${error.message}`, 'error');
-        }
-    }
-
-    async function removeKey(minionId) {
-        if (!confirm(`Remove key for ${minionId}?`)) return;
-
-        try {
-            const response = await fetchWithTimeout(`${proxyUrl}/keys/delete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ minionId })
-            });
-
-            if (!response.ok) throw new Error('Failed to remove key');
-
-            logToConsole(`Removed key for ${minionId}`, 'success');
-            openConnectDeviceModal();
-            fetchAvailableDevices();
-        } catch (error) {
-            logToConsole(`Error removing key: ${error.message}`, 'error');
-        }
-    }
-
-    async function acceptAllKeys() {
-        if (!confirm('Accept ALL pending keys?')) return;
-
-        try {
-            const response = await fetchWithTimeout(`${proxyUrl}/keys/accept-all`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-
-            if (!response.ok) throw new Error('Failed to accept all keys');
-
-            logToConsole('Accepted all pending keys', 'success');
-            showNotification('All keys accepted', 'success');
-            openConnectDeviceModal();
-            fetchAvailableDevices();
-        } catch (error) {
-            logToConsole(`Error accepting all keys: ${error.message}`, 'error');
+            document.getElementById('emergency-output').textContent = `Error: ${error.message}`;
         }
     }
 
     // --- Script Viewer ---
 
     async function viewScriptContent(scriptName) {
-        const titleEl = document.getElementById('script-viewer-title');
-        const contentEl = document.getElementById('script-viewer-content');
-        
-        titleEl.textContent = `📄 ${scriptName}`;
-        contentEl.innerHTML = '<pre><code>Loading...</code></pre>';
-        elements.scriptViewerModal.style.display = 'block';
-
         try {
-            const response = await fetchWithTimeout(
-                `${proxyUrl}/custom-script-content?path=${encodeURIComponent(scriptName)}`
-            );
-            
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.message || 'Failed to fetch script');
-            }
-
+            const response = await fetchWithTimeout(`${proxyUrl}/custom-script-content?path=${encodeURIComponent(scriptName)}`);
             const data = await response.json();
-            contentEl.innerHTML = `<pre><code>${escapeHtml(data.content)}</code></pre>`;
+            
+            document.getElementById('script-viewer-title').textContent = scriptName;
+            document.getElementById('script-code').textContent = data.content || 'Unable to load script.';
+            elements.scriptViewerModal.style.display = 'block';
         } catch (error) {
-            contentEl.innerHTML = `<pre><code class="error">Error: ${escapeHtml(error.message)}</code></pre>`;
+            logToConsole('Error loading script: ' + error.message, 'error');
         }
     }
 
     // --- Tab Navigation ---
 
-    function switchTab(tabName) {
+    function initTabs() {
         document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.tab === tabName);
+            btn.addEventListener('click', () => {
+                const tabId = btn.dataset.tab;
+                
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                btn.classList.add('active');
+                document.getElementById(`tab-${tabId}`).classList.add('active');
+                
+                // Load tab-specific data
+                if (tabId === 'playbooks') loadPlaybooks();
+                if (tabId === 'audit') loadAuditLog();
+            });
         });
-        document.querySelectorAll('.tab-content').forEach(content => {
-            content.classList.toggle('active', content.id === `tab-${tabName}`);
-        });
-
-        // Load data for tab
-        switch (tabName) {
-            case 'audit':
-                loadAuditLog();
-                break;
-            case 'playbooks':
-                loadPlaybooks();
-                break;
-        }
     }
 
     // --- Event Listeners ---
 
-    // Tab navigation
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-    });
-
-    // Device list
-    elements.deviceList.addEventListener('click', e => handleSelection(elements.deviceList, e));
-    elements.selectAllDevices?.addEventListener('click', () => {
-        elements.deviceList.querySelectorAll('li:not(.disabled)').forEach(li => li.classList.add('selected'));
-    });
-    elements.deselectAllDevices?.addEventListener('click', () => {
-        elements.deviceList.querySelectorAll('.selected').forEach(li => li.classList.remove('selected'));
-    });
-
-    // Device search
-    elements.deviceSearch?.addEventListener('input', debounce(e => {
-        const term = e.target.value.toLowerCase();
-        elements.deviceList.querySelectorAll('li').forEach(li => {
-            const name = li.dataset.deviceName?.toLowerCase() || '';
-            const os = li.dataset.os?.toLowerCase() || '';
-            li.style.display = (name.includes(term) || os.includes(term)) ? '' : 'none';
-        });
-    }, 150));
-
-    // Script list
-    elements.scriptList.addEventListener('click', e => handleSelection(elements.scriptList, e));
-
-    // Script search
-    elements.scriptSearch?.addEventListener('input', debounce(e => {
-        const term = e.target.value.toLowerCase();
-        elements.scriptList.querySelectorAll('li').forEach(li => {
-            li.style.display = li.textContent.toLowerCase().includes(term) ? '' : 'none';
-        });
-    }, 150));
-
-    // Script type selector
-    elements.scriptTypeSelector?.addEventListener('change', e => {
-        const scriptType = e.target.value;
-        elements.scriptArgsContainer.innerHTML = '';
-        currentArgSpec = null;
-
-        const firstDevice = elements.deviceList.querySelector('li:not(.disabled)');
-        if (scriptType === 'salt' && firstDevice) {
-            fetchAvailableScripts(firstDevice.dataset.deviceName);
-        } else if (scriptType === 'custom') {
-            fetchCustomScripts();
-        }
-    });
-
-    // Deploy button
-    document.querySelector('.btn-deploy')?.addEventListener('click', deployScripts);
-
     // Settings
     elements.settingsIcon?.addEventListener('click', () => {
         elements.settingsModal.style.display = 'block';
+        loadSettings();
     });
-    document.getElementById('settings-close-button')?.addEventListener('click', () => {
-        elements.settingsModal.style.display = 'none';
-    });
+    
     elements.settingsForm?.addEventListener('submit', saveSettings);
-
-    // Connect device modal
-    document.querySelector('.btn-connect')?.addEventListener('click', openConnectDeviceModal);
-    document.querySelector('#connect-device-modal .close-button')?.addEventListener('click', () => {
-        elements.connectDeviceModal.style.display = 'none';
+    
+    document.querySelectorAll('.close-button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            btn.closest('.modal').style.display = 'none';
+        });
     });
-    document.getElementById('accept-all-keys')?.addEventListener('click', acceptAllKeys);
 
-    // Key accept/remove delegation
-    document.getElementById('unaccepted-keys-list')?.addEventListener('click', e => {
+    // Device management
+    document.querySelector('.btn-connect')?.addEventListener('click', () => {
+        elements.connectDeviceModal.style.display = 'block';
+        loadKeyLists();
+    });
+    
+    elements.selectAllDevices?.addEventListener('click', () => {
+        elements.deviceList.querySelectorAll('li:not(.disabled)').forEach(li => li.classList.add('selected'));
+    });
+    
+    elements.deselectAllDevices?.addEventListener('click', () => {
+        elements.deviceList.querySelectorAll('li').forEach(li => li.classList.remove('selected'));
+    });
+
+    // Device search
+    elements.deviceSearch?.addEventListener('input', debounce((e) => {
+        renderDeviceList(deviceCache, e.target.value);
+    }, 150));
+
+    // Script type toggle
+    document.querySelectorAll('input[name="script-type"]')?.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (e.target.value === 'custom') {
+                fetchCustomScripts();
+            } else {
+                fetchSaltFunctions();
+            }
+        });
+    });
+
+    // Script search
+    elements.scriptSearch?.addEventListener('input', debounce(() => {
+        const type = document.querySelector('input[name="script-type"]:checked')?.value;
+        if (type === 'custom') {
+            fetchCustomScripts();
+        } else {
+            fetchSaltFunctions();
+        }
+    }, 150));
+
+    // Deploy button
+    document.querySelector('.btn-deploy')?.addEventListener('click', deployScript);
+
+    // Key management
+    document.getElementById('unaccepted-keys-list')?.addEventListener('click', (e) => {
         if (e.target.classList.contains('btn-accept')) {
-            acceptKey(e.target.dataset.minionId);
+            acceptKey(e.target.dataset.key);
         }
     });
-    document.getElementById('accepted-keys-list')?.addEventListener('click', e => {
+    
+    document.getElementById('accepted-keys-list')?.addEventListener('click', (e) => {
         if (e.target.classList.contains('btn-remove')) {
-            removeKey(e.target.dataset.minionId);
+            deleteKey(e.target.dataset.key);
         }
     });
+    
+    document.getElementById('accept-all-keys')?.addEventListener('click', acceptAllKeys);
+    
+    document.getElementById('refresh-devices')?.addEventListener('click', fetchAvailableDevices);
 
     // Terminal
-    document.getElementById('open-terminal-btn')?.addEventListener('click', openTerminal);
-    document.getElementById('terminal-close-button')?.addEventListener('click', () => {
-        elements.terminalModal.style.display = 'none';
+    document.getElementById('open-terminal-btn')?.addEventListener('click', () => {
+        const device = elements.quickTerminalDevice.value;
+        if (device) {
+            openTerminal(device);
+        } else {
+            logToConsole('Select a device first.', 'warn');
+        }
     });
-    elements.terminalCommandInput?.addEventListener('keydown', executeTerminalCommand);
+    
+    elements.terminalCommandInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            executeTerminalCommand(elements.terminalCommandInput.value);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (historyIndex < commandHistory.length - 1) {
+                historyIndex++;
+                elements.terminalCommandInput.value = commandHistory[historyIndex];
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (historyIndex > 0) {
+                historyIndex--;
+                elements.terminalCommandInput.value = commandHistory[historyIndex];
+            } else {
+                historyIndex = -1;
+                elements.terminalCommandInput.value = '';
+            }
+        }
+    });
 
-    // Quick command
+    // Quick terminal
     document.getElementById('quick-cmd-btn')?.addEventListener('click', executeQuickCommand);
-    elements.quickCommand?.addEventListener('keypress', e => {
+    elements.quickCommand?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') executeQuickCommand();
     });
 
     // Monitoring
-    document.getElementById('monitoring-refresh')?.addEventListener('click', fetchMonitoringData);
-    elements.monitoringDeviceSelect?.addEventListener('change', fetchMonitoringData);
-    elements.monitoringViewSelect?.addEventListener('change', fetchMonitoringData);
+    elements.monitoringDeviceSelect?.addEventListener('change', loadMonitoringView);
+    elements.monitoringViewSelect?.addEventListener('change', loadMonitoringView);
+    document.getElementById('refresh-monitoring')?.addEventListener('click', loadMonitoringView);
 
     // Services
-    document.querySelectorAll('.service-buttons .btn').forEach(btn => {
-        btn.addEventListener('click', () => manageService(btn.dataset.action));
-    });
-    document.getElementById('list-all-services')?.addEventListener('click', () => listServices('all'));
-    document.getElementById('list-running-services')?.addEventListener('click', () => listServices('running'));
+    document.getElementById('service-start')?.addEventListener('click', () => manageService('start'));
+    document.getElementById('service-stop')?.addEventListener('click', () => manageService('stop'));
+    document.getElementById('service-restart')?.addEventListener('click', () => manageService('restart'));
+    document.getElementById('service-status')?.addEventListener('click', checkServiceStatus);
 
     // Playbooks
-    document.getElementById('refresh-playbooks')?.addEventListener('click', loadPlaybooks);
     document.getElementById('execute-playbook')?.addEventListener('click', executePlaybook);
 
     // Audit
@@ -1432,22 +1166,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('emergency-btn')?.addEventListener('click', () => {
         elements.emergencyModal.style.display = 'block';
     });
-    document.getElementById('emergency-close-button')?.addEventListener('click', () => {
-        elements.emergencyModal.style.display = 'none';
-    });
-    document.getElementById('emergency-block-traffic')?.addEventListener('click', blockAllTraffic);
-    document.getElementById('emergency-kill-connections')?.addEventListener('click', killConnections);
-    document.getElementById('emergency-change-passwords')?.addEventListener('click', changePasswords);
+    
+    document.getElementById('btn-block-traffic')?.addEventListener('click', blockAllTraffic);
+    document.getElementById('btn-kill-connections')?.addEventListener('click', killConnections);
+    document.getElementById('btn-change-passwords')?.addEventListener('click', changePasswords);
 
-    // Script viewer
-    document.getElementById('script-viewer-close-button')?.addEventListener('click', () => {
-        elements.scriptViewerModal.style.display = 'none';
-    });
-
-    // Context menu
-    elements.scriptList?.addEventListener('contextmenu', e => {
+    // Context menu for scripts
+    elements.scriptList?.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        const scriptType = document.querySelector('input[name="script-type"]:checked').value;
+        const scriptType = document.querySelector('input[name="script-type"]:checked')?.value;
         const targetItem = e.target.closest('li');
 
         if (scriptType === 'custom' && targetItem && !targetItem.classList.contains('disabled')) {
@@ -1479,43 +1206,48 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.clearConsole?.addEventListener('click', () => {
         elements.outputConsole.innerHTML = '';
     });
+    
     elements.toggleConsole?.addEventListener('click', () => {
         consoleCollapsed = !consoleCollapsed;
         elements.outputConsole.style.display = consoleCollapsed ? 'none' : 'block';
-        elements.toggleConsole.textContent = consoleCollapsed ? '▲' : '▼';
+        elements.toggleConsole.textContent = consoleCollapsed ? '+' : '-';
     });
 
-    // Close modals on outside click
+    // Modal close on outside click
     window.addEventListener('click', e => {
         if (e.target.classList.contains('modal')) {
             e.target.style.display = 'none';
         }
     });
 
-    // Close modals on Escape
+    // Keyboard shortcuts
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
-            document.querySelectorAll('.modal').forEach(modal => {
-                modal.style.display = 'none';
-            });
+            document.querySelectorAll('.modal').forEach(modal => modal.style.display = 'none');
+        }
+        if (e.ctrlKey && e.key === 'l') {
+            e.preventDefault();
+            elements.outputConsole.innerHTML = '';
         }
     });
 
     // --- Initialization ---
 
+    initTabs();
+
     async function initializeApp() {
-        logToConsole('🧂 Salt GUI starting up...', 'info');
+        logToConsole('Salt GUI starting up...');
         
         await loadSettings();
         await fetchAvailableDevices();
+        await fetchCustomScripts();
         await checkHealth();
         await checkUnacceptedKeys();
 
-        // Periodic updates
         setInterval(checkHealth, 30000);
         setInterval(checkUnacceptedKeys, 30000);
 
-        logToConsole('✅ Salt GUI ready.', 'success');
+        logToConsole('Salt GUI ready.', 'success');
     }
 
     initializeApp();

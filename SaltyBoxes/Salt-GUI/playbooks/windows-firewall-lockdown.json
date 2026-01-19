@@ -1,0 +1,59 @@
+{
+  "name": "Windows Firewall Lockdown",
+  "description": "Enable and configure Windows Firewall with restrictive rules",
+  "category": "hardening",
+  "severity": "high",
+  "os": "windows",
+  "steps": [
+    {
+      "name": "Enable Windows Firewall (all profiles)",
+      "function": "cmd.run",
+      "command": "netsh advfirewall set allprofiles state on",
+      "timeout": 15000,
+      "required": true
+    },
+    {
+      "name": "Set default inbound to block",
+      "function": "cmd.run",
+      "command": "netsh advfirewall set allprofiles firewallpolicy blockinbound,allowoutbound",
+      "timeout": 15000,
+      "required": true
+    },
+    {
+      "name": "Allow inbound RDP (port 3389)",
+      "function": "cmd.run",
+      "command": "netsh advfirewall firewall add rule name=\"Allow RDP\" dir=in action=allow protocol=TCP localport=3389",
+      "timeout": 15000
+    },
+    {
+      "name": "Allow inbound WinRM (port 5985-5986)",
+      "function": "cmd.run",
+      "command": "netsh advfirewall firewall add rule name=\"Allow WinRM\" dir=in action=allow protocol=TCP localport=5985-5986",
+      "timeout": 15000
+    },
+    {
+      "name": "Allow Salt Minion (port 4505-4506)",
+      "function": "cmd.run",
+      "command": "netsh advfirewall firewall add rule name=\"Allow Salt\" dir=in action=allow protocol=TCP localport=4505-4506",
+      "timeout": 15000
+    },
+    {
+      "name": "Block inbound SMB (port 445) from external",
+      "function": "cmd.run",
+      "command": "netsh advfirewall firewall add rule name=\"Block External SMB\" dir=in action=block protocol=TCP localport=445 remoteip=any",
+      "timeout": 15000
+    },
+    {
+      "name": "Enable logging for dropped packets",
+      "function": "cmd.run",
+      "command": "netsh advfirewall set allprofiles logging droppedconnections enable",
+      "timeout": 15000
+    },
+    {
+      "name": "Show current firewall rules",
+      "function": "cmd.run",
+      "command": "netsh advfirewall firewall show rule name=all | findstr \"Rule Name\"",
+      "timeout": 30000
+    }
+  ]
+}
