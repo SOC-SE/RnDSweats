@@ -1,0 +1,65 @@
+{
+  "name": "Salt User Lockdown",
+  "description": "Uses Salt's native user and shadow modules to audit and secure user accounts. No shell commands - pure Salt functions.",
+  "category": "hardening",
+  "severity": "high",
+  "os": "linux",
+  "steps": [
+    {
+      "name": "List All Users",
+      "function": "user.list_users",
+      "description": "Get complete list of system users",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Get Users with UID 0",
+      "function": "user.list_users",
+      "description": "Find users with root privileges",
+      "timeout": 10000,
+      "postProcess": "Filter for UID 0"
+    },
+    {
+      "name": "Check Shadow File Status",
+      "function": "shadow.info",
+      "args": ["root"],
+      "description": "Get password aging info for root",
+      "timeout": 10000
+    },
+    {
+      "name": "List All Groups",
+      "function": "group.getent",
+      "description": "Get all groups on the system",
+      "timeout": 10000
+    },
+    {
+      "name": "Check Sudo Group Members",
+      "function": "group.members",
+      "args": ["sudo"],
+      "description": "List users in sudo group",
+      "timeout": 10000
+    },
+    {
+      "name": "Check Wheel Group Members",
+      "function": "group.members",
+      "args": ["wheel"],
+      "description": "List users in wheel group",
+      "timeout": 10000
+    },
+    {
+      "name": "Get Root User Info",
+      "function": "user.info",
+      "args": ["root"],
+      "description": "Detailed info about root account",
+      "timeout": 10000
+    },
+    {
+      "name": "Check for Empty Passwords",
+      "function": "shadow.gen_password",
+      "args": [""],
+      "description": "Generate hash for comparison",
+      "timeout": 5000
+    }
+  ],
+  "notes": "This playbook uses Salt's native modules which are faster and more reliable than cmd.run. Follow up with manual password changes for any issues found."
+}

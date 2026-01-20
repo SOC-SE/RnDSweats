@@ -1,0 +1,126 @@
+{
+  "name": "Salt Quick Harden - Comprehensive",
+  "description": "Uses multiple Salt native modules for rapid hardening: services, files, packages. MAKES CHANGES!",
+  "category": "hardening",
+  "severity": "critical",
+  "os": "linux",
+  "warning": "This playbook makes system changes. Review each step before executing.",
+  "steps": [
+    {
+      "name": "Gather System Info",
+      "function": "grains.item",
+      "args": ["os", "osrelease"],
+      "description": "Identify OS for appropriate actions",
+      "timeout": 5000,
+      "required": true
+    },
+    {
+      "name": "Stop Telnet Service",
+      "function": "service.stop",
+      "args": ["telnet"],
+      "description": "Stop insecure telnet",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Disable Telnet Service",
+      "function": "service.disable",
+      "args": ["telnet"],
+      "description": "Prevent telnet from starting",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Stop rsh Service",
+      "function": "service.stop",
+      "args": ["rsh.socket"],
+      "description": "Stop insecure rsh",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Disable rsh Service",
+      "function": "service.disable",
+      "args": ["rsh.socket"],
+      "description": "Prevent rsh from starting",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Ensure SSH is Running",
+      "function": "service.start",
+      "args": ["sshd"],
+      "description": "Make sure SSH is available",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Enable SSH at Boot",
+      "function": "service.enable",
+      "args": ["sshd"],
+      "description": "SSH should start on boot",
+      "timeout": 10000
+    },
+    {
+      "name": "Fix shadow file permissions",
+      "function": "file.set_mode",
+      "args": ["/etc/shadow", "0600"],
+      "description": "Secure shadow file",
+      "timeout": 5000
+    },
+    {
+      "name": "Fix passwd file permissions",
+      "function": "file.set_mode",
+      "args": ["/etc/passwd", "0644"],
+      "description": "Correct passwd permissions",
+      "timeout": 5000
+    },
+    {
+      "name": "Fix sudoers permissions",
+      "function": "file.set_mode",
+      "args": ["/etc/sudoers", "0440"],
+      "description": "Secure sudoers file",
+      "timeout": 5000
+    },
+    {
+      "name": "Ensure rsyslog is running",
+      "function": "service.start",
+      "args": ["rsyslog"],
+      "description": "Logging must be active",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Enable rsyslog at boot",
+      "function": "service.enable",
+      "args": ["rsyslog"],
+      "description": "Logging on boot",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Ensure auditd is running",
+      "function": "service.start",
+      "args": ["auditd"],
+      "description": "Audit daemon for security",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Enable auditd at boot",
+      "function": "service.enable",
+      "args": ["auditd"],
+      "description": "Audit on boot",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Restart SSH to apply changes",
+      "function": "service.reload",
+      "args": ["sshd"],
+      "description": "Apply any SSH config changes",
+      "timeout": 10000
+    }
+  ],
+  "notes": "This playbook uses Salt's native service and file modules. Much faster and more reliable than cmd.run equivalents."
+}

@@ -1,0 +1,104 @@
+{
+  "name": "Salt File Permissions Audit",
+  "description": "Uses Salt's file module to check and fix critical file permissions.",
+  "category": "hardening",
+  "severity": "high",
+  "os": "linux",
+  "steps": [
+    {
+      "name": "Check /etc/passwd permissions",
+      "function": "file.get_mode",
+      "args": ["/etc/passwd"],
+      "description": "Should be 644",
+      "expected": "0644",
+      "timeout": 5000,
+      "required": true
+    },
+    {
+      "name": "Check /etc/shadow permissions",
+      "function": "file.get_mode",
+      "args": ["/etc/shadow"],
+      "description": "Should be 600 or 640",
+      "expected": "0600",
+      "timeout": 5000,
+      "required": true
+    },
+    {
+      "name": "Check /etc/group permissions",
+      "function": "file.get_mode",
+      "args": ["/etc/group"],
+      "description": "Should be 644",
+      "expected": "0644",
+      "timeout": 5000
+    },
+    {
+      "name": "Check /etc/gshadow permissions",
+      "function": "file.get_mode",
+      "args": ["/etc/gshadow"],
+      "description": "Should be 600",
+      "expected": "0600",
+      "timeout": 5000
+    },
+    {
+      "name": "Check /etc/sudoers permissions",
+      "function": "file.get_mode",
+      "args": ["/etc/sudoers"],
+      "description": "Should be 440",
+      "expected": "0440",
+      "timeout": 5000
+    },
+    {
+      "name": "Check SSH config permissions",
+      "function": "file.get_mode",
+      "args": ["/etc/ssh/sshd_config"],
+      "description": "Should be 600",
+      "expected": "0600",
+      "timeout": 5000
+    },
+    {
+      "name": "Check /etc/crontab permissions",
+      "function": "file.get_mode",
+      "args": ["/etc/crontab"],
+      "description": "Should be 600 or 644",
+      "timeout": 5000
+    },
+    {
+      "name": "Read /etc/passwd content",
+      "function": "file.read",
+      "args": ["/etc/passwd"],
+      "description": "Inspect passwd file for anomalies",
+      "timeout": 5000
+    },
+    {
+      "name": "Check root home permissions",
+      "function": "file.get_mode",
+      "args": ["/root"],
+      "description": "Should be 700",
+      "expected": "0700",
+      "timeout": 5000
+    },
+    {
+      "name": "Check /tmp permissions",
+      "function": "file.get_mode",
+      "args": ["/tmp"],
+      "description": "Should be 1777 (sticky bit)",
+      "expected": "1777",
+      "timeout": 5000
+    }
+  ],
+  "remediation": [
+    {
+      "name": "Fix shadow permissions",
+      "function": "file.set_mode",
+      "args": ["/etc/shadow", "0600"],
+      "when": "manual"
+    },
+    {
+      "name": "Fix sudoers permissions",
+      "function": "file.set_mode",
+      "args": ["/etc/sudoers", "0440"],
+      "when": "manual"
+    }
+  ],
+  "notes": "Incorrect permissions on these files can lead to privilege escalation. Fix immediately if wrong."
+}

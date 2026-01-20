@@ -1,0 +1,88 @@
+{
+  "name": "Salt Network Security Audit",
+  "description": "Uses Salt's network module to audit network configuration and connections.",
+  "category": "audit",
+  "severity": "high",
+  "os": "linux",
+  "steps": [
+    {
+      "name": "Get Network Interfaces",
+      "function": "network.interfaces",
+      "description": "All network interfaces and configuration",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Get IP Addresses",
+      "function": "network.ip_addrs",
+      "description": "All IP addresses on system",
+      "timeout": 5000
+    },
+    {
+      "name": "Get IPv6 Addresses",
+      "function": "network.ip_addrs6",
+      "description": "All IPv6 addresses",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Active TCP Connections",
+      "function": "network.active_tcp",
+      "description": "All active TCP connections with process info",
+      "timeout": 15000,
+      "required": true
+    },
+    {
+      "name": "Get All Connections (netstat)",
+      "function": "network.netstat",
+      "description": "Full netstat output",
+      "timeout": 15000
+    },
+    {
+      "name": "Get ARP Table",
+      "function": "network.arp",
+      "description": "ARP cache entries",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Routing Table",
+      "function": "network.routes",
+      "description": "IP routing table",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Default Gateway",
+      "function": "network.default_route",
+      "description": "Default gateway configuration",
+      "timeout": 5000
+    },
+    {
+      "name": "Get DNS Configuration",
+      "function": "grains.item",
+      "args": ["dns"],
+      "description": "DNS servers from grains",
+      "timeout": 5000
+    },
+    {
+      "name": "Check IP Forwarding",
+      "function": "file.read",
+      "args": ["/proc/sys/net/ipv4/ip_forward"],
+      "description": "Is IP forwarding enabled?",
+      "timeout": 5000
+    },
+    {
+      "name": "Read hosts file",
+      "function": "file.read",
+      "args": ["/etc/hosts"],
+      "description": "Check for suspicious hosts entries",
+      "timeout": 5000
+    },
+    {
+      "name": "Read resolv.conf",
+      "function": "file.read",
+      "args": ["/etc/resolv.conf"],
+      "description": "DNS resolver configuration",
+      "timeout": 5000
+    }
+  ],
+  "notes": "network.active_tcp is extremely useful - shows all connections with owning process. Check for suspicious outbound connections."
+}

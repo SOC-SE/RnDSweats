@@ -1,0 +1,124 @@
+{
+  "name": "Salt Windows Quick Harden",
+  "description": "Uses Salt's Windows modules for rapid hardening. MAKES CHANGES!",
+  "category": "hardening",
+  "severity": "critical",
+  "os": "windows",
+  "warning": "This playbook makes system changes. Ensure you have backup access method.",
+  "steps": [
+    {
+      "name": "Get System Info",
+      "function": "grains.item",
+      "args": ["osfullname", "domain"],
+      "description": "Identify system",
+      "timeout": 5000,
+      "required": true
+    },
+    {
+      "name": "Enable Windows Firewall - Domain",
+      "function": "firewall.set_firewall_profile",
+      "args": ["domain"],
+      "kwargs": {"state": "on"},
+      "description": "Enable firewall for domain profile",
+      "timeout": 10000
+    },
+    {
+      "name": "Enable Windows Firewall - Private",
+      "function": "firewall.set_firewall_profile",
+      "args": ["private"],
+      "kwargs": {"state": "on"},
+      "description": "Enable firewall for private profile",
+      "timeout": 10000
+    },
+    {
+      "name": "Enable Windows Firewall - Public",
+      "function": "firewall.set_firewall_profile",
+      "args": ["public"],
+      "kwargs": {"state": "on"},
+      "description": "Enable firewall for public profile",
+      "timeout": 10000
+    },
+    {
+      "name": "Disable Guest Account",
+      "function": "user.update",
+      "args": ["Guest"],
+      "kwargs": {"account_disabled": true},
+      "description": "Disable built-in Guest account",
+      "timeout": 10000
+    },
+    {
+      "name": "Stop Remote Registry",
+      "function": "service.stop",
+      "args": ["RemoteRegistry"],
+      "description": "Stop Remote Registry service",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Disable Remote Registry",
+      "function": "service.disable",
+      "args": ["RemoteRegistry"],
+      "description": "Prevent Remote Registry from starting",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Stop Telnet Service",
+      "function": "service.stop",
+      "args": ["TlntSvr"],
+      "description": "Stop Telnet service",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Disable Telnet Service",
+      "function": "service.disable",
+      "args": ["TlntSvr"],
+      "description": "Disable Telnet at boot",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Ensure Windows Defender Running",
+      "function": "service.start",
+      "args": ["WinDefend"],
+      "description": "Start Windows Defender",
+      "timeout": 10000,
+      "continueOnError": true
+    },
+    {
+      "name": "Ensure Event Log Running",
+      "function": "service.start",
+      "args": ["EventLog"],
+      "description": "Event logging must be active",
+      "timeout": 10000
+    },
+    {
+      "name": "Enable RDP Firewall Rule",
+      "function": "firewall.add_rule",
+      "kwargs": {
+        "name": "Salt-Allow-RDP",
+        "localport": "3389",
+        "protocol": "tcp",
+        "action": "allow",
+        "dir": "in"
+      },
+      "description": "Allow RDP through firewall",
+      "timeout": 10000
+    },
+    {
+      "name": "Enable WinRM Firewall Rule",
+      "function": "firewall.add_rule",
+      "kwargs": {
+        "name": "Salt-Allow-WinRM",
+        "localport": "5985-5986",
+        "protocol": "tcp",
+        "action": "allow",
+        "dir": "in"
+      },
+      "description": "Allow WinRM for Salt",
+      "timeout": 10000
+    }
+  ],
+  "notes": "Uses Salt's native Windows modules. Test on non-critical systems first."
+}

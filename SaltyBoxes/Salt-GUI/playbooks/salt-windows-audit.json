@@ -1,0 +1,86 @@
+{
+  "name": "Salt Windows Security Audit",
+  "description": "Uses Salt's Windows-specific modules for comprehensive security audit.",
+  "category": "audit",
+  "severity": "medium",
+  "os": "windows",
+  "steps": [
+    {
+      "name": "Get Windows Version",
+      "function": "grains.item",
+      "args": ["osfullname", "osversion", "osrelease"],
+      "description": "Windows version information",
+      "timeout": 5000,
+      "required": true
+    },
+    {
+      "name": "List Local Users",
+      "function": "user.list_users",
+      "description": "All local user accounts",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "List Local Groups",
+      "function": "group.list_groups",
+      "description": "All local groups",
+      "timeout": 10000
+    },
+    {
+      "name": "Get Administrators Group Members",
+      "function": "group.members",
+      "args": ["Administrators"],
+      "description": "Users with admin rights",
+      "timeout": 10000
+    },
+    {
+      "name": "Get Running Services",
+      "function": "service.get_running",
+      "description": "Currently running services",
+      "timeout": 15000
+    },
+    {
+      "name": "Check Windows Firewall Status",
+      "function": "firewall.get_config",
+      "description": "Firewall configuration",
+      "timeout": 10000
+    },
+    {
+      "name": "List Firewall Rules",
+      "function": "firewall.get_rule",
+      "description": "Firewall rules",
+      "timeout": 15000
+    },
+    {
+      "name": "Get Installed Software",
+      "function": "pkg.list_pkgs",
+      "description": "All installed software",
+      "timeout": 30000
+    },
+    {
+      "name": "Check Windows Update Status",
+      "function": "win_wua.list",
+      "description": "Pending Windows updates",
+      "timeout": 60000
+    },
+    {
+      "name": "Get Network Configuration",
+      "function": "network.interfaces",
+      "description": "Network adapter info",
+      "timeout": 10000
+    },
+    {
+      "name": "Get IP Addresses",
+      "function": "network.ip_addrs",
+      "description": "All IP addresses",
+      "timeout": 10000
+    },
+    {
+      "name": "Check Remote Desktop Status",
+      "function": "rdp.status",
+      "description": "RDP enabled/disabled",
+      "timeout": 5000
+    }
+  ],
+  "notes": "Uses Salt's native Windows modules. Much more reliable than PowerShell commands for cross-version compatibility."
+}

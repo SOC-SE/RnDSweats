@@ -1,0 +1,79 @@
+{
+  "name": "Salt Service Security Audit",
+  "description": "Uses Salt's native service module to audit and manage services without shell commands.",
+  "category": "audit",
+  "severity": "medium",
+  "os": "linux",
+  "steps": [
+    {
+      "name": "List All Running Services",
+      "function": "service.get_running",
+      "description": "Get all currently running services",
+      "timeout": 15000,
+      "required": true
+    },
+    {
+      "name": "List All Enabled Services",
+      "function": "service.get_enabled",
+      "description": "Get services that start at boot",
+      "timeout": 15000,
+      "required": true
+    },
+    {
+      "name": "List All Disabled Services",
+      "function": "service.get_disabled",
+      "description": "Get services disabled at boot",
+      "timeout": 15000
+    },
+    {
+      "name": "Check SSH Service",
+      "function": "service.status",
+      "args": ["sshd"],
+      "description": "Verify SSH daemon status",
+      "timeout": 10000
+    },
+    {
+      "name": "Check Salt Minion",
+      "function": "service.status",
+      "args": ["salt-minion"],
+      "description": "Verify Salt minion status",
+      "timeout": 10000
+    },
+    {
+      "name": "Check Cron Service",
+      "function": "service.status",
+      "args": ["cron"],
+      "description": "Check cron daemon status",
+      "timeout": 10000
+    },
+    {
+      "name": "Check Rsyslog",
+      "function": "service.status",
+      "args": ["rsyslog"],
+      "description": "Verify logging daemon",
+      "timeout": 10000
+    },
+    {
+      "name": "Check Firewall Service",
+      "function": "service.status",
+      "args": ["firewalld"],
+      "description": "Check firewalld status",
+      "timeout": 10000
+    }
+  ],
+  "remediation": [
+    {
+      "name": "Stop Telnet (if running)",
+      "function": "service.stop",
+      "args": ["telnet"],
+      "when": "manual"
+    },
+    {
+      "name": "Disable Telnet",
+      "function": "service.disable",
+      "args": ["telnet"],
+      "when": "manual"
+    }
+  ],
+  "notes": "Service names vary by distribution. 'sshd' on RHEL, 'ssh' on Debian. Adjust as needed."
+}
