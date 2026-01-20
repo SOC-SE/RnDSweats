@@ -365,7 +365,7 @@ app.get('/api/minions/status', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         res.json({
             up: response.data.return[0]?.up || [],
@@ -409,7 +409,6 @@ app.post('/proxy', async (req, res) => {
         const response = await axios.post(`${settings.saltAPIUrl}/run`, payload, {
             headers: { 'Content-Type': 'application/json' },
             timeout: settings.asyncJobTimeout || 300000,
-            httpsAgent
         });
         
         jobInfo.status = 'completed';
@@ -463,7 +462,6 @@ app.post('/proxy/async', async (req, res) => {
         const response = await axios.post(`${settings.saltAPIUrl}/run`, payload, {
             headers: { 'Content-Type': 'application/json' },
             timeout: 30000,
-            httpsAgent
         });
         
         const jid = response.data.return[0]?.jid;
@@ -497,7 +495,7 @@ app.get('/proxy/job/:jid', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 10000, httpsAgent });
+        }, { timeout: 10000 });
         
         const result = response.data.return[0];
         const isComplete = Object.keys(result || {}).length > 0;
@@ -591,7 +589,7 @@ app.post('/api/emergency/block-all-traffic', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         res.json({ message: 'Emergency firewall rules applied', result: response.data });
     } catch (error) {
@@ -623,7 +621,7 @@ app.post('/api/emergency/kill-connections', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         res.json({ message: 'Connections terminated', result: response.data });
     } catch (error) {
@@ -655,7 +653,7 @@ app.post('/api/emergency/change-passwords', async (req, res) => {
                 username: settings.username,
                 password: settings.password,
                 eauth: settings.eauth
-            }, { timeout: 30000, httpsAgent });
+            }, { timeout: 30000 });
             
             results.push({ user, status: 'success', result: response.data });
         } catch (error) {
@@ -691,7 +689,7 @@ app.post('/api/services/status', async (req, res) => {
                     username: settings.username,
                     password: settings.password,
                     eauth: settings.eauth
-                }, { timeout: 30000, httpsAgent });
+                }, { timeout: 30000 });
                 
                 results[service] = response.data.return[0];
             }
@@ -705,7 +703,7 @@ app.post('/api/services/status', async (req, res) => {
                 username: settings.username,
                 password: settings.password,
                 eauth: settings.eauth
-            }, { timeout: 30000, httpsAgent });
+            }, { timeout: 30000 });
             
             results.all = response.data.return[0];
         }
@@ -737,7 +735,7 @@ app.post('/api/services/manage', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         res.json({ message: `Service ${action} executed`, result: response.data });
     } catch (error) {
@@ -757,7 +755,7 @@ app.get('/custom-scripts', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { headers: { 'Content-Type': 'application/json' }, httpsAgent });
+        }, { headers: { 'Content-Type': 'application/json' } });
         
         const scripts = response.data.return[0] || [];
         const scriptExtensions = ['.sh', '.ps1', '.py', '.rb', '.pl', '.bat', '.cmd'];
@@ -788,7 +786,7 @@ app.get('/custom-script-content', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { headers: { 'Content-Type': 'application/json' }, httpsAgent });
+        }, { headers: { 'Content-Type': 'application/json' } });
         
         const content = response.data.return[0];
         if (content === false || content === null) {
@@ -826,7 +824,7 @@ app.post('/api/scripts/upload', upload.single('script'), async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { httpsAgent });
+        }, {});
         
         // Clean up local file
         fs.unlinkSync(localPath);
@@ -852,7 +850,7 @@ app.get('/keys', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { headers: { 'Content-Type': 'application/json' }, httpsAgent });
+        }, { headers: { 'Content-Type': 'application/json' } });
         
         res.json(response.data);
     } catch (error) {
@@ -879,7 +877,7 @@ app.post('/keys/accept', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { headers: { 'Content-Type': 'application/json' }, httpsAgent });
+        }, { headers: { 'Content-Type': 'application/json' } });
         
         res.json(response.data);
     } catch (error) {
@@ -900,7 +898,7 @@ app.post('/keys/accept-all', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { headers: { 'Content-Type': 'application/json' }, httpsAgent });
+        }, { headers: { 'Content-Type': 'application/json' } });
         
         res.json(response.data);
     } catch (error) {
@@ -927,7 +925,7 @@ app.post('/keys/delete', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { headers: { 'Content-Type': 'application/json' }, httpsAgent });
+        }, { headers: { 'Content-Type': 'application/json' } });
         
         res.json(response.data);
     } catch (error) {
@@ -1016,7 +1014,7 @@ app.post('/api/playbooks/:name/execute', async (req, res) => {
                     username: settings.username,
                     password: settings.password,
                     eauth: settings.eauth
-                }, { timeout: step.timeout || 60000, httpsAgent });
+                }, { timeout: step.timeout || 60000 });
                 
                 stepResult.status = 'completed';
                 stepResult.result = response.data.return[0];
@@ -1070,7 +1068,7 @@ app.get('/api/minions/grains', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         const grains = response.data.return[0] || {};
         minionGrainCache.set('all', grains);
@@ -1105,7 +1103,7 @@ app.post('/api/quick-cmd', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: (timeout + 10) * 1000, httpsAgent });
+        }, { timeout: (timeout + 10) * 1000 });
         
         res.json(response.data);
     } catch (error) {
@@ -1140,8 +1138,7 @@ app.post('/proxy/batch', async (req, res) => {
         
         try {
             const response = await axios.post(`${settings.saltAPIUrl}/run`, payload, {
-                headers: { 'Content-Type': 'application/json' },
-                httpsAgent
+                headers: { 'Content-Type': 'application/json' }
             });
             
             results.push({
@@ -1180,7 +1177,7 @@ app.post('/api/files/read', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         res.json({ content: response.data.return[0][target] });
     } catch (error) {
@@ -1207,7 +1204,7 @@ app.post('/api/files/write', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         res.json({ result: response.data.return[0][target] });
     } catch (error) {
@@ -1233,7 +1230,7 @@ app.post('/api/network/connections', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         res.json(response.data.return[0]);
     } catch (error) {
@@ -1255,7 +1252,7 @@ app.post('/api/users/list', async (req, res) => {
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
-        }, { timeout: 30000, httpsAgent });
+        }, { timeout: 30000 });
         
         res.json(response.data.return[0]);
     } catch (error) {
