@@ -25,9 +25,18 @@ const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
 const https = require('https');
+const http = require('http');
 
 // HTTPS agent for self-signed certificates
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+// Helper to get the right agent based on URL
+function getAgent(url) {
+    if (url && url.startsWith('https://')) {
+        return httpsAgent;
+    }
+    return undefined;  // Use default for HTTP
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -153,12 +162,14 @@ function generateCSRFToken() {
 }
 
 // Helper function for axios config with proper SSL handling
-function getAxiosConfig(timeout = 30000) {
-    return {
+function getAxiosConfig(timeout = 30000, url = '') {
+    const config = {
         headers: { 'Content-Type': 'application/json' },
-        timeout,
-        httpsAgent
+        timeout
     };
+    const agent = getAgent(url);
+    if (agent) config.httpsAgent = agent;
+    return config;
 }
 
 function readSettings() {
