@@ -1,10 +1,11 @@
 #!/bin/bash
 # ==============================================================================
-# Salt Minion Installer - Hardened Edition
+# Salt Minion Installer - Option 1: Direct Repository Configuration
 # Targets: Salt 3007 LTS
 # ==============================================================================
 #
 # Improvements over original:
+# - Direct repository file creation (no dependency on repo RPM)
 # - Supports both interactive and non-interactive (scripted) execution
 # - Idempotent - safe to run multiple times
 # - Retry logic for network operations
@@ -133,7 +134,7 @@ setup_apt_repo() {
     log "Setting up Salt repository for Debian/Ubuntu..."
     
     apt-get update -qq
-    apt-get install -y -qq curl gnupg2 > /dev/null
+    apt-get install -y -qq curl gnupg2
     
     mkdir -p /etc/apt/keyrings
     rm -f /etc/apt/keyrings/salt-archive-keyring.pgp
@@ -141,6 +142,11 @@ setup_apt_repo() {
     retry_command \
         "curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public | tee /etc/apt/keyrings/salt-archive-keyring.pgp > /dev/null" \
         "Download Salt GPG key"
+    
+    # Verify GPG key was downloaded
+    if [[ ! -s /etc/apt/keyrings/salt-archive-keyring.pgp ]]; then
+        die "Failed to download Salt GPG key"
+    fi
     
     local arch
     arch=$(dpkg --print-architecture)
@@ -167,15 +173,39 @@ setup_rpm_repo() {
     
     # Clean up old repos
     rpm -e --nodeps salt-repo 2>/dev/null || true
-    rm -f /etc/yum.repos.d/salt.repo
+    rm -f /etc/yum.repos.d/salt*.repo
     
-    local repo_url="https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${el_version}/x86_64/${SALT_VERSION}/salt-repo-${SALT_VERSION}-${el_version}.noarch.rpm"
-    
+    # Download GPG key first
+    log "Downloading Salt Project GPG key..."
     retry_command \
-        "$pkg_mgr install -y '$repo_url'" \
-        "Install Salt repository RPM"
+        "curl -fsSL https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public -o /tmp/salt-gpg-key.pub" \
+        "Download Salt GPG key"
     
-    $pkg_mgr clean expire-cache
+    # Verify GPG key was downloaded
+    if [[ ! -s /tmp/salt-gpg-key.pub ]]; then
+        die "Failed to download Salt GPG key"
+    fi
+    
+    # Import GPG key
+    log "Importing GPG key..."
+    rpm --import /tmp/salt-gpg-key.pub
+    
+    # Create repository file directly
+    log "Creating Salt repository configuration..."
+    cat > /etc/yum.repos.d/salt.repo <<EOF
+[saltproject-repo]
+name=Salt Project Repository
+baseurl=https://packages.broadcom.com/artifactory/saltproject-rpm/rhel/${el_version}/x86_64/${SALT_VERSION}/
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.broadcom.com/artifactory/api/security/keypair/SaltProjectKey/public
+EOF
+
+    log "Repository configuration created successfully"
+    
+    # Clean and rebuild cache
+    $pkg_mgr clean all
+    $pkg_mgr makecache
 }
 
 install_salt_minion() {
@@ -330,7 +360,8 @@ done
 # --- Main Execution ---
 main() {
     echo "#####################################################"
-    echo "# Salt Minion Installer - Hardened Edition          #"
+    echo "# Salt Minion Installer                             #"
+    echo "# Direct Repository Configuration                   #"
     echo "#####################################################"
     echo
     
