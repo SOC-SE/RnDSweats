@@ -4,11 +4,11 @@ set -euo pipefail
 
 # ==============================================================================
 # File: System_Enumerator.sh
-# Description: Performs advanced enumeration on a Linux machine for CCDC competitions.
+# Description: Performs advanced enumeration on a Linux machine.
 #              Prompts the user to select categories of information to gather, such as system overview, users, network, processes, logs, etc.
 #              Gathers verbose details for injects, incident reporting, and threat hunting. Checks for key indicators like suspicious processes,
 #              open ports, cron jobs, installed packages, and potential security issues. Outputs to console and optionally saves to a report file.
-#              Supports Debian/Ubuntu (apt) and Fedora/CentOS (dnf) for compatibility with CCDC VMs.
+#              Supports Debian/Ubuntu (apt) and Fedora/CentOS (dnf).
 #              Designed to align with Perfect Box Framework (PBF) elements like System Pruning, Log Aggregation, IDS, and threat hunting.
 #
 # Dependencies: Standard Linux tools (e.g., ps, netstat/ss, awk, grep). Optional: chkrootkit or rkhunter for rootkit detection (prompts if not installed).
@@ -16,7 +16,7 @@ set -euo pipefail
 #        Follow on-screen prompts to select enumeration categories.
 # Notes: 
 # - Run as root for full access (e.g., to /etc/shadow, raw sockets).
-# - In CCDC, use this to baseline systems, detect red team artifacts, and generate reports for injects.
+# - Use this to baseline systems, detect red team artifacts, and generate reports.
 # - Outputs are timestamped and can be exported to /root/enum_report.txt for easy sharing.
 # - For threat hunting: Looks for common persistence mechanisms (e.g., cron, unusual users, listening ports).
 # ==============================================================================
@@ -31,7 +31,7 @@ cat << "EOF"
 |_____|_| |_|\__,_|_| |_| |_|     |_|   |_/___| 
 EOF
 echo -e "\033[0m"
-echo "System Enumerator - For CCDC Threat Hunting and Reporting"
+echo "System Enumerator"
 echo "---------------------------------------------------------"
 
 # --- Configuration & Colors ---
@@ -55,13 +55,31 @@ append_to_report() {
 count_and_log() {
     local cmd="$1"
     local desc="$2"
-    local count=$(eval "$cmd" 2>/dev/null | wc -l)
+    local output=""
+    local status=0
+
+    set +e
+    output=$(eval "$cmd" 2>/dev/null)
+    status=$?
+    set -e
+
+    local count=0
+    if [ -n "$output" ]; then
+        count=$(printf '%s\n' "$output" | wc -l)
+    fi
+
     if [ "$count" -eq 0 ]; then
         echo -e "${YELLOW}No $desc found.${NC}"
+        append_to_report "No $desc found."
     else
         echo -e "${GREEN}Found $count $desc.${NC}"
+    append_to_report "Found $count $desc."
+    printf '%s\n' "$output" | tee -a "$REPORT_FILE"
     fi
-    eval "$cmd" | tee -a "$REPORT_FILE"
+
+    if [ "$status" -ne 0 ]; then
+        log_warn "$desc command reported errors; review output for details."
+    fi
 }
 
 # --- Root Check ---
@@ -100,15 +118,17 @@ enum_system_overview() {
     append_to_report "=== System Overview ($TIMESTAMP) ==="
     uname -a | tee -a "$REPORT_FILE"
     if command -v hostnamectl &> /dev/null; then hostnamectl | tee -a "$REPORT_FILE"; fi
-    if command -v lsb_release &> /dev/null; then lsb_release -a | tee -a "$REPORT_FILE"
+    # Use /etc/os-release for portable distribution information
+    if [ -r /etc/os-release ]; then
+        . /etc/os-release
+        echo "OS: ${PRETTY_NAME:-$NAME ${VERSION:-}}" | tee -a "$REPORT_FILE"
+    elif [ -r /etc/lsb-release ]; then
+        . /etc/lsb-release
+        echo "OS: ${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}" | tee -a "$REPORT_FILE"
+    elif [ -r /etc/redhat-release ]; then
+        cat /etc/redhat-release | tee -a "$REPORT_FILE"
     else
-        # Fallback for CentOS/RHEL/Fedora: Parse /etc/os-release
-        if [ -r /etc/os-release ]; then
-            . /etc/os-release
-            echo "OS: $PRETTY_NAME ($VERSION)" | tee -a "$REPORT_FILE"
-        elif [ -r /etc/redhat-release ]; then
-            cat /etc/redhat-release | tee -a "$REPORT_FILE"
-        fi
+        echo "OS: Unknown (no /etc/os-release or equivalents)" | tee -a "$REPORT_FILE"
     fi
     uptime | tee -a "$REPORT_FILE"
     df -h | tee -a "$REPORT_FILE"
@@ -123,8 +143,10 @@ enum_users_auth() {
     cat /etc/passwd | tee -a "$REPORT_FILE"
     cat /etc/group | tee -a "$REPORT_FILE"
     if [ -r /etc/shadow ]; then awk -F: '{print $1 " has password? " ($2 != "" ? "Yes" : "No")}' /etc/shadow | tee -a "$REPORT_FILE"; fi
-    sudo -l 2>&1 | tee -a "$REPORT_FILE"
-    lastlog 2>/dev/null | tee -a "$REPORT_FILE" || echo "lastlog not available" | tee -a "$REPORT_FILE"
+    if ! sudo -l 2>&1 | tee -a "$REPORT_FILE"; then
+        log_warn "sudo -l failed (may require password, tty, or sudoers entry)."
+    fi
+    lastlog 2>/dev/null | head -20 | tee -a "$REPORT_FILE" || awk '/lastlog/ {print}' /var/log/auth.log 2>/dev/null | tee -a "$REPORT_FILE" || echo "lastlog not available" | tee -a "$REPORT_FILE"
     log_info "Users and auth info complete."
 }
 
@@ -137,8 +159,16 @@ enum_network() {
     if command -v ss &> /dev/null; then ss -tuln | tee -a "$REPORT_FILE"; else netstat -tuln 2>/dev/null | tee -a "$REPORT_FILE" || echo "netstat not available" | tee -a "$REPORT_FILE"; fi
     arp -a | tee -a "$REPORT_FILE"
     if command -v iptables &> /dev/null; then iptables -L -n -v | tee -a "$REPORT_FILE"; fi
-    if command -v ufw &> /dev/null; then ufw status verbose | tee -a "$REPORT_FILE"; fi
-    if command -v firewall-cmd &> /dev/null; then firewall-cmd --list-all | tee -a "$REPORT_FILE"; fi
+    if command -v ufw &> /dev/null; then
+        if ! ufw status verbose 2>&1 | tee -a "$REPORT_FILE"; then
+            log_warn "ufw status command returned an error."
+        fi
+    fi
+    if command -v firewall-cmd &> /dev/null; then
+        if ! firewall-cmd --list-all 2>&1 | tee -a "$REPORT_FILE"; then
+            log_warn "firewall-cmd --list-all returned an error (firewalld may be inactive)."
+        fi
+    fi
     log_info "Network info complete."
 }
 
@@ -147,7 +177,11 @@ enum_processes_services() {
     log_info "Gathering Processes and Services..."
     append_to_report "=== Processes and Services ($TIMESTAMP) ==="
     ps auxf | tee -a "$REPORT_FILE"
-    if command -v systemctl &> /dev/null; then systemctl list-units --type=service | tee -a "$REPORT_FILE"; fi
+    if command -v systemctl &> /dev/null; then
+        if ! systemctl list-units --type=service | tee -a "$REPORT_FILE"; then
+            log_warn "systemctl list-units returned an error (systemd may be unavailable)."
+        fi
+    fi
     lsmod | tee -a "$REPORT_FILE"
     log_info "Processes and services complete."
 }
@@ -156,7 +190,11 @@ enum_processes_services() {
 enum_logs() {
     log_info "Gathering Logs and Monitoring Info..."
     append_to_report "=== Logs and Monitoring ($TIMESTAMP) ==="
-    if command -v journalctl &> /dev/null; then journalctl -n 50 | tee -a "$REPORT_FILE"; fi
+    if command -v journalctl &> /dev/null; then
+        if ! journalctl -n 50 | tee -a "$REPORT_FILE"; then
+            log_warn "journalctl -n 50 returned an error."
+        fi
+    fi
     tail -n 50 /var/log/auth.log 2>/dev/null | tee -a "$REPORT_FILE" || tail -n 50 /var/log/secure 2>/dev/null | tee -a "$REPORT_FILE" || echo "No auth log available" | tee -a "$REPORT_FILE"
     tail -n 50 /var/log/syslog 2>/dev/null | tee -a "$REPORT_FILE" || tail -n 50 /var/log/messages 2>/dev/null | tee -a "$REPORT_FILE" || echo "No syslog available" | tee -a "$REPORT_FILE"
     log_info "Logs info complete."
@@ -167,7 +205,7 @@ enum_filesystem() {
     log_info "Gathering File System and Integrity Info..."
     append_to_report "=== File System and Integrity ($TIMESTAMP) ==="
     
-    # SUID files: Targeted paths for speed (common escalation vectors in CCDC)
+    # SUID files: Targeted paths for speed (common escalation vectors)
     local suid_cmd="find /bin /usr/bin /usr/local/bin /sbin /usr/sbin /etc -perm -4000 -type f"
     count_and_log "$suid_cmd" "SUID files"
     
@@ -181,9 +219,11 @@ enum_filesystem() {
     
     if command -v aide &> /dev/null; then 
         log_info "Running AIDE integrity check..."
-        aide --check 2>&1 | tee -a "$REPORT_FILE"
+        if ! aide --check 2>&1 | tee -a "$REPORT_FILE"; then
+            log_warn "AIDE integrity check returned a non-zero status; review the output above."
+        fi
     else 
-        log_warn "AIDE not installed for File Integrity Monitoring (FIM). In MWCCDC, consider installing for baseline comparisons: apt install aide (Debian) or dnf/yum install aide (Fedora/CentOS)."
+        log_warn "AIDE not installed for File Integrity Monitoring (FIM). Consider installing for baseline comparisons: apt install aide (Debian) or dnf/yum install aide (Fedora/CentOS)."
     fi
     log_info "File system info complete."
 }
@@ -202,9 +242,11 @@ enum_security() {
         log_info "No user crontab found (normal if none scheduled)."
     fi
     
-    # System cron dirs (suppress ls errors, check for empty output)
-    ls -l /etc/cron* 2>/dev/null | tee -a "$REPORT_FILE"
-    if [ -z "$(ls -l /etc/cron* 2>/dev/null | tail -n +2)" ]; then  # Ignore header if any
+    # System cron dirs (handle missing matches safely)
+    echo "System cron entries:" | tee -a "$REPORT_FILE"
+    if compgen -G "/etc/cron*" > /dev/null; then
+        ls -l /etc/cron* 2>/dev/null | tee -a "$REPORT_FILE"
+    else
         echo "No /etc/cron* directories or files found." | tee -a "$REPORT_FILE"
     fi
     
@@ -213,7 +255,9 @@ enum_security() {
     if [ "$PKG_MANAGER" != "unknown" ]; then 
         local pkg_count=$($QUERY_CMD 2>/dev/null | wc -l)
         echo "Total packages: $pkg_count" | tee -a "$REPORT_FILE"
-        $QUERY_CMD | tee -a "$REPORT_FILE"
+        if ! $QUERY_CMD | tee -a "$REPORT_FILE"; then
+            log_warn "Listing packages with $PKG_MANAGER encountered an error."
+        fi
         log_info "Listed $pkg_count installed packages."
     else 
         echo "No package manager detected; unable to list installed packages." | tee -a "$REPORT_FILE"
@@ -222,12 +266,16 @@ enum_security() {
     # Rootkit scanners
     if command -v chkrootkit &> /dev/null; then 
         log_info "Running chkrootkit scan..."
-        chkrootkit 2>&1 | tee -a "$REPORT_FILE"
+        if ! chkrootkit 2>&1 | tee -a "$REPORT_FILE"; then
+            log_warn "chkrootkit returned a non-zero status; review scan output."
+        fi
     elif command -v rkhunter &> /dev/null; then 
         log_info "Running rkhunter scan..."
-        rkhunter --check 2>&1 | tee -a "$REPORT_FILE"
+        if ! rkhunter --check 2>&1 | tee -a "$REPORT_FILE"; then
+            log_warn "rkhunter returned a non-zero status; review scan output."
+        fi
     else 
-        log_warn "No rootkit scanner (chkrootkit/rkhunter) found. For MWCCDC threat hunting, install one: apt install chkrootkit (Debian) or dnf/yum install rkhunter (Fedora/CentOS)."
+        log_warn "No rootkit scanner (chkrootkit/rkhunter) found. For threat hunting, install one: apt install chkrootkit (Debian) or dnf/yum install rkhunter (Fedora/CentOS)."
     fi
     log_info "Security info complete."
 }
@@ -284,7 +332,7 @@ main() {
     detect_pkg_manager
     prompt_mode
     log_info "${GREEN}--- Script Complete ---${NC}"
-    log_info "Use this report for CCDC injects, incident reporting, or threat hunting. Review for anomalies like unknown users, open ports, or suspicious processes."
+    log_info "Use this report for incident reporting or threat hunting. Review for anomalies like unknown users, open ports, or suspicious processes."
 }
 
 main "$@"

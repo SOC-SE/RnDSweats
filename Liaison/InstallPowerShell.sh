@@ -1,248 +1,147 @@
-# ==============================================================================
-# File: Liaison/InstallPowerShell.sh
-# Description: Installs Microsoft PowerShell on compatible Linux distributions (Debian, Ubuntu, Fedora, CentOS/RHEL)
-#              as per the 2025 MWCCDC Team Pack. If PowerShell is not installed, it sets up the repository and installs it.
-#              If already installed, prompts the user to uninstall and performs a clean removal (package, repo files, etc.).
-#              Supports apt (Debian/Ubuntu) and dnf/yum (Fedora/CentOS/RHEL). Based on official Microsoft instructions
-#              for PowerShell 7.5 (latest as of July 2025).
-#
-# Usage: sudo ./InstallPowerShell.sh
-# Notes:
-# - Run as root.
-# - After installation, run PowerShell with 'pwsh'. Use it for scripting, e.g., pwsh -Command "Get-Process".
-# - In CCDC VMs, ensure internet access for downloads (allowed for patches). No conflicts with Palo Alto or services.
-# - For uninstall, removes package, repo configs, and cleans up temporary files.
-# ==============================================================================
-
 #!/bin/bash
+
+# PowerShell Install Script
 
 set -euo pipefail
 
-# --- Configuration & Colors ---
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+GREEN="\033[0;32m"
+YELLOW="\033[1;33m"
+RED="\033[0;31m"
+NC="\033[0m"
+
 DEB_FILE="packages-microsoft-prod.deb"
-REPO_FILE="/etc/yum.repos.d/microsoft.repo"  # For rpm
-APT_REPO_FILE="/etc/apt/sources.list.d/microsoft-prod.list"  # For apt
+APT_REPO_FILE="/etc/apt/sources.list.d/microsoft-prod.list"
+REPO_FILE="/etc/yum.repos.d/microsoft-powershell.repo"
 
-# --- Helper Functions ---
-log_info() { echo -e "${GREEN}[INFO] $1${NC}"; }
-log_warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
-log_error() { echo -e "${RED}[ERROR] $1${NC}" >&2; exit 1; }
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
-# --- Root Check ---
+die() { log_error "$1"; }
+
 check_root() {
-    if [ "$(id -u)" -ne 0 ]; then
-        log_error "This script must be run as root."
+    if [ "${EUID}" -ne 0 ]; then
+        die "Run as root or with sudo."
     fi
 }
 
-# --- Detect Package Manager ---
+require_commands() {
+    for cmd in "$@"; do
+        command -v "$cmd" >/dev/null 2>&1 || die "Missing '$cmd'."
+    done
+}
+
 detect_pkg_manager() {
-    if command -v apt-get &> /dev/null; then
+    if command -v apt-get >/dev/null 2>&1; then
         PKG_MANAGER="apt"
         INSTALL_CMD="apt-get install -y"
         REMOVE_CMD="apt-get remove -y"
         AUTOREMOVE_CMD="apt-get autoremove -y"
         UPDATE_CMD="apt-get update"
-        PREREQ_PKGS="wget apt-transport-https software-properties-common"
-        DISTRO_PATH="ubuntu"  # Default to ubuntu; adjust for debian
-        if grep -q 'ID=debian' /etc/os-release; then
-            DISTRO_PATH="debian"
-            PREREQ_PKGS="wget apt-transport-https"
+        PREREQ_PKGS="wget apt-transport-https software-properties-common gnupg"
+
+        if [ -r /etc/os-release ]; then
+            . /etc/os-release
+            DIST_ID=${ID:-ubuntu}
+            DIST_VERSION=${VERSION_ID:-"22.04"}
+            UBUNTU_CODENAME=${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}
+        else
+            DIST_ID="ubuntu"
+            DIST_VERSION="22.04"
         fi
-    elif command -v dnf &> /dev/null; then
+
+        case "$DIST_ID" in
+            ubuntu|debian) DISTRO_PATH="$DIST_ID"; DISTRO_VERSION_PATH=${DIST_VERSION%%.*} ;;
+            pop|elementary|linuxmint) DISTRO_PATH="ubuntu"; DISTRO_VERSION_PATH=${UBUNTU_CODENAME:-${DIST_VERSION}} ;;
+            *) DISTRO_PATH="ubuntu"; DISTRO_VERSION_PATH=${DIST_VERSION} ;;
+        esac
+    elif command -v dnf >/dev/null 2>&1; then
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
         REMOVE_CMD="dnf remove -y"
         AUTOREMOVE_CMD="dnf autoremove -y"
-        UPDATE_CMD="dnf update"
-    elif command -v yum &> /dev/null; then
+        UPDATE_CMD="dnf makecache -y"
+        if [ -r /etc/os-release ]; then . /etc/os-release; OS_ID=${ID:-rhel}; OS_VER=${VERSION_ID%%.*}; fi
+    elif command -v yum >/dev/null 2>&1; then
         PKG_MANAGER="yum"
         INSTALL_CMD="yum install -y"
         REMOVE_CMD="yum remove -y"
         AUTOREMOVE_CMD="yum autoremove -y"
-        UPDATE_CMD="yum update"
+        UPDATE_CMD="yum makecache -y"
+        if [ -r /etc/os-release ]; then . /etc/os-release; OS_ID=${ID:-rhel}; OS_VER=${VERSION_ID%%.*}; fi
     else
-        log_error "Unsupported package manager. Only apt (Debian/Ubuntu), dnf (Fedora/RHEL), and yum (CentOS/RHEL) are supported."
+        die "Unsupported package manager."
     fi
-    log_info "Detected package manager: $PKG_MANAGER"
+    log_info "Package manager: ${PKG_MANAGER}"
 }
 
-# --- Check if PowerShell Installed ---
-is_powershell_installed() {
-    command -v pwsh &> /dev/null
-}
+is_powershell_installed() { command -v pwsh >/dev/null 2>&1; }
 
-# --- Install PowerShell ---
 install_powershell() {
     log_info "Installing PowerShell..."
-    
-    printf "Installing PowerShell... "
-    local err_file=$(mktemp)
-    if [ "$PKG_MANAGER" = "apt" ]; then
-        ( $UPDATE_CMD >/dev/null 2>"$err_file"
-          $INSTALL_CMD $PREREQ_PKGS >/dev/null 2>>"$err_file"
-          wget -q "https://packages.microsoft.com/config/$DISTRO_PATH/$(lsb_release -rs)/$DEB_FILE" >/dev/null 2>>"$err_file"
-          dpkg -i "$DEB_FILE" >/dev/null 2>>"$err_file"
-          $UPDATE_CMD >/dev/null 2>>"$err_file"
-          $INSTALL_CMD powershell >/dev/null 2>>"$err_file"
-          rm -f "$DEB_FILE" >/dev/null 2>>"$err_file" ) &
-    else  # dnf or yum
-        ( rpm --import https://packages.microsoft.com/keys/microsoft.asc >/dev/null 2>"$err_file"
-          if [ "$PKG_MANAGER" = "yum" ]; then
-              VERSION_ID=$(rpm -E %rhel)
-          else
-              VERSION_ID=$(rpm -E %fedora || rpm -E %rhel)
-          fi
-          wget -q -O "$REPO_FILE" "https://packages.microsoft.com/config/rhel/$VERSION_ID/prod.repo" >/dev/null 2>>"$err_file"
-          $UPDATE_CMD >/dev/null 2>>"$err_file"
-          $INSTALL_CMD powershell >/dev/null 2>>"$err_file" ) &
-    fi
-    local pid=$!
-    spinner $pid
-    wait $pid
-    local exit_status=$?
-    local err_content=$(cat "$err_file")
-    rm -f "$err_file"
-    if [ $exit_status -ne 0 ]; then
-        echo ""  # Newline after spinner
-        echo -e "${RED}Error during PowerShell installation:${NC}"
-        echo "$err_content"
-        log_error "❌ PowerShell installation failed!"
-    fi
-    echo ""  # Newline
-    
-    # Verify installation
-    if is_powershell_installed; then
-        log_info "✅ PowerShell installed successfully!"
-        log_info "Version: $(pwsh -c '$PSVersionTable.PSVersion' 2>/dev/null || pwsh --version)"
-        
-        # Offer to start PowerShell immediately
-        echo ""
-        log_info "PowerShell is ready to use!"
-        read -p "Would you like to start PowerShell now? (y/n): " start_now
-        case "$start_now" in
-            y|Y ) start_powershell_interactive ;;
-            * ) show_powershell_usage ;;
-        esac
-    else
-        log_error "❌ PowerShell installation failed!"
-    fi
+    local err_file=$(mktemp); trap 'rm -f "$err_file"' RETURN
+
+    case "$PKG_MANAGER" in
+        apt)
+            require_commands wget dpkg
+            $UPDATE_CMD &>>"$err_file"
+            $INSTALL_CMD $PREREQ_PKGS &>>"$err_file"
+            local repo_url="https://packages.microsoft.com/config/${DISTRO_PATH}/${DISTRO_VERSION_PATH}/packages-microsoft-prod.deb"
+            wget -qO "$DEB_FILE" "$repo_url" &>>"$err_file"
+            dpkg -i "$DEB_FILE" &>>"$err_file"; rm -f "$DEB_FILE"
+            $UPDATE_CMD &>>"$err_file"
+            $INSTALL_CMD powershell &>>"$err_file"
+            ;;
+        dnf|yum)
+            require_commands wget rpm
+            command -v gpg >/dev/null 2>&1 || $INSTALL_CMD gnupg &>>"$err_file"
+            local KEY_TMP=$(mktemp); wget -qO "$KEY_TMP" "https://packages.microsoft.com/keys/microsoft.asc" &>>"$err_file"; rpm --import "$KEY_TMP"; rm -f "$KEY_TMP"
+            local repo_base="rhel"; [[ $OS_ID == "fedora" ]] && repo_base="fedora"
+            local repo_url="https://packages.microsoft.com/config/${repo_base}/${OS_VER}/prod.repo"
+            wget -qO "$REPO_FILE" "$repo_url" &>>"$err_file"
+            $UPDATE_CMD &>>"$err_file"
+            $INSTALL_CMD powershell &>>"$err_file"
+            ;;
+    esac
+
+    local err_content=$(cat "$err_file" 2>/dev/null || true)
+    is_powershell_installed || die "Installation failed."
+    log_info "PowerShell $(pwsh -c '$PSVersionTable.PSVersion' 2>/dev/null || pwsh --version) installed."
+    [ -n "$err_content" ] && log_warn "Warnings: $err_content"
+    read -p "Start PowerShell? (y/n): " start_now
+    [[ $start_now =~ [yY] ]] && pwsh
 }
 
-# --- Uninstall PowerShell ---
 uninstall_powershell() {
-    log_info "Uninstalling PowerShell..."
-    
-    $REMOVE_CMD powershell
-    $AUTOREMOVE_CMD
-    
-    # Clean up repo files
-    if [ "$PKG_MANAGER" = "apt" ]; then
-        rm -f "$DEB_FILE" "$APT_REPO_FILE"
-        $UPDATE_CMD  # Refresh after removal
-    else
-        rm -f "$REPO_FILE"
-    fi
-    
-    log_info "PowerShell uninstalled and cleaned up successfully."
+    case "$PKG_MANAGER" in
+        apt) $REMOVE_CMD powershell &>/dev/null || true; $AUTOREMOVE_CMD &>/dev/null || true; rm -f "$DEB_FILE" "$APT_REPO_FILE" &>/dev/null || true; $UPDATE_CMD &>/dev/null || true ;;
+        dnf|yum) $REMOVE_CMD powershell &>/dev/null || true; $AUTOREMOVE_CMD &>/dev/null || true; rm -f "$REPO_FILE" &>/dev/null || true ;;
+    esac
+    log_info "PowerShell removed."
 }
 
-# --- Show PowerShell Usage Instructions ---
-show_powershell_usage() {
-    echo ""
-    log_info "PowerShell Usage Instructions:"
-    echo "================================"
-    echo "• Start PowerShell: pwsh"
-    echo "• Run single command: pwsh -Command 'Get-Process'"
-    echo "• Run script file: pwsh /path/to/script.ps1"
-    echo "• Exit PowerShell: exit (or Ctrl+D)"
-    echo ""
-    echo "Basic PowerShell Commands:"
-    echo "• Get-Process              - List running processes"
-    echo "• Get-Service              - List system services"
-    echo "• Get-ChildItem            - List directory contents (like 'ls' or 'dir')"
-    echo "• Set-Location <path>      - Change directory (like 'cd')"
-    echo "• Get-Help <command>       - Get help for any command"
-    echo "• Write-Host 'Hello'       - Print text to console"
-    echo ""
-    log_info "For CCDC: Use PowerShell for Windows-like scripting and automation!"
+show_usage() {
+    echo "PowerShell Usage:"
+    echo "- pwsh (start shell)"
+    echo "- pwsh -Command 'Get-Process'"
+    echo "- pwsh script.ps1"
 }
 
-# --- Start PowerShell Interactive Session ---
-start_powershell_interactive() {
-    echo ""
-    log_info "Starting PowerShell Interactive Session..."
-    log_info "=========================================="
-    echo ""
-    echo "PowerShell Quick Reference:"
-    echo "• Type commands and press Enter"
-    echo "• Use 'exit' or press Ctrl+D to quit"
-    echo "• Try: Get-Process, Get-Service, Get-ChildItem"
-    echo "• Type 'help' for more information"
-    echo ""
-    log_info "Launching PowerShell now..."
-    echo ""
-    
-    # Start PowerShell
-    pwsh
-    
-    # After PowerShell exits
-    echo ""
-    log_info "PowerShell session ended."
-    log_info "You can restart anytime with: pwsh"
-}
-
-# --- Verify PowerShell Installation ---
-verify_powershell() {
-    if is_powershell_installed; then
-        log_info "✅ PowerShell is installed"
-        log_info "Version: $(pwsh -c '$PSVersionTable.PSVersion' 2>/dev/null || pwsh --version)"
-        
-        # Test basic functionality
-        log_info "Testing PowerShell functionality..."
-        if pwsh -Command "Write-Host 'PowerShell test successful!'" &>/dev/null; then
-            log_info "✅ PowerShell is working correctly"
-        else
-            log_warn "⚠️  PowerShell installed but basic test failed"
-        fi
-        
-        return 0
-    else
-        log_error "❌ PowerShell is not installed"
-        return 1
-    fi
-}
-
-# --- Main Logic ---
 main() {
     check_root
     detect_pkg_manager
-    
-    if ! is_powershell_installed; then
-        install_powershell
-    else
-        log_warn "PowerShell is already installed."
+    is_powershell_installed && {
+        log_warn "PowerShell installed."
         verify_powershell
-        
-        echo ""
-        read -p "Would you like to start PowerShell now? (y/n): " start_choice
-        case "$start_choice" in
-            y|Y ) start_powershell_interactive ;;
-            * ) 
-                read -p "Would you like to uninstall PowerShell? (y/n): " uninstall_choice
-                case "$uninstall_choice" in
-                    y|Y ) uninstall_powershell ;;
-                    * ) show_powershell_usage ;;
-                esac
-                ;;
-        esac
-    fi
-    
-    log_info "${GREEN}--- Script Complete ---${NC}"
+        read -p "Start (y), Uninstall (u), or Usage (i)? [s]: " action
+        case "${action,,}" in y|s) pwsh ;; u) uninstall_powershell ;; i) show_usage ;; *) show_usage ;; esac
+    } || install_powershell
+    log_info "Complete."
+}
+
+verify_powershell() {
+    log_info "Version: $(pwsh -c '$PSVersionTable.PSVersion')"
+    pwsh -Command "Write-Host 'Test OK'" &>/dev/null && log_info "Test passed."
 }
 
 main "$@"

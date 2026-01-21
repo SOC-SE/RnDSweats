@@ -57,7 +57,7 @@ error_exit() {
     
     # 2. Broadcast to all logged-in users
     # (Only works if running as root, which this script requires anyway)
-    echo "$msg" | wall
+    echo "$msg" | wall 2>/dev/null
     
     exit 1
 }
@@ -83,7 +83,7 @@ get_inventory(){
     # We use local variables where possible to be safe
     local HOSTNAME=$(hostname || cat /etc/hostname)
     local IP_ADDR=$( ( ip a | grep -oE '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}/[[:digit:]]{1,2}' | grep -v '127.0.0.1' ) || ( ifconfig | grep -oE 'inet.+([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}' | grep -v '127.0.0.1' ) )
-    local OS=$( (hostnamectl | grep "Operating System" | cut -d: -f2) || (cat /etc/*-release  | grep "PRETTY_NAME" | sed 's/PRETTY_NAME=//' | sed 's/"//g') )
+    local OS=$( (hostnamectl 2>/dev/null | grep "Operating System" | cut -d: -f2) || (cat /etc/*-release 2>/dev/null | grep "PRETTY_NAME" | sed 's/PRETTY_NAME=//' | sed 's/"//g') )
 
     # --- Output ---
     echo "System Inventory - Security Assessment"
@@ -143,12 +143,12 @@ get_inventory(){
         lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -v "loop"
     else
         # Fallback to df if lsblk is missing
-        df -h --output=source,size,target -x tmpfs -x devtmpfs
+        df -h --output=source,size,target -x tmpfs -x devtmpfs 2>/dev/null
     fi
     empty_line
 
 
-    if command -v transactional-update; then
+    if command -v transactional-update >/dev/null; then
         echo "Transactional Server - This is an immutable Linux distribution"
         transactional-update status
         empty_line
@@ -254,7 +254,7 @@ get_inventory(){
     ps aux | awk 'NR==1; /docker|samba|postfix|dovecot|smtp|psql|ssh|clamav|mysql|bind9|apache|smbfs|samba|openvpn|splunk|nginx|mysql|mariadb|ftp|slapd|amavisd|wazuh/ && !/awk/ {print $0}' | grep -v "grep"
     empty_line
 
-    if command -v kubectl; then
+    if command -v kubectl >/dev/null; then
         echo "KUBERNETES:"
         k=$(kubectl get nodes $HOSTNAME 2>/dev/null | grep "control-plane")
         if [ -z "$k" ]; then
@@ -460,7 +460,7 @@ get_cron() {
         done < /etc/passwd
     }
 
-    # Parse systemd timers (if available)
+    # Parse systemd timers (UPDATED: Fixed Parsing)
     parse_systemd_timers() {
         log "Parsing systemd timers"
         
@@ -469,29 +469,30 @@ get_cron() {
             return
         fi
         
-        # Get list of timer units
-        while read -r timer_line; do
-            [[ -n "$timer_line" ]] || continue
+        # Use list-units --type=timer for reliable parsing of names (first column)
+        # We process 'active' timers to reduce noise from inactive ones
+        while read -r unit load active sub description; do
+            [[ -z "$unit" ]] && continue
             
-            local timer_name
-            timer_name=$(echo "$timer_line" | awk '{print $1}')
-            [[ "$timer_name" =~ \.timer$ ]] || continue
-            
-            # Get timer schedule and associated service
-            local schedule="systemd-timer"
-            local service_name="${timer_name%.timer}.service"
-            local command="systemctl start $service_name"
-            local user="root"
-            
-            # Basic check for suspicious service names
-            if [[ "$timer_name" =~ (backup|update|clean).*\.timer$ ]]; then
-                system_jobs+=("$user|$schedule|$command|SystemD timer")
-            else
-                # Flag unusual timer names as potentially suspicious
-                suspicious_jobs+=("$user|$schedule|$command|[SUSPICIOUS] Unusual timer name")
+            # Ensure we are looking at a timer unit
+            if [[ "$unit" == *.timer ]]; then
+                local timer_name="$unit"
+                local service_name="${timer_name%.timer}.service"
+                local command="Triggers: $service_name"
+                local schedule="Systemd-Timer"
+                local user="root" # Default assumption for system timers
+                
+                # Check for standard system timers vs potentially suspicious ones
+                # Whitelist common timers to separate signal from noise
+                if [[ "$timer_name" =~ ^(systemd-.*|logrotate|man-db|fstrim|apt-daily.*|motd-news|e2scrub.*|fwupd.*|plocate.*|updatedb.*|shadow.*|mdadm.*|mlocate.*|unattended-upgrades.*)$ ]]; then
+                    system_jobs+=("$user|$schedule|$timer_name -> $service_name|Systemd timer")
+                else
+                    # Flag unusual timer names as potentially suspicious for review
+                    suspicious_jobs+=("$user|$schedule|$timer_name -> $service_name|[CHECK-THIS] Non-standard timer")
+                fi
             fi
             
-        done < <(systemctl list-timers --no-pager --no-legend --all 2>/dev/null | grep -E "\.timer")
+        done < <(systemctl list-units --type=timer --all --no-pager --no-legend)
     }
 
     # Function to print section header

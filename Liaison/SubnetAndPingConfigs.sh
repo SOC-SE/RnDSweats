@@ -1,12 +1,12 @@
 # ==============================================================================
 # File: SubnetAndPingConfigs.sh
-# Description: Provides tools for subnetting IPv4 and IPv6 networks, and configuring ping connectivity between two machines in a CCDC environment.
+# Description: Provides tools for subnetting IPv4 and IPv6 networks, and configuring ping connectivity between two machines in a network environment.
 #              Supports calculation of subnets from a given network and prefix. For connectivity, prompts for interface, calculates and assigns IPs from a subnet,
 #              configures firewall rules to allow ICMP (ping) for IPv4/IPv6, and tests ping to a remote IP. Assumes the script is run on both machines with complementary IPs.
 #              Supports install/calculate mode for subnetting, configure mode for enabling ping, remove mode for undoing configurations, and view mode for displaying current setups.
 #              Detects and handles Debian/Ubuntu (apt) and Fedora/CentOS (dnf). Installs required tools like ipcalc (for IPv4) and sipcalc (for IPv6) if missing.
 #              Configurations are applied temporarily (via ip command) and can be removed. For persistence, use netplan/networkmanager manually.
-#              In CCDC, use for quick subnetting and testing connectivity between team-controlled machines (e.g., internal links).
+#              Use for quick subnetting and testing connectivity between team-controlled machines (e.g., internal links).
 #
 # Dependencies: ipcalc (IPv4 subnetting), sipcalc (IPv6 subnetting) - installed automatically if missing.
 # Usage: sudo ./SubnetAndPingConfigurator.sh
@@ -21,24 +21,8 @@
 
 #!/bin/bash
 
-set -euo pipefail
-
-# --- ASCII Banner ---
-echo -e "\033[1;32m"
-cat << "EOF"
- ____        _                _     ___ ____  
-/ ___| _   _| |__  _ __   ___| |_  |_ _|  _ \ 
-\___ \| | | | '_ \| '_ \ / _ \ __|  | || |_) |
- ___) | |_| | |_) | | | |  __/ |_   | ||  __/ 
-|____/ \__,_|_.__/|_| |_|\___|\__| |___|_|    
-__        ___                  _              
-\ \      / (_)______ _ _ __ __| |             
- \ \ /\ / /| |_  / _` | '__/ _` |             
-  \ V  V / | |/ / (_| | | | (_| |             
-   \_/\_/  |_/___\__,_|_|  \__,_|             
-EOF
-echo -e "\033[0m"
-echo "Subnet and Ping Configurator - For CCDC Team Prep"
+# --- Banner ---
+echo "Subnet and Ping Configurator"
 echo "-------------------------------------------------------------"
 
 # --- Configuration & Colors ---
@@ -111,13 +95,35 @@ install_tools() {
 calculate_ipv4_subnets() {
     read -p "Enter IPv4 network (e.g., 192.168.1.0/24): " network
     read -p "Enter new subnet prefix (e.g., 26): " new_prefix
-    ipcalc "$network" -s "$((2 ** (new_prefix - ${network##*/})))" | grep -E 'Network|HostMin|HostMax|Broadcast'
+    if ! ipcalc "$network" >/dev/null 2>&1; then
+        log_error "Invalid IPv4 network provided."
+    fi
+    if [[ ! $new_prefix =~ ^[0-9]+$ ]] || (( new_prefix < 0 || new_prefix > 32 )); then
+        log_error "New prefix must be an integer between 0 and 32."
+    fi
+    local original_prefix=${network##*/}
+    if (( new_prefix < original_prefix )); then
+        log_error "New prefix must be greater than or equal to original prefix /$original_prefix."
+    fi
+    local diff=$((new_prefix - original_prefix))
+    local subnet_count=$(( diff == 0 ? 1 : (1 << diff) ))
+    ipcalc "$network" -s "$subnet_count" | grep -E 'Network|HostMin|HostMax|Broadcast'
 }
 
 # --- Calculate IPv6 Subnets ---
 calculate_ipv6_subnets() {
     read -p "Enter IPv6 network (e.g., 2001:db8::/64): " network
     read -p "Enter new subnet prefix (e.g., 68): " new_prefix
+    if ! sipcalc "$network" >/dev/null 2>&1; then
+        log_error "Invalid IPv6 network provided."
+    fi
+    if [[ ! $new_prefix =~ ^[0-9]+$ ]] || (( new_prefix < 0 || new_prefix > 128 )); then
+        log_error "New prefix must be an integer between 0 and 128."
+    fi
+    local original_prefix=${network##*/}
+    if (( new_prefix < original_prefix )); then
+        log_error "New prefix must be greater than or equal to original prefix /$original_prefix."
+    fi
     sipcalc "$network" -s "$new_prefix" | grep -E 'Network range|Usable range'
 }
 
@@ -127,8 +133,12 @@ configure_ipv4_ping() {
     read -p "Enter local IPv4 from subnet (e.g., 192.168.1.1/26): " local_ip
     read -p "Enter remote IPv4 (e.g., 192.168.1.2): " remote_ip
 
-    ip addr add "$local_ip" dev "$iface"
-    log_info "Assigned $local_ip to $iface."
+    if ip -4 addr show "$iface" | grep -q "$local_ip"; then
+        log_warn "IP $local_ip already assigned to $iface."
+    else
+        ip addr add "$local_ip" dev "$iface"
+        log_info "Assigned $local_ip to $iface."
+    fi
 
     # Firewall allow ICMP
     if command -v ufw &> /dev/null; then
@@ -157,12 +167,16 @@ configure_ipv6_ping() {
     read -p "Enter local IPv6 from subnet (e.g., 2001:db8::1/68): " local_ip
     read -p "Enter remote IPv6 (e.g., 2001:db8::2): " remote_ip
 
-    ip -6 addr add "$local_ip" dev "$iface"
-    log_info "Assigned $local_ip to $iface."
+    if ip -6 addr show "$iface" | grep -q "$local_ip"; then
+        log_warn "IP $local_ip already assigned to $iface."
+    else
+        ip -6 addr add "$local_ip" dev "$iface"
+        log_info "Assigned $local_ip to $iface."
+    fi
 
     # Firewall allow ICMPv6
     if command -v ufw &> /dev/null; then
-        ufw allow proto ipv6-icmp from any to any
+        ufw allow proto ipv6-icmp from any to any || ufw allow ipv6-icmp
         ufw reload
         log_info "UFW rule added for ICMPv6."
     elif command -v firewall-cmd &> /dev/null; then
@@ -296,7 +310,7 @@ main() {
     install_tools
     prompt_mode
     log_info "${GREEN}--- Script Complete ---${NC}"
-    log_info "Remember to verify configurations and harden for CCDC."
+    log_info "Remember to verify configurations."
 }
 
 main "$@"

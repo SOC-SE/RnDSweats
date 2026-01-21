@@ -1,19 +1,6 @@
-# ==============================================================================
-# File: FIM.sh
-# Description: Monitors file integrity in specified directories/files using SHA256 hashes.
-#              Supports multiple background sessions, menu-driven management.
-#
-# Key Features:
-# 1. Menu to start new monitor, list active, stop monitor, view live logs, or exit.
-# 2. Prompts for path to monitor; runs in background with periodic checks (60s).
-# 3. Manages multiple sessions via /tmp/fim_sessions/ for state persistence.
-# 4. Duplicate path check; clean session cleanup on stop.
-# 5. Live log viewing with tail -f (Ctrl+C to exit view).
-# 6. No package installation; uses built-in tools for CCDC portability.
-# 7. Validated for efficiency in virtual environments (e.g., NETLAB VE VMs).
-# ==============================================================================
-
 #!/bin/bash
+
+# FIM Script
 
 set -euo pipefail
 
@@ -30,8 +17,8 @@ cat << "EOF"
 |/       \_______/|/     \| 
 EOF
 echo -e "\033[0m"
-echo "File Integrity Monitoring Script - For CCDC Team Prep"
-echo "-------------------------------------------------------------"
+echo "File Integrity Monitoring Script"
+echo "--------------------------------"
 
 # --- Configuration & Colors ---
 CHECK_INTERVAL=60  # Seconds between checks
@@ -53,7 +40,7 @@ setup_sessions() {
 
 # --- Generate Unique ID for Path (MD5 hash) ---
 generate_id() {
-    echo -n "$1" | md5sum | awk '{print $1}'
+    echo -n "$1" | sha256sum | awk '{print $1}'
 }
 
 # --- Check if Path Already Monitored ---
@@ -162,9 +149,7 @@ view_logs() {
     local log_file="$session_dir/log.txt"
     if [ -f "$log_file" ]; then
         log_info "Viewing live logs for session $session_id. Press Ctrl+C to exit."
-        trap 'log_info "Exiting log view."; return' INT
         tail -f "$log_file"
-        trap - INT
     else
         log_warn "No log file found for session $session_id."
     fi

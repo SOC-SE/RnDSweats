@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# Test comment added by agent mode for vpn_client_connect_2.sh
-
 set -euo pipefail
 
 # ==============================================================================
@@ -18,20 +16,11 @@ set -euo pipefail
 # Notes:
 # - Run as root for VPN interface management.
 # - Ensure server information is correct before connecting.
-# - For CCDC: Verify firewall rules allow VPN traffic.
+# - Verify firewall rules allow VPN traffic.
 # - Test connections in a safe environment first.
 # ==============================================================================
 
-# --- ASCII Banner ---
-echo -e "\033[1;32m"
-cat << "EOF"
-__     ______  _   _    ____                            _   _ 
-\ \   / /  _ \| \ | |  / ___|___  _ __  _ __   ___  ___| |_| |
- \ \ / /| |_) |  \| | | |   / _ \| '_ \| '_ \ / _ \/ __| __| |
-  \ V / |  __/| |\  | | |__| (_) | | | | | | |  __/ (__| |_|_|
-   \_/  |_|   |_| \_|  \____\___/|_| |_|_| |_|\___|\___|\__(_)
-EOF
-echo -e "\033[0m"
+# --- Simple Banner ---
 echo "VPN Client Connection Manager"
 echo "----------------------------"
 
@@ -66,8 +55,12 @@ detect_pkg_manager() {
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
         UPDATE_CMD="dnf check-update"
+    elif command -v yum >/dev/null 2>&1; then
+        PKG_MANAGER="yum"
+        INSTALL_CMD="yum install -y"
+        UPDATE_CMD="yum check-update"
     else
-        log_error "Unsupported package manager (apt or dnf)."
+        log_error "Unsupported package manager (apt, dnf, or yum)."
     fi
     log_info "Detected: $PKG_MANAGER"
 }
@@ -78,8 +71,10 @@ install_nc() {
         log_info "Installing netcat..."
         if [[ "$PKG_MANAGER" == "apt" ]]; then
             $INSTALL_CMD netcat-openbsd >> "$LOG_FILE" 2>&1 || log_warn "nc install failed."
-        else  # dnf
-            $INSTALL_CMD nc >> "$LOG_FILE" 2>&1 || log_warn "nc install failed."
+        else  # dnf-based
+            if ! $INSTALL_CMD nmap-ncat >> "$LOG_FILE" 2>&1; then
+                $INSTALL_CMD nc >> "$LOG_FILE" 2>&1 || log_warn "nc install failed."
+            fi
         fi
         command -v nc >/dev/null 2>&1 || log_warn "nc still unavailable; UDP tests limited."
     fi
