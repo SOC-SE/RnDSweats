@@ -1,0 +1,81 @@
+{
+  "name": "Windows Threat Hunt",
+  "description": "Search for common persistence mechanisms and suspicious activity on Windows",
+  "category": "incident-response",
+  "severity": "high",
+  "os": "windows",
+  "steps": [
+    {
+      "name": "Check scheduled tasks",
+      "function": "cmd.run",
+      "command": "schtasks /query /fo LIST /v | findstr /i \"TaskName Author Task To Run\"",
+      "timeout": 60000
+    },
+    {
+      "name": "Check Run registry keys (HKLM)",
+      "function": "cmd.run",
+      "command": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\" 2>nul && reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" 2>nul",
+      "timeout": 15000
+    },
+    {
+      "name": "Check Run registry keys (HKCU)",
+      "function": "cmd.run",
+      "command": "reg query \"HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run\" 2>nul && reg query \"HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce\" 2>nul",
+      "timeout": 15000
+    },
+    {
+      "name": "Check services for suspicious entries",
+      "function": "cmd.run",
+      "command": "wmic service get name,pathname,startmode | findstr /i /v \"system32 syswow64\"",
+      "timeout": 30000
+    },
+    {
+      "name": "Check for unsigned drivers",
+      "function": "cmd.run",
+      "command": "driverquery /v | findstr /i \"FALSE\"",
+      "timeout": 30000
+    },
+    {
+      "name": "List running processes with paths",
+      "function": "cmd.run",
+      "command": "wmic process get name,executablepath | findstr /i /v \"system32 syswow64\" | findstr /v \"^$\"",
+      "timeout": 30000
+    },
+    {
+      "name": "Check WMI subscriptions (persistence)",
+      "function": "cmd.run",
+      "command": "wmic /namespace:\\\\root\\subscription path __EventFilter get Name,Query 2>nul || echo No WMI subscriptions",
+      "timeout": 20000
+    },
+    {
+      "name": "Check PowerShell execution policy",
+      "function": "cmd.run",
+      "command": "powershell -command \"Get-ExecutionPolicy -List\"",
+      "timeout": 15000
+    },
+    {
+      "name": "Recent PowerShell commands (if logging enabled)",
+      "function": "cmd.run",
+      "command": "wevtutil qe \"Windows PowerShell\" /c:20 /f:text /rd:true 2>nul | findstr /i \"HostApplication\" || echo PowerShell logging not available",
+      "timeout": 30000
+    },
+    {
+      "name": "Check hosts file for modifications",
+      "function": "cmd.run",
+      "command": "type C:\\Windows\\System32\\drivers\\etc\\hosts | findstr /v \"^#\" | findstr /v \"^$\"",
+      "timeout": 10000
+    },
+    {
+      "name": "Network connections with PIDs",
+      "function": "cmd.run",
+      "command": "netstat -ano | findstr ESTABLISHED",
+      "timeout": 20000
+    },
+    {
+      "name": "Check for hidden files in temp directories",
+      "function": "cmd.run",
+      "command": "dir /ah /s C:\\Windows\\Temp 2>nul | findstr /i \".exe .dll .ps1 .bat .cmd\" || echo No hidden executables in Temp",
+      "timeout": 30000
+    }
+  ]
+}

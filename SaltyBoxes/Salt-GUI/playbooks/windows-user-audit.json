@@ -1,0 +1,57 @@
+{
+  "name": "Windows User Audit",
+  "description": "Audit user accounts, groups, and access on Windows systems",
+  "category": "incident-response",
+  "severity": "high",
+  "os": "windows",
+  "steps": [
+    {
+      "name": "List local users",
+      "function": "cmd.run",
+      "command": "net user",
+      "timeout": 15000
+    },
+    {
+      "name": "List administrators",
+      "function": "cmd.run",
+      "command": "net localgroup administrators",
+      "timeout": 15000
+    },
+    {
+      "name": "List Remote Desktop Users",
+      "function": "cmd.run",
+      "command": "net localgroup \"Remote Desktop Users\" 2>nul || echo Group not found",
+      "timeout": 15000
+    },
+    {
+      "name": "Check for hidden/disabled accounts",
+      "function": "cmd.run",
+      "command": "wmic useraccount get name,disabled,lockout,status",
+      "timeout": 20000
+    },
+    {
+      "name": "Recently created users (last 7 days)",
+      "function": "cmd.run",
+      "command": "wevtutil qe Security /q:\"*[System[(EventID=4720)]]\" /c:20 /f:text /rd:true 2>nul || echo No recent user creations",
+      "timeout": 30000
+    },
+    {
+      "name": "Current logon sessions",
+      "function": "cmd.run",
+      "command": "query user 2>nul || qwinsta 2>nul || echo No sessions found",
+      "timeout": 15000
+    },
+    {
+      "name": "Scheduled tasks (non-Microsoft)",
+      "function": "cmd.run",
+      "command": "schtasks /query /fo LIST | findstr /i \"TaskName\" | findstr /v /i \"Microsoft\"",
+      "timeout": 30000
+    },
+    {
+      "name": "Startup programs",
+      "function": "cmd.run",
+      "command": "wmic startup get caption,command",
+      "timeout": 20000
+    }
+  ]
+}

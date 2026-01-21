@@ -1,0 +1,55 @@
+set cli pager off
+set cli scripting-mode on
+configure
+set rulebase security rules known-bad-ips to any
+set rulebase security rules known-bad-ips from any
+set rulebase security rules known-bad-ips source 240.0.0.1
+set rulebase security rules known-bad-ips destination any 
+set rulebase security rules known-bad-ips source-user any
+set rulebase security rules known-bad-ips category any
+set rulebase security rules known-bad-ips application any
+set rulebase security rules known-bad-ips service any
+set rulebase security rules known-bad-ips source-hip any
+set rulebase security rules known-bad-ips destination-hip any
+set rulebase security rules known-bad-ips action drop
+move rulebase security rules known-bad-ips top
+set network profiles zone-protection-profile strict-zone-prot flood tcp-syn enable yes syn-cookies alarm-rate 10000 activate-rate 10000 maximal-rate 1000000
+set network profiles zone-protection-profile strict-zone-prot flood udp enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood icmp enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood icmpv6 enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood other-ip enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt dest-unreach yes 
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt pkt-too-big yes
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt time-exceeded yes
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt param-problem yes
+set network profiles zone-protection-profile strict-zone-prot scan 8001 action block-ip track-by source-and-destination
+set network profiles zone-protection-profile strict-zone-prot scan 8001 action block-ip duration 3600
+set network profiles zone-protection-profile strict-zone-prot scan 8001 interval 2
+set network profiles zone-protection-profile strict-zone-prot scan 8001 threshold 100
+set network profiles zone-protection-profile strict-zone-prot scan 8002 action block-ip track-by source-and-destination
+set network profiles zone-protection-profile strict-zone-prot scan 8002 action block-ip duration 3600
+set network profiles zone-protection-profile strict-zone-prot scan 8002 interval 10
+set network profiles zone-protection-profile strict-zone-prot scan 8002 threshold 100
+set network profiles zone-protection-profile strict-zone-prot scan 8003 action block-ip track-by source-and-destination
+set network profiles zone-protection-profile strict-zone-prot scan 8003 action block-ip duration 3600
+set network profiles zone-protection-profile strict-zone-prot scan 8003 interval 2
+set network profiles zone-protection-profile strict-zone-prot scan 8003 threshold 100
+set network profiles zone-protection-profile strict-zone-prot discard-ip-spoof yes
+set network profiles zone-protection-profile strict-zone-prot strict-ip-check yes
+set network profiles zone-protection-profile strict-zone-prot discard-unknown-option yes
+set network profiles zone-protection-profile strict-zone-prot discard-malformed-option yes
+set network profiles zone-protection-profile strict-zone-prot discard-overlapping-tcp-segment-mismatch yes
+set network profiles zone-protection-profile strict-zone-prot remove-tcp-timestamp yes
+set network profiles zone-protection-profile strict-zone-prot discard-icmp-ping-zero-id yes
+set network profiles zone-protection-profile strict-zone-prot discard-icmp-frag yes
+set network profiles zone-protection-profile strict-zone-prot discard-icmp-large-packet yes
+set network profiles zone-protection-profile strict-zone-prot discard-icmp-error yes
+set application-group int-to-ext-known members [ syslog dns dns-base github github-base ssl ntp-base web-browsing paloalto-updates apt-get quic ocsp ms-update ]
+set application-group pub-web-servers members [ ssl web-browsing quic ]
+set application-group pub-ad-server members [ active-directory kerberos ldap ms-netlogon ntp dns ]
+set application-group pub-dns-server members [ dns dns-base ]
+set application-group pub-ftp-server members [ ftp ssh web-browsing ssl ]
+set application-group insecure-mail-server members [ ms-exchange imap pop3 smtp roundcube secureserver-mail groupwise ]
+commit
+exit
+exit

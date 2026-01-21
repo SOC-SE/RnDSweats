@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Salt GUI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-left">
+                <h1 class="logo">Salt GUI</h1>
+                <button class="btn btn-connect">Manage Devices <span class="notification-badge">0</span></button>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-small" id="refresh-all" title="Refresh Devices">Refresh</button>
+                <span class="status-indicator" id="salt-status">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Checking...</span>
+                </span>
+                <span class="minion-counter">Devices: 0</span>
+                <span class="running-scripts-counter">Jobs: 0</span>
+                <button class="btn btn-emergency" id="emergency-btn" title="Emergency Actions">EMERGENCY</button>
+                <span id="settings-icon" class="settings-icon" title="Settings">[Settings]</span>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-navigation">
+            <button class="tab-btn active" data-tab="main">Main</button>
+            <button class="tab-btn" data-tab="monitoring">Monitoring</button>
+            <button class="tab-btn" data-tab="services">Services</button>
+            <button class="tab-btn" data-tab="playbooks">Playbooks</button>
+            <button class="tab-btn" data-tab="audit">Audit Log</button>
+        </nav>
+
+        <!-- Main Tab -->
+        <main id="tab-main" class="tab-content active">
+            <div class="main-grid">
+                <div class="column">
+                    <h2>Available Devices</h2>
+                    <p class="hint">Click to select, Ctrl+click for multiple</p>
+                    <div class="search-container">
+                        <input type="text" id="device-search" placeholder="Filter devices...">
+                    </div>
+                    <ul id="device-list" class="item-list">
+                        <li class="disabled">Loading devices...</li>
+                    </ul>
+                    <div class="device-actions">
+                        <button class="btn btn-small" id="select-all-devices">Select All</button>
+                        <button class="btn btn-small" id="deselect-all-devices">Deselect All</button>
+                    </div>
+                </div>
+
+                <div class="column">
+                    <h2>Available Scripts</h2>
+                    <p class="hint">Select scripts to deploy</p>
+                    <div id="script-type-selector">
+                        <label class="radio-label">
+                            <input type="radio" id="custom-scripts" name="script-type" value="custom" checked>
+                            <span>Custom</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" id="salt-scripts" name="script-type" value="salt">
+                            <span>Salt Functions</span>
+                        </label>
+                    </div>
+                    <div class="search-container">
+                        <input type="text" id="script-search" placeholder="Search scripts...">
+                    </div>
+                    <ul id="script-list" class="item-list">
+                        <li class="disabled">Loading scripts...</li>
+                    </ul>
+                    <div id="script-args-container"></div>
+                    <div id="custom-script-options">
+                        <div id="error-message" class="error-message"></div>
+                        <div class="script-arg-item" id="fallback-args-container">
+                            <label for="manual-args">Manual Arguments</label>
+                            <input type="text" id="manual-args" name="manual-args" placeholder="arg1,arg2,arg3 (comma-separated)">
+                        </div>
+                        <div class="script-arg-item">
+                            <label for="append-command">Append Command</label>
+                            <input type="text" id="append-command" name="append-command" placeholder='e.g. | grep "value"'>
+                        </div>
+                    </div>
+                    <button class="btn btn-deploy">Deploy</button>
+                </div>
+
+                <div class="column column-wide">
+                    <h2>Quick Terminal</h2>
+                    <div class="quick-terminal-controls">
+                        <select id="quick-terminal-device">
+                            <option value="">Select target device</option>
+                        </select>
+                        <button class="btn" id="open-terminal-btn">Full Terminal</button>
+                    </div>
+                    <div class="quick-command-container">
+                        <input type="text" id="quick-command" placeholder="Enter command to execute...">
+                        <button class="btn" id="quick-cmd-btn">Run</button>
+                    </div>
+                    <pre id="quick-output" class="output-box">Output will appear here...</pre>
+                </div>
+            </div>
+        </main>
+
+        <!-- Monitoring Tab -->
+        <section id="tab-monitoring" class="tab-content">
+            <div class="monitoring-grid">
+                <div class="monitoring-controls">
+                    <select id="monitoring-device-select">
+                        <option value="">Select device...</option>
+                    </select>
+                    <select id="monitoring-view-select">
+                        <option value="firewall">Firewall Rules</option>
+                        <option value="processes">Running Processes</option>
+                        <option value="connections">Network Connections</option>
+                        <option value="sysinfo">System Info</option>
+                        <option value="users">Users</option>
+                        <option value="services">Services</option>
+                    </select>
+                    <button class="btn" id="refresh-monitoring">Refresh</button>
+                </div>
+                <pre id="monitoring-content" class="output-box">Select a device and view type above.</pre>
+            </div>
+        </section>
+
+        <!-- Services Tab -->
+        <section id="tab-services" class="tab-content">
+            <div class="services-grid">
+                <div class="services-controls">
+                    <h3>Service Management</h3>
+                    <select id="service-device-select">
+                        <option value="">Select device...</option>
+                    </select>
+                    <input type="text" id="service-name" placeholder="Service name (e.g., sshd, nginx)">
+                    <div class="service-buttons">
+                        <button class="btn" id="service-start">Start</button>
+                        <button class="btn" id="service-stop">Stop</button>
+                        <button class="btn" id="service-restart">Restart</button>
+                        <button class="btn" id="service-status">Status</button>
+                    </div>
+                </div>
+                <div class="services-output">
+                    <h3>Output</h3>
+                    <pre id="service-output" class="output-box">Select a device and service above.</pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- Playbooks Tab -->
+        <section id="tab-playbooks" class="tab-content">
+            <div class="playbooks-grid">
+                <div class="playbooks-list-panel">
+                    <h3>Available Playbooks</h3>
+                    <ul id="playbooks-list" class="item-list">
+                        <li class="disabled">Loading playbooks...</li>
+                    </ul>
+                </div>
+                <div class="playbook-detail-panel">
+                    <h3 id="playbook-title">Select a playbook</h3>
+                    <p id="playbook-description"></p>
+                    <div id="playbook-steps" class="playbook-steps"></div>
+                    <div class="playbook-execute-section">
+                        <h4>Target Devices</h4>
+                        <select id="playbook-targets" multiple></select>
+                        <button class="btn" id="execute-playbook">Execute Playbook</button>
+                    </div>
+                    <div id="playbook-results" class="playbook-results"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Audit Log Tab -->
+        <section id="tab-audit" class="tab-content">
+            <div class="audit-controls">
+                <h3>Audit Log</h3>
+                <button class="btn" id="refresh-audit">Refresh</button>
+            </div>
+            <div class="audit-log">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>User</th>
+                            <th>IP</th>
+                            <th>Action</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-log-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Console Output -->
+        <div id="output-console-container">
+            <div class="console-header">
+                <span>Console Output</span>
+                <div class="console-controls">
+                    <button class="btn btn-small" id="clear-console">Clear</button>
+                    <button class="btn btn-small" id="toggle-console">-</button>
+                </div>
+            </div>
+            <div id="output-console"></div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>Settings</h2>
+            <form id="settings-form">
+                <div class="settings-section">
+                    <h3>Salt API Configuration</h3>
+                    <label for="proxyURL">Proxy URL</label>
+                    <input type="text" id="proxyURL" name="proxyURL" placeholder="http://localhost:3000">
+                    
+                    <label for="saltAPIUrl">Salt API URL</label>
+                    <input type="text" id="saltAPIUrl" name="saltAPIUrl" placeholder="https://localhost:8000">
+                    
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username">
+                    
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password">
+                    
+                    <label for="eauth">Auth Type</label>
+                    <select id="eauth" name="eauth">
+                        <option value="pam">PAM</option>
+                        <option value="ldap">LDAP</option>
+                        <option value="auto">Auto</option>
+                    </select>
+                </div>
+                
+                <div class="settings-section">
+                    <h3>GUI Authentication (Optional)</h3>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="enableAuth" name="enableAuth">
+                        <span>Enable GUI Authentication</span>
+                    </label>
+                    
+                    <label for="authPassword">GUI Password</label>
+                    <input type="password" id="authPassword" name="authPassword">
+                    
+                    <label for="alertWebhook">Alert Webhook URL</label>
+                    <input type="text" id="alertWebhook" name="alertWebhook" placeholder="https://hooks.slack.com/...">
+                </div>
+                
+                <button type="submit" class="btn">Save Settings</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Device Management Modal -->
+    <div id="connect-device-modal" class="modal">
+        <div class="modal-content modal-lg">
+            <span class="close-button">&times;</span>
+            <h2>Device Management</h2>
+            
+            <div class="modal-section">
+                <h3>Pending Keys</h3>
+                <ul id="unaccepted-keys-list" class="item-list"></ul>
+                <button class="btn" id="accept-all-keys">Accept All</button>
+            </div>
+            
+            <div class="modal-section">
+                <h3>Accepted Keys</h3>
+                <ul id="accepted-keys-list" class="item-list"></ul>
+            </div>
+            
+            <div class="modal-section">
+                <button class="btn" id="refresh-devices">Refresh Device List</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Terminal Modal -->
+    <div id="terminal-modal" class="modal">
+        <div class="modal-content terminal-modal-content modal-lg">
+            <div class="modal-header">
+                <h2 id="terminal-title">Terminal</h2>
+                <span class="close-button">&times;</span>
+            </div>
+            <div id="terminal-output" class="terminal-output"></div>
+            <div class="terminal-input-container">
+                <span class="terminal-prompt">$</span>
+                <input type="text" id="terminal-command-input" placeholder="Enter command..." autocomplete="off">
+            </div>
+            <div class="terminal-hints">
+                Up/Down: Command history | Ctrl+L: Clear | Escape: Close
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Viewer Modal -->
+    <div id="script-viewer-modal" class="modal">
+        <div class="modal-content modal-lg">
+            <span class="close-button">&times;</span>
+            <h2 id="script-viewer-title">Script</h2>
+            <div class="code-display">
+                <pre id="script-code"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Emergency Modal -->
+    <div id="emergency-modal" class="modal">
+        <div class="modal-content modal-danger">
+            <span class="close-button">&times;</span>
+            <h2>Emergency Controls</h2>
+            <p class="warning-text">WARNING: These actions are immediate and may disrupt services.</p>
+            
+            <div class="emergency-section">
+                <h3>Target Devices</h3>
+                <select id="emergency-targets" multiple></select>
+            </div>
+            
+            <div class="emergency-section">
+                <h3>Block All Traffic</h3>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="emergency-allow-ssh" checked>
+                    <span>Keep SSH (port 22) open</span>
+                </label>
+                <button class="btn btn-danger" id="btn-block-traffic">Block All Traffic</button>
+            </div>
+            
+            <div class="emergency-section">
+                <h3>Kill Connections</h3>
+                <input type="text" id="emergency-port" placeholder="Port (leave empty for all)">
+                <button class="btn btn-danger" id="btn-kill-connections">Kill Connections</button>
+            </div>
+            
+            <div class="emergency-section">
+                <h3>Mass Password Change</h3>
+                <input type="text" id="emergency-users" placeholder="Users (comma-separated, e.g., root,admin)">
+                <input type="password" id="emergency-password" placeholder="New password">
+                <button class="btn btn-danger" id="btn-change-passwords">Change Passwords</button>
+            </div>
+            
+            <pre id="emergency-output" class="output-box"></pre>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="custom-script-context-menu" class="context-menu">
+        <div class="context-menu-item" id="context-menu-view">View Script</div>
+        <div class="context-menu-item" id="context-menu-copy">Copy Name</div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

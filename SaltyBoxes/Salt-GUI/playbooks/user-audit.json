@@ -1,0 +1,71 @@
+{
+  "name": "User Audit & Cleanup",
+  "description": "Audit user accounts and remove unauthorized users/access",
+  "category": "incident-response",
+  "severity": "high",
+  "steps": [
+    {
+      "name": "List all users with login shells",
+      "function": "cmd.run",
+      "command": "cat /etc/passwd | awk -F: '$7 !~ /(nologin|false|sync)/ {print $1, $3, $6, $7}'",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "List users with UID 0 (root equivalent)",
+      "function": "cmd.run",
+      "command": "awk -F: '$3 == 0 {print $1}' /etc/passwd",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "List sudoers",
+      "function": "cmd.run",
+      "command": "cat /etc/sudoers 2>/dev/null; ls -la /etc/sudoers.d/ 2>/dev/null; cat /etc/sudoers.d/* 2>/dev/null",
+      "timeout": 20000,
+      "required": false
+    },
+    {
+      "name": "List users in sudo/wheel group",
+      "function": "cmd.run",
+      "command": "getent group sudo wheel admin 2>/dev/null",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Check for password-less sudo",
+      "function": "cmd.run",
+      "command": "grep -r NOPASSWD /etc/sudoers /etc/sudoers.d/ 2>/dev/null",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "List recent logins",
+      "function": "cmd.run",
+      "command": "last -n 20 2>/dev/null || lastlog | head -30",
+      "timeout": 20000,
+      "required": false
+    },
+    {
+      "name": "Check for accounts with empty passwords",
+      "function": "cmd.run",
+      "command": "awk -F: '($2 == \"\") {print $1}' /etc/shadow 2>/dev/null",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "List currently logged in users",
+      "function": "cmd.run",
+      "command": "who; echo '---'; w",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Check SSH authorized keys for all users",
+      "function": "cmd.run",
+      "command": "for dir in /home/* /root; do [ -f \"$dir/.ssh/authorized_keys\" ] && echo \"=== $dir ===\" && cat \"$dir/.ssh/authorized_keys\"; done 2>/dev/null",
+      "timeout": 30000,
+      "required": false
+    }
+  ]
+}

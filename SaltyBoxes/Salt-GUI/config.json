@@ -1,0 +1,7 @@
+{
+  "proxyURL": "http://localhost:3000",
+  "saltAPIUrl": "https://salt80.soc-se.org/salt-api",
+  "username": "sysadmin",
+  "password": "Changeme1!",
+  "eauth": "pam"
+}

@@ -1,11 +1,17 @@
 #!/bin/bash
-# Automates the installation of the Splunk Universal Forwarder. Currently set to v9.1.1, but that is easily changed.
-# Works with Debian, Ubuntu, CentOS, Fedora, and Oracle Linux. You need to run this as sudo.
-
-# This was put together as an amalgamation of code from my own work, other automatic installation scripts, and AI to tie everything together.
+# Automates the installation of the Splunk Universal Forwarder. Currently set to v10.0.1. I'm not sure if the link will be valid during the entire CCDC season
+# with how much is still left to go. If the download gives you any trouble, create a Splunk account, go to the universal forwarder downloads, pick the one you want,
+# then extract the random set of characters found in the link. In this script, these are stored in the variable "SPLUNK_BUILD".
+#
+# My only request for using this script is that if you ever make any improvements, please share
+# them with the community. This will not be enforced with a license.
+#
+#
+# This was put together as an amalgamation of code from my own work, other automatic installation scripts, and lots of tears.
 # Lots time went into this script. Be nice to it plz <3
 #
-# Samuel Brucker 2024-2025
+# Samuel Brucker 2024-2026
+#
 
 # Define Splunk Forwarder variables
 SPLUNK_VERSION="10.0.1"
@@ -16,7 +22,7 @@ INSTALL_DIR="/opt/splunkforwarder"
 
 
 # Set defaults for configuration
-DEFAULT_INDEXER_IP="172.20.241.20"
+DEFAULT_INDEXER_IP="172.20.242.20"
 DEFAULT_ADMIN_USERNAME="admin"
 DEFAULT_ADMIN_PASSWORD="Changeme1!"  # Replace with a secure password
 
@@ -318,7 +324,7 @@ crcSalt = <SOURCE>
 
 
 # -----------------------------------------------------------------------------
-# # LMD (Linux Malware Detect). Combines ClamAV, Yara, and additional AV functionality.
+# # LMD (Linux Malware Detect). Combines ClamAV and additional AV functionality.
 # -----------------------------------------------------------------------------
 
 #General logs
@@ -344,6 +350,12 @@ crcSalt = <SOURCE>
 index = main
 sourcetype = linux_av:full_reports
 crcSalt = <SOURCE>
+
+[monitor:///var/log/falco/falco_alerts.log]
+disabled = false
+sourcetype = falco:alerts
+index = security
+host_segment = 3
 
 # -----------------------------------------------------------------------------
 # Wazuh SIEM
@@ -450,7 +462,6 @@ index = main
 sourcetype = salt:minion
 crcSalt = <SOURCE>
 
-
 # -----------------------------------------------------------------------------
 # Virtualization & Containers
 # -----------------------------------------------------------------------------
@@ -493,6 +504,29 @@ blacklist = \.(gz|bz2|zip)$|\.\d$
 index = main
 sourcetype = bind:query
 recursive = true
+crcSalt = <SOURCE>
+
+
+# -----------------------------------------------------------------------------
+# Custom Applications and Scripts (syst)
+# -----------------------------------------------------------------------------
+
+#Linux masterEnum logs
+[monitor:///var/log/syst/*audit*]
+index = main
+sourcetype = linux_audit
+crcSalt = <SOURCE>
+
+#Rootkit detection logs
+[monitor:///var/log/syst/integrity_scan.log]
+index = main
+sourcetype = linux_rootkit
+crcSalt = <SOURCE>
+
+#Rootkit detection logs
+[monitor:///var/log/syst/pre_install_compromise.log]
+index = main
+sourcetype = linux_rootkit
 crcSalt = <SOURCE>
 
 #Test log

@@ -1,0 +1,57 @@
+{
+  "name": "Windows System Status",
+  "description": "Quick health check for Windows systems",
+  "category": "monitoring",
+  "severity": "low",
+  "os": "windows",
+  "steps": [
+    {
+      "name": "System info",
+      "function": "cmd.run",
+      "command": "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\" /C:\"System Type\" /C:\"Total Physical Memory\"",
+      "timeout": 30000
+    },
+    {
+      "name": "Uptime",
+      "function": "cmd.run",
+      "command": "net statistics server | findstr \"since\"",
+      "timeout": 10000
+    },
+    {
+      "name": "Disk space",
+      "function": "cmd.run",
+      "command": "wmic logicaldisk get size,freespace,caption",
+      "timeout": 15000
+    },
+    {
+      "name": "Memory usage",
+      "function": "cmd.run",
+      "command": "wmic OS get FreePhysicalMemory,TotalVisibleMemorySize /Value",
+      "timeout": 15000
+    },
+    {
+      "name": "Running services",
+      "function": "cmd.run",
+      "command": "sc query state= running | findstr SERVICE_NAME",
+      "timeout": 30000
+    },
+    {
+      "name": "Listening ports",
+      "function": "cmd.run",
+      "command": "netstat -an | findstr LISTENING",
+      "timeout": 20000
+    },
+    {
+      "name": "Established connections",
+      "function": "cmd.run",
+      "command": "netstat -an | findstr ESTABLISHED",
+      "timeout": 20000
+    },
+    {
+      "name": "Failed logon attempts (last 10)",
+      "function": "cmd.run",
+      "command": "wevtutil qe Security /q:\"*[System[(EventID=4625)]]\" /c:10 /f:text /rd:true 2>nul || echo No failed logons found",
+      "timeout": 30000
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "name": "Salt Package Security Audit",
+  "description": "Uses Salt's pkg module to audit installed packages and find suspicious software.",
+  "category": "audit",
+  "severity": "medium",
+  "os": "linux",
+  "steps": [
+    {
+      "name": "List All Installed Packages",
+      "function": "pkg.list_pkgs",
+      "description": "Get all installed packages with versions",
+      "timeout": 30000,
+      "required": true
+    },
+    {
+      "name": "Check for Available Updates",
+      "function": "pkg.list_upgrades",
+      "description": "Find packages that can be updated",
+      "timeout": 60000
+    },
+    {
+      "name": "Check Package Manager Info",
+      "function": "pkg.info_installed",
+      "args": ["openssh-server"],
+      "description": "Get detailed SSH package info",
+      "timeout": 15000
+    },
+    {
+      "name": "Verify Package Integrity",
+      "function": "pkg.verify",
+      "args": ["openssh-server"],
+      "description": "Check if SSH package files are modified",
+      "timeout": 30000
+    },
+    {
+      "name": "Check for netcat",
+      "function": "pkg.version",
+      "args": ["netcat"],
+      "description": "Check if netcat is installed",
+      "timeout": 10000
+    },
+    {
+      "name": "Check for nmap",
+      "function": "pkg.version",
+      "args": ["nmap"],
+      "description": "Check if nmap is installed",
+      "timeout": 10000
+    },
+    {
+      "name": "Check for curl",
+      "function": "pkg.version",
+      "args": ["curl"],
+      "description": "Check curl version",
+      "timeout": 10000
+    },
+    {
+      "name": "Check for wget",
+      "function": "pkg.version",
+      "args": ["wget"],
+      "description": "Check wget version",
+      "timeout": 10000
+    }
+  ],
+  "remediation": [
+    {
+      "name": "Remove Netcat",
+      "function": "pkg.remove",
+      "args": ["netcat"],
+      "when": "manual",
+      "warning": "May break legitimate tools"
+    },
+    {
+      "name": "Update All Packages",
+      "function": "pkg.upgrade",
+      "when": "manual",
+      "warning": "May require reboot"
+    }
+  ],
+  "notes": "Package names vary by distribution. Use pkg.search to find exact names. Consider keeping curl/wget for legitimate administration."
+}

@@ -1,0 +1,8 @@
+set cli pager off
+set cli scripting-mode on
+configure
+set mgt-config users bbob phash password
+set mgt-config users bbob permissions role-based superuser yes
+commit
+exit
+exit

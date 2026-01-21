@@ -1,17 +1,21 @@
 param (
     # Optional: Specify the IP address of the Splunk Indexer (receiver).
-    [string]$INDEXER_IP = "172.20.241.20",
+    [string]$INDEXER_IP = "172.20.242.20",
 
     # Optional: Specify the hostname to be used by Splunk.
     # Defaults to the machine's current hostname.
     [string]$SplunkHostname = $env:COMPUTERNAME
 )
 
-# PowerShell script to install and configure Splunk Universal Forwarder on Windows Server 2019
-# This was originally written in Bash, then translated to Powershell. An AI was (obviously) used heavily in this process. I don't know a lick of Powershell, so 
-# this is 70% AI, 25% forums, and 5% me pushing buttons until it worked.
-# this is 55% AI (Bash to Powershell conversion), 25% forums, and 20% me pushing buttons until it worked.
+# PowerShell script to install and configure Splunk Universal Forwarder on Windows machines
+# This was originally written in Bash, then translated to Powershell. An AI was (obviously) used heavily in this process. I only know a small, salty lick of  
+# PowerShell, this is 70% AI, 25% forums, and 5% me pushing buttons until it worked.
 #
+# You can be mean to this one. I know it's rough. 
+#
+#  Currently set to v10.0.1. I'm not sure if the link will be valid during the entire CCDC season
+# with how much is still left to go. If the download gives you any trouble, create a Splunk account, go to the universal forwarder downloads, pick the one you want,
+# then extract the random set of characters found in the link. In this script, these are stored in the variable "SPLUNK_BUILD".
 #
 # Samuel Brucker 2024 - 2026
 
@@ -44,7 +48,7 @@ Write-Host "Configuring inputs.conf for monitoring..."
 # -----------------------------------------------------------------------------
 
 [WinEventLog://Application]
-disabled = 0
+disabled = 0!!!!!!Dsssssssssssssssssssssssssss
 index = main
 
 [WinEventLog://Security]

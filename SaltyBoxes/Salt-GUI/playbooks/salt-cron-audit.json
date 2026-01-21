@@ -1,0 +1,74 @@
+{
+  "name": "Salt Cron/Scheduled Task Audit",
+  "description": "Uses Salt's cron module to audit scheduled tasks. Critical for finding attacker persistence.",
+  "category": "audit",
+  "severity": "high",
+  "os": "linux",
+  "steps": [
+    {
+      "name": "List Root Crontab",
+      "function": "cron.list_tab",
+      "args": ["root"],
+      "description": "Root user's scheduled tasks",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Get Raw Crontab - Root",
+      "function": "cron.raw_cron",
+      "args": ["root"],
+      "description": "Raw crontab content for root",
+      "timeout": 10000
+    },
+    {
+      "name": "List All Users",
+      "function": "user.list_users",
+      "description": "Get user list to check all crontabs",
+      "timeout": 10000
+    },
+    {
+      "name": "Check /etc/crontab",
+      "function": "file.read",
+      "args": ["/etc/crontab"],
+      "description": "System crontab",
+      "timeout": 5000
+    },
+    {
+      "name": "List /etc/cron.d contents",
+      "function": "file.readdir",
+      "args": ["/etc/cron.d"],
+      "description": "Cron.d directory listing",
+      "timeout": 5000
+    },
+    {
+      "name": "List /etc/cron.daily contents",
+      "function": "file.readdir",
+      "args": ["/etc/cron.daily"],
+      "description": "Daily cron scripts",
+      "timeout": 5000
+    },
+    {
+      "name": "List /etc/cron.hourly contents",
+      "function": "file.readdir",
+      "args": ["/etc/cron.hourly"],
+      "description": "Hourly cron scripts",
+      "timeout": 5000
+    },
+    {
+      "name": "Check /var/spool/cron permissions",
+      "function": "file.get_mode",
+      "args": ["/var/spool/cron"],
+      "description": "Cron spool permissions",
+      "timeout": 5000
+    },
+    {
+      "name": "Check for AT jobs",
+      "function": "file.readdir",
+      "args": ["/var/spool/at"],
+      "description": "AT scheduled jobs",
+      "timeout": 5000,
+      "continueOnError": true
+    }
+  ],
+  "notes": "Run 'cron.list_tab' with each username found to check all user crontabs. Common persistence location for attackers."
+}

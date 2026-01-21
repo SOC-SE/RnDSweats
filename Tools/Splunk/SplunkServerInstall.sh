@@ -120,6 +120,9 @@ USERNAME = admin
 PASSWORD = Changeme1!
 EOF
 
+#Move the custom props.conf to the needed folder
+mv props.conf $SPLUNK_HOME/etc/system/local/props.conf
+
 sudo chown splunk:splunk $SPLUNK_HOME/etc/system/local/user-seed.conf
 sudo chmod 600 $SPLUNK_HOME/etc/system/local/user-seed.conf
 
@@ -142,17 +145,17 @@ if [ $? -ne 0 ]; then
 fi
 
 # Configure Splunk to receive logs on ports 9997 and 514
-echo "Configuring Splunk ports..."
-sudo $SPLUNK_HOME/bin/splunk enable listen 514 -auth admin:$SPLUNK_PASS
-sudo $SPLUNK_HOME/bin/splunk enable listen 9997 -auth admin:$SPLUNK_PASS
+#echo "Configuring Splunk ports..."
+#sudo $SPLUNK_HOME/bin/splunk enable listen 514 -auth admin:$SPLUNK_PASS
+#sudo $SPLUNK_HOME/bin/splunk enable listen 9997 -auth admin:$SPLUNK_PASS
 
 # Final restart
-echo "Performing final restart..."
-sudo $SPLUNK_HOME/bin/splunk restart
-if [ $? -ne 0 ]; then
-    echo "Final restart failed. Please investigate."
-    exit 1
-fi
+#echo "Performing final restart..."
+#sudo $SPLUNK_HOME/bin/splunk restart
+#if [ $? -ne 0 ]; then
+#    echo "Final restart failed. Please investigate."
+#    exit 1
+#fi
 
 
 echo "Splunk installation and configuration complete!"

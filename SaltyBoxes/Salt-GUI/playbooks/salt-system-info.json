@@ -1,0 +1,87 @@
+{
+  "name": "Salt System Information Gathering",
+  "description": "Uses Salt grains and status modules to gather comprehensive system information without shell commands.",
+  "category": "reconnaissance",
+  "severity": "low",
+  "os": "all",
+  "steps": [
+    {
+      "name": "Get All System Grains",
+      "function": "grains.items",
+      "description": "Complete system facts (OS, IP, CPU, memory, etc.)",
+      "timeout": 15000,
+      "required": true
+    },
+    {
+      "name": "Get Operating System",
+      "function": "grains.item",
+      "args": ["os", "osrelease", "osfinger"],
+      "description": "OS identification",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Network Info",
+      "function": "grains.item",
+      "args": ["ip_interfaces", "hwaddr_interfaces", "fqdn"],
+      "description": "Network configuration from grains",
+      "timeout": 5000
+    },
+    {
+      "name": "Get CPU Info",
+      "function": "grains.item",
+      "args": ["num_cpus", "cpu_model"],
+      "description": "CPU details",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Memory Info",
+      "function": "grains.item",
+      "args": ["mem_total"],
+      "description": "Total memory",
+      "timeout": 5000
+    },
+    {
+      "name": "Get System Uptime",
+      "function": "status.uptime",
+      "description": "How long system has been running",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Load Average",
+      "function": "status.loadavg",
+      "description": "Current system load",
+      "timeout": 5000
+    },
+    {
+      "name": "Get CPU Usage",
+      "function": "status.cpustats",
+      "description": "Detailed CPU statistics",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Memory Stats",
+      "function": "status.meminfo",
+      "description": "Detailed memory information",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Disk Usage",
+      "function": "status.diskusage",
+      "description": "Disk space usage",
+      "timeout": 10000
+    },
+    {
+      "name": "Get Virtual Memory",
+      "function": "status.vmstats",
+      "description": "Virtual memory statistics",
+      "timeout": 5000
+    },
+    {
+      "name": "Get Process Count",
+      "function": "status.procs",
+      "description": "Running process count",
+      "timeout": 5000
+    }
+  ],
+  "notes": "Grains are cached and very fast. This playbook gives you a complete picture of the system state quickly."
+}

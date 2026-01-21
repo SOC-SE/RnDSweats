@@ -1,0 +1,95 @@
+{
+  "name": "Firewall Lockdown",
+  "description": "Configure iptables firewall with restrictive rules - only allow essential services",
+  "category": "hardening",
+  "severity": "high",
+  "variables": {
+    "allowed_ports": "22,80,443"
+  },
+  "steps": [
+    {
+      "name": "Backup current iptables rules",
+      "function": "cmd.run",
+      "command": "iptables-save > /root/iptables-backup-$(date +%s).rules",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Flush existing rules",
+      "function": "cmd.run",
+      "command": "iptables -F && iptables -X && iptables -t nat -F && iptables -t nat -X",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Set default policies to DROP",
+      "function": "cmd.run",
+      "command": "iptables -P INPUT DROP && iptables -P FORWARD DROP && iptables -P OUTPUT ACCEPT",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Allow loopback interface",
+      "function": "cmd.run",
+      "command": "iptables -A INPUT -i lo -j ACCEPT && iptables -A OUTPUT -o lo -j ACCEPT",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Allow established and related connections",
+      "function": "cmd.run",
+      "command": "iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Allow SSH (port 22)",
+      "function": "cmd.run",
+      "command": "iptables -A INPUT -p tcp --dport 22 -j ACCEPT",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Allow HTTP (port 80)",
+      "function": "cmd.run",
+      "command": "iptables -A INPUT -p tcp --dport 80 -j ACCEPT",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Allow HTTPS (port 443)",
+      "function": "cmd.run",
+      "command": "iptables -A INPUT -p tcp --dport 443 -j ACCEPT",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Allow Salt minion (port 4505-4506)",
+      "function": "cmd.run",
+      "command": "iptables -A INPUT -p tcp --dport 4505:4506 -j ACCEPT",
+      "timeout": 10000,
+      "required": true
+    },
+    {
+      "name": "Drop invalid packets",
+      "function": "cmd.run",
+      "command": "iptables -A INPUT -m state --state INVALID -j DROP",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Log dropped packets",
+      "function": "cmd.run",
+      "command": "iptables -A INPUT -j LOG --log-prefix 'IPTables-Dropped: ' --log-level 4",
+      "timeout": 10000,
+      "required": false
+    },
+    {
+      "name": "Save iptables rules (persist)",
+      "function": "cmd.run",
+      "command": "iptables-save > /etc/iptables/rules.v4 2>/dev/null || iptables-save > /etc/sysconfig/iptables 2>/dev/null || echo 'Could not persist rules'",
+      "timeout": 10000,
+      "required": false
+    }
+  ]
+}
