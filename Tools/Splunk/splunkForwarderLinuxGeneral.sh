@@ -351,6 +351,12 @@ index = main
 sourcetype = linux_av:full_reports
 crcSalt = <SOURCE>
 
+[monitor:///var/log/falco/falco_alerts.log]
+disabled = false
+sourcetype = falco:alerts
+index = security
+host_segment = 3
+
 # -----------------------------------------------------------------------------
 # Wazuh SIEM
 # -----------------------------------------------------------------------------
