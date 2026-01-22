@@ -558,7 +558,12 @@ app.post('/api/states/apply', async (req, res) => {
         
         // Check if state uses complex features that require proper Salt rendering
         const hasJinja = stateContent.includes('{%') || stateContent.includes('{{');
-        const hasSaltSource = stateContent.includes('salt://');
+        
+        // Check for salt:// sources, but ignore comment lines (lines starting with #)
+        const nonCommentLines = stateContent.split('\n')
+            .filter(line => !line.trim().startsWith('#'))
+            .join('\n');
+        const hasSaltSource = nonCommentLines.includes('salt://');
         
         let method = 'state.template_str';
         let results = {};
@@ -614,40 +619,60 @@ app.post('/api/states/apply', async (req, res) => {
             console.log(`State uses Jinja - using salt-call approach`);
             method = 'salt-call (local)';
             
-            // Use Python to decode base64 (more reliable across systems)
-            const b64Content = Buffer.from(stateContent).toString('base64');
-            
             const isWindows = osType.toLowerCase() === 'windows';
+            const tempDir = isWindows ? 'C:\\Windows\\Temp\\saltgui_states' : '/tmp/saltgui_states';
+            const tempFile = isWindows ? `${tempDir}\\saltgui_temp.sls` : `${tempDir}/saltgui_temp.sls`;
+            
+            // Step 1: Create temp directory and write state file using Salt's file module
+            // This avoids command-line length limits by using Salt's internal transfer
+            console.log(`Writing state file to minion(s)...`);
+            
+            const writePayload = {
+                client: 'local',
+                tgt: targets,
+                tgt_type: 'list',
+                fun: 'file.write',
+                arg: [tempFile, stateContent],
+                kwarg: {
+                    makedirs: true
+                },
+                username: settings.username,
+                password: settings.password,
+                eauth: settings.eauth
+            };
+            
+            try {
+                const writeResponse = await axios.post(`${settings.saltAPIUrl}/run`, writePayload,
+                    getAxiosConfig(120000, settings.saltAPIUrl));
+                
+                const writeResults = writeResponse.data.return[0] || {};
+                console.log('File write results:', writeResults);
+                
+                // Check if write succeeded
+                for (const [minion, result] of Object.entries(writeResults)) {
+                    if (result !== 'Wrote' && result !== true && !String(result).includes('Wrote')) {
+                        console.warn(`File write to ${minion} may have failed:`, result);
+                    }
+                }
+            } catch (writeErr) {
+                console.error('Failed to write state file to minions:', writeErr.message);
+                return res.status(500).json({
+                    message: 'Failed to transfer state file to minions',
+                    error: writeErr.response?.data || writeErr.message
+                });
+            }
+            
+            // Step 2: Apply the state using salt-call
+            console.log(`Applying state on minion(s)...`);
             
             let applyCmd;
             if (isWindows) {
-                // PowerShell approach for Windows
-                applyCmd = `
-$ErrorActionPreference = 'Continue'
-$b64 = '${b64Content}'
-$content = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
-$tempDir = "$env:TEMP\\saltgui_states"
-New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-Set-Content -Path "$tempDir\\saltgui_temp.sls" -Value $content -Encoding UTF8
-salt-call --local state.apply saltgui_temp --file-root="$tempDir" ${testMode ? 'test=true' : ''} --out=json 2>&1
-Remove-Item -Path "$tempDir" -Recurse -Force -ErrorAction SilentlyContinue
-`.trim();
+                applyCmd = `salt-call --local state.apply saltgui_temp --file-root="${tempDir}" ${testMode ? 'test=true' : ''} --out=json 2>&1; Remove-Item -Path "${tempDir}" -Recurse -Force -ErrorAction SilentlyContinue`;
             } else {
-                // Python-based approach for Linux (more reliable than base64 command)
-                applyCmd = `
-python3 -c "
-import base64
-import os
-content = base64.b64decode('${b64Content}').decode('utf-8')
-os.makedirs('/tmp/saltgui_states', exist_ok=True)
-with open('/tmp/saltgui_states/saltgui_temp.sls', 'w') as f:
-    f.write(content)
-" && salt-call --local state.apply saltgui_temp --file-root=/tmp/saltgui_states ${testMode ? 'test=true' : ''} --out=json 2>&1
-rm -rf /tmp/saltgui_states
-`.trim();
+                applyCmd = `salt-call --local state.apply saltgui_temp --file-root=${tempDir} ${testMode ? 'test=true' : ''} --out=json 2>&1; rm -rf ${tempDir}`;
             }
             
-            const payload = {
+            const applyPayload = {
                 client: 'local',
                 tgt: targets,
                 tgt_type: 'list',
@@ -663,7 +688,7 @@ rm -rf /tmp/saltgui_states
                 eauth: settings.eauth
             };
             
-            const response = await axios.post(`${settings.saltAPIUrl}/run`, payload,
+            const response = await axios.post(`${settings.saltAPIUrl}/run`, applyPayload,
                 getAxiosConfig(600000, settings.saltAPIUrl));
             
             const rawResults = response.data.return[0] || {};
