@@ -623,18 +623,26 @@ app.post('/api/states/apply', async (req, res) => {
             const tempDir = isWindows ? 'C:\\Windows\\Temp\\saltgui_states' : '/tmp/saltgui_states';
             const tempFile = isWindows ? `${tempDir}\\saltgui_temp.sls` : `${tempDir}/saltgui_temp.sls`;
             
-            // Step 1: Create temp directory and write state file using Salt's file module
-            // This avoids command-line length limits by using Salt's internal transfer
-            console.log(`Writing state file to minion(s)...`);
+            // Step 1: Create temp directory and write state file using stdin (avoids arg length limits)
+            console.log(`Writing state file to minion(s) via stdin...`);
+            
+            let writeCmd;
+            if (isWindows) {
+                writeCmd = `New-Item -ItemType Directory -Force -Path "${tempDir}" | Out-Null; $input | Set-Content -Path "${tempFile}" -Encoding UTF8`;
+            } else {
+                writeCmd = `mkdir -p ${tempDir} && cat > ${tempFile}`;
+            }
             
             const writePayload = {
                 client: 'local',
                 tgt: targets,
                 tgt_type: 'list',
-                fun: 'file.write',
-                arg: [tempFile, stateContent],
+                fun: 'cmd.run',
+                arg: [writeCmd],
                 kwarg: {
-                    makedirs: true
+                    stdin: stateContent,
+                    shell: isWindows ? 'powershell' : '/bin/bash',
+                    python_shell: true
                 },
                 username: settings.username,
                 password: settings.password,
@@ -648,9 +656,9 @@ app.post('/api/states/apply', async (req, res) => {
                 const writeResults = writeResponse.data.return[0] || {};
                 console.log('File write results:', writeResults);
                 
-                // Check if write succeeded
+                // Check if write succeeded (empty output is usually success for cat > file)
                 for (const [minion, result] of Object.entries(writeResults)) {
-                    if (result !== 'Wrote' && result !== true && !String(result).includes('Wrote')) {
+                    if (result && String(result).toLowerCase().includes('error')) {
                         console.warn(`File write to ${minion} may have failed:`, result);
                     }
                 }
