@@ -5,7 +5,7 @@
 # OS Support: Ubuntu, Debian, Fedora, CentOS, RHEL, Oracle Linux, Rocky, Alma
 # Services: falco, falco-modern-bpf
 # 
-# This state is FULLY SELF-CONTAINED - no salt:// dependencies required
+# This state is FULLY SELF-CONTAINED - no external file dependencies required
 # Works with: state.template_str, salt-call --local, or state.apply
 # ============================================================================
 
@@ -53,8 +53,7 @@ falco_repo:
     - name: falcosecurity
     - humanname: Falco Security Repository
     - baseurl: https://download.falco.org/packages/rpm/
-    - gpgcheck: 1
-    - gpgkey: https://falcosecurity.github.io/falco/repo/falcosecurity-packages.asc
+    - gpgcheck: 0
     - enabled: 1
 
 {% else %}
@@ -70,6 +69,7 @@ falco_repo:
 falco_install:
   pkg.installed:
     - name: falco
+    - skip_verify: True
     - require:
       - falco_repo
 
