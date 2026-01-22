@@ -1,275 +1,134 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# ==============================================================================
-# Script Name: install_technitium_fixed.sh
-# Description: Installs Technitium DNS Server with improved error handling
-# Author: Enhanced version
-# ==============================================================================
+#
+#   Script taken and adapted from https://github.com/cyberuci/LOCS/tree/main/linux/linux-toolbox
+#   Thank you CyberUCI, a bit of my time has been spared. <3
+#
+#   I'm lazy, so yes, Gemini was used to add on the full docker portion, adapated from a previous script my team made.
+#
+#   Samuel Brucker 2025-2026
+#
 
-set -e  # Exit on error
 
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
+# Define Colors
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration Variables
-INSTALL_DIR="/opt/technitium-dns"
-WEB_PORT="5380"
-CONTAINER_NAME="technitium-dns"
-
-# ==============================================================================
-# Functions
-# ==============================================================================
-
-print_header() {
-    echo -e "\n${BLUE}================================================================${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}================================================================${NC}\n"
+command_exists() {
+  command -v "$1" > /dev/null 2>&1
 }
 
-print_success() {
-    echo -e "${GREEN}[✓]${NC} $1"
-}
+# --- Essential Packages ---
+echo -e "${BLUE}Installing essential packages:${NC}"
+if command_exists apt-get; then
+    apt-get update -y
+    apt-get install -y coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano jq
+fi
 
-print_warning() {
-    echo -e "${YELLOW}[!]${NC} $1"
-}
+if command_exists yum; then
+    yum install -y bash coreutils net-tools iproute2 iptables curl git vim wget grep tar jq gpg nano jq
+fi
 
-print_error() {
-    echo -e "${RED}[✗]${NC} $1"
-}
+if command_exists pacman; then
+    pacman -S --noconfirm coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano jq
+fi
 
-print_info() {
-    echo -e "${BLUE}[i]${NC} $1"
-}
+if command_exists apk; then
+    apk add coreutils net-tools iproute2 iptables bash curl git vim wget grep tar jq gpg nano jq
+fi
+echo -e "${BLUE}Essential packages stage done.${NC}"
 
-# Check if running as root
-check_root() {
-    if [ "$EUID" -ne 0 ]; then 
-        print_error "Please run as root (sudo)"
-        exit 1
-    fi
-}
 
-# Check if Docker is installed
-check_docker() {
-    if ! command -v docker &> /dev/null; then
-        print_error "Docker is not installed"
-        echo "Install with: curl -fsSL https://get.docker.com | sh"
-        exit 1
-    fi
-    
-    if ! systemctl is-active --quiet docker; then
-        print_warning "Docker service is not running. Starting..."
-        systemctl start docker
-        systemctl enable docker
-    fi
-    
-    print_success "Docker is installed and running"
-}
+# ---------------------------------------------------------
+# Docker
+# ---------------------------------------------------------
+echo -e "${BLUE}Installing Docker and Docker Compose:${NC}"
 
-# Handle systemd-resolved conflict on port 53
-handle_port53_conflict() {
-    print_info "Checking for port 53 conflicts..."
-    
-    if ss -tuln | grep -q ":53 "; then
-        print_warning "Port 53 is in use (likely systemd-resolved)"
+if command_exists docker; then
+    echo -e "${BLUE}Docker is already installed. Skipping installation.${NC}"
+else
+    # --- Debian / Ubuntu Logic ---
+    if command_exists apt-get; then
+        echo -e "${BLUE}Detected apt (Debian/Ubuntu). Configuring official Docker repo...${NC}"
         
-        echo -e "\n${YELLOW}Options:${NC}"
-        echo "  1) Disable systemd-resolved stub listener (recommended)"
-        echo "  2) Continue anyway (may fail)"
-        echo "  3) Exit and fix manually"
+        # 1. Remove old packages
+        apt-get remove -y docker docker-engine docker.io containerd runc || true
         
-        read -p "Choose option [1-3]: " choice
+        # 2. Install prerequisites
+        apt-get update -y
+        apt-get install -y ca-certificates curl gnupg
         
-        case $choice in
-            1)
-                print_info "Disabling systemd-resolved stub listener..."
-                
-                # Backup original config
-                if [ -f /etc/systemd/resolved.conf ]; then
-                    cp /etc/systemd/resolved.conf /etc/systemd/resolved.conf.backup
-                    print_success "Backed up original config"
-                fi
-                
-                # Disable DNSStubListener
-                sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
-                sed -i 's/DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf
-                
-                # Restart systemd-resolved
-                systemctl restart systemd-resolved
-                
-                # Verify port is free
-                sleep 2
-                if ss -tuln | grep -q ":53 "; then
-                    print_error "Port 53 is still in use. Manual intervention required."
-                    print_info "Run: sudo lsof -i :53"
-                    exit 1
-                fi
-                
-                print_success "Port 53 is now available"
-                ;;
-            2)
-                print_warning "Continuing with port conflict - container may fail to start"
-                ;;
-            3)
-                print_info "Exiting. To fix manually:"
-                echo "  sudo sed -i 's/#DNSStubListener=yes/DNSStubListener=no/' /etc/systemd/resolved.conf"
-                echo "  sudo systemctl restart systemd-resolved"
-                exit 0
-                ;;
-            *)
-                print_error "Invalid option"
-                exit 1
-                ;;
-        esac
-    else
-        print_success "Port 53 is available"
+        # 3. Add Docker GPG key
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        
+        # 4. Set up the repository
+        echo \
+          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+          $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+          tee /etc/apt/sources.list.d/docker.list > /dev/null
+          
+        # 5. Install Docker Engine
+        apt-get update -y
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     fi
-}
 
-# Create directory structure
-create_directories() {
-    print_info "Creating directory structure at ${INSTALL_DIR}..."
-    
-    mkdir -p "$INSTALL_DIR/config"
-    chmod 755 "$INSTALL_DIR"
-    
-    print_success "Directories created"
-}
+    # --- RHEL / CentOS / Oracle Linux Logic ---
+    if command_exists dnf || command_exists yum; then
+        echo -e "${BLUE}Detected dnf/yum (RHEL/CentOS/Oracle). Configuring Docker repo...${NC}"
+        
+        # Determine command to use (dnf preferred, fallback to yum)
+        if command_exists dnf; then CMD="dnf"; else CMD="yum"; fi
 
-# Generate docker-compose.yml
-create_compose_file() {
-    print_info "Generating docker-compose.yml..."
-    
-    cat > "$INSTALL_DIR/docker-compose.yml" <<'EOF'
-services:
-  dns-server:
-    container_name: technitium-dns
-    image: technitium/dns-server:latest
-    hostname: dns-server
-    network_mode: host
-    restart: unless-stopped
-    environment:
-      - DNS_SERVER_DOMAIN=dns-server
-      - DNS_SERVER_WEB_SERVICE_HTTP_PORT=5380
-    volumes:
-      - ./config:/etc/dns
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-EOF
-    
-    print_success "docker-compose.yml created"
-}
+        # 1. Remove old packages (ignore errors if not installed)
+        $CMD remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine || true
 
-# Pull the image first to show progress
-pull_image() {
-    print_info "Pulling Technitium DNS Docker image..."
-    docker pull technitium/dns-server:latest
-    print_success "Image pulled successfully"
-}
+        # 2. Install utils and config-manager
+        $CMD install -y dnf-plugins-core yum-utils
 
-# Start the container
-start_container() {
-    print_info "Starting Technitium DNS container..."
-    
-    cd "$INSTALL_DIR" || exit 1
-    
-    # Stop and remove existing container if it exists
-    if docker ps -a | grep -q "$CONTAINER_NAME"; then
-        print_warning "Removing existing container..."
-        docker stop "$CONTAINER_NAME" 2>/dev/null || true
-        docker rm "$CONTAINER_NAME" 2>/dev/null || true
-    fi
-    
-    # Start with docker compose
-    docker compose up -d
-    
-    print_success "Container started"
-}
-
-# Verify container is running
-verify_installation() {
-    print_info "Verifying installation..."
-    
-    sleep 3
-    
-    if ! docker ps | grep -q "$CONTAINER_NAME"; then
-        print_error "Container is not running"
-        print_info "Checking logs..."
-        docker logs "$CONTAINER_NAME" 2>&1 | tail -20
-        return 1
-    fi
-    
-    # Check if web interface is responding
-    local max_attempts=10
-    local attempt=1
-    
-    while [ $attempt -le $max_attempts ]; do
-        if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}" | grep -q "200\|302"; then
-            print_success "Web interface is responding"
-            return 0
+        # 3. Add the repo (Using CentOS repo as per your working script logic)
+        # This is standard for RHEL derivatives like Oracle Linux
+        if command_exists config-manager; then
+             config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+        elif command_exists dnf; then
+             dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+        else
+             yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
         fi
-        print_info "Waiting for web interface... (attempt $attempt/$max_attempts)"
-        sleep 2
-        ((attempt++))
-    done
-    
-    print_warning "Web interface is not responding yet, but container is running"
-    print_info "Check logs with: docker logs $CONTAINER_NAME"
-    return 0
-}
 
-# Display final information
-show_completion_info() {
-    local host_ip=$(hostname -I | awk '{print $1}')
-    
-    print_header "Installation Complete!"
-    
-    echo -e "${GREEN}Technitium DNS Server is running${NC}\n"
-    echo -e "Web Console:    ${YELLOW}http://${host_ip}:${WEB_PORT}${NC}"
-    echo -e "                ${YELLOW}http://localhost:${WEB_PORT}${NC}"
-    echo -e "\nDefault Login:  ${YELLOW}admin${NC} / ${YELLOW}admin${NC}"
-    echo -e "\n${BLUE}Useful Commands:${NC}"
-    echo -e "  Status:       ${YELLOW}docker ps | grep technitium${NC}"
-    echo -e "  Logs:         ${YELLOW}docker logs -f $CONTAINER_NAME${NC}"
-    echo -e "  Restart:      ${YELLOW}docker restart $CONTAINER_NAME${NC}"
-    echo -e "  Stop:         ${YELLOW}docker stop $CONTAINER_NAME${NC}"
-    echo -e "  Start:        ${YELLOW}docker start $CONTAINER_NAME${NC}"
-    echo -e "  Uninstall:    ${YELLOW}cd $INSTALL_DIR && docker compose down${NC}"
-    echo -e "\n${BLUE}Configuration Location:${NC} ${YELLOW}$INSTALL_DIR/config${NC}\n"
-}
-
-# ==============================================================================
-# Main Execution
-# ==============================================================================
-
-main() {
-    print_header "Technitium DNS Server Installer"
-    
-    check_root
-    check_docker
-    handle_port53_conflict
-    create_directories
-    create_compose_file
-    pull_image
-    start_container
-    
-    if verify_installation; then
-        show_completion_info
-        exit 0
-    else
-        print_error "Installation completed but verification failed"
-        print_info "Check docker logs for more information"
-        exit 1
+        # 4. Install Docker Engine
+        $CMD install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     fi
-}
 
-# Run main function
-main
+    # --- Arch Linux Logic ---
+    if command_exists pacman; then
+        echo -e "${BLUE}Detected pacman. Installing from community repo...${NC}"
+        pacman -S --noconfirm docker docker-compose
+    fi
+
+    # --- Alpine Linux Logic ---
+    if command_exists apk; then
+        echo -e "${BLUE}Detected apk. Installing from community repo...${NC}"
+        apk add docker docker-compose
+    fi
+fi
+
+# --- Post-Installation Configuration ---
+if command_exists systemctl; then
+    echo -e "${BLUE}Enabling and starting Docker service...${NC}"
+    systemctl start docker
+    systemctl enable docker
+fi
+
+# Add current user (and sudo user if exists) to docker group
+# This avoids needing 'sudo' for every docker command
+echo -e "${BLUE}Configuring permissions...${NC}"
+if getent group docker > /dev/null; then
+    usermod -aG docker "$(whoami)" || true
+    if [ -n "${SUDO_USER}" ]; then
+        usermod -aG docker "$SUDO_USER" || true
+    fi
+fi
+
+echo -e "${BLUE}Docker installation stage done.${NC}"
