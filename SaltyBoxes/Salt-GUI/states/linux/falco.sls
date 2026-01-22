@@ -2632,34 +2632,83 @@ falco_logrotate:
         }
 
 # ----------------------------------------------------------------------------
-# START FALCO SERVICE
+# INSTALL FALCO DRIVER/PLUGINS
 # ----------------------------------------------------------------------------
 
-# Try legacy service first (more compatible)
-falco_service_fallback:
-  service.running:
-    - name: falco
-    - enable: True
+# Install driver loader if available (Debian/Ubuntu)
+{% if os_family == 'Debian' %}
+falco_driver_packages:
+  pkg.installed:
+    - pkgs:
+      - falco
+      - dkms
+    - require:
+      - falco_repo
+{% endif %}
+
+# ----------------------------------------------------------------------------
+# START FALCO SERVICE (Multi-driver support)
+# ----------------------------------------------------------------------------
+
+# Smart service starter - tries BPF first, then kmod, then legacy
+falco_start_service:
+  cmd.run:
+    - name: |
+        echo "=== Detecting and starting Falco service ==="
+        
+        # Get list of available Falco services
+        SERVICES=$(systemctl list-unit-files 'falco*.service' --no-legend 2>/dev/null | awk '{print $1}')
+        echo "Available services: $SERVICES"
+        
+        # Priority order: BPF (no compilation) > kmod > modern-bpf > legacy
+        for svc in falco-bpf.service falco-kmod.service falco-modern-bpf.service falco.service; do
+          if echo "$SERVICES" | grep -q "^${svc}$"; then
+            echo "Attempting to start: $svc"
+            systemctl enable "$svc" 2>/dev/null || true
+            if systemctl start "$svc" 2>/dev/null; then
+              echo "[OK] Successfully started $svc"
+              systemctl status "$svc" --no-pager -l 2>/dev/null | head -5
+              exit 0
+            else
+              echo "[WARN] Failed to start $svc, trying next..."
+            fi
+          fi
+        done
+        
+        # If we get here, try to load driver manually for legacy falco
+        echo "Trying manual driver load..."
+        if command -v falco-driver-loader &>/dev/null; then
+          falco-driver-loader || true
+        fi
+        
+        # Last resort - try legacy service again
+        if systemctl start falco 2>/dev/null; then
+          echo "[OK] Started falco service after driver load"
+          exit 0
+        fi
+        
+        echo "[ERROR] Could not start any Falco service"
+        echo "Available services were: $SERVICES"
+        exit 1
     - require:
       - falco_install
       - falco_config
       - falco_ccdc_rules
-    - watch:
-      - file: falco_config
-      - file: falco_ccdc_rules
 
-# Modern BPF service (if available, preferred)
-falco_service_modern:
-  service.running:
-    - name: falco-modern-bpf
-    - enable: True
+# Enable service to persist across reboots
+falco_enable_service:
+  cmd.run:
+    - name: |
+        # Enable whichever service is running
+        for svc in falco-bpf falco-kmod falco-modern-bpf falco; do
+          if systemctl is-active "${svc}.service" &>/dev/null; then
+            systemctl enable "${svc}.service" 2>/dev/null
+            echo "Enabled ${svc}.service for auto-start"
+            exit 0
+          fi
+        done
     - require:
-      - falco_ccdc_rules
-    - watch:
-      - file: falco_config
-      - file: falco_ccdc_rules
-    - onlyif:
-      - systemctl list-unit-files | grep -q falco-modern-bpf
+      - falco_start_service
 
 # ----------------------------------------------------------------------------
 # VERIFICATION
@@ -2673,16 +2722,28 @@ falco_verify:
         echo "  FALCO DEPLOYMENT COMPLETE"
         echo "=========================================="
         echo ""
+        
+        # Check which service is running
+        for svc in falco-bpf falco-kmod falco-modern-bpf falco; do
+          if systemctl is-active "${svc}.service" &>/dev/null; then
+            echo "[OK] Service: ${svc}.service is RUNNING"
+            break
+          fi
+        done
+        
+        # Check process
         if pgrep -x falco > /dev/null 2>&1; then
-          echo "[OK] Falco is running (PID: $(pgrep -x falco))"
+          echo "[OK] Falco process running (PID: $(pgrep -x falco))"
         else
           echo "[!!] Falco process not detected"
         fi
+        
         echo ""
         echo "Log file: /var/log/falco/falco_alerts.log"
         echo "Rules:    /etc/falco/rules.d/ccdc_extended_rules.yaml"
         echo ""
         echo "Verify with: tail -f /var/log/falco/falco_alerts.log"
+        echo "Test alert: sudo cat /etc/shadow"
         echo "=========================================="
     - require:
-      - falco_service_fallback
+      - falco_start_service
