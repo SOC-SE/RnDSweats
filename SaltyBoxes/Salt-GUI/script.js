@@ -554,9 +554,17 @@ document.addEventListener('DOMContentLoaded', () => {
             // Format file size
             const sizeKB = (state.size / 1024).toFixed(1);
             
+            // Only show path if different from name (i.e., file is in subdirectory)
+            const showPath = state.path !== state.name;
+            const pathHtml = showPath ? `<div class="state-path">${escapeHtml(state.path)}</div>` : '';
+            const descHtml = state.description && state.description !== 'No description' 
+                ? `<div class="state-desc">${escapeHtml(state.description)}</div>` 
+                : '';
+            
             li.innerHTML = `
                 <div class="state-name">${escapeHtml(state.name)}</div>
-                <div class="state-path">${escapeHtml(state.path)}</div>
+                ${pathHtml}
+                ${descHtml}
                 <div class="state-meta">${sizeKB} KB</div>
             `;
             
@@ -665,7 +673,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         statePath,
                         testMode
                     })
-                }, 300000); // 5 minute timeout for state application
+                }, 600000); // 10 minute timeout for state application
                 
                 const data = await response.json();
                 
@@ -680,20 +688,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Format results
                 elements.statesOutput.textContent += `Method: ${data.method}\n`;
-                elements.statesOutput.textContent += `Salt State Name: ${data.saltStateName || 'N/A'}\n\n`;
+                if (data.stateName) {
+                    elements.statesOutput.textContent += `State: ${data.stateName}\n`;
+                }
+                if (data.hasErrors && data.errorMessages) {
+                    elements.statesOutput.textContent += `\nERRORS:\n`;
+                    data.errorMessages.forEach(err => {
+                        elements.statesOutput.textContent += `  - ${err}\n`;
+                    });
+                }
+                elements.statesOutput.textContent += `\n`;
                 
                 if (data.results) {
                     for (const [minion, result] of Object.entries(data.results)) {
                         elements.statesOutput.textContent += `--- ${minion} ---\n`;
                         
-                        if (typeof result === 'object') {
+                        if (typeof result === 'string') {
+                            // Error message returned as string
+                            elements.statesOutput.textContent += `  ERROR: ${result}\n`;
+                            logToConsole(`State error on ${minion}: ${result}`, 'error');
+                        } else if (typeof result === 'object' && result !== null) {
                             // Parse Salt state results
                             let succeeded = 0;
                             let failed = 0;
                             let changed = 0;
+                            let totalStates = 0;
                             
                             for (const [stateId, stateResult] of Object.entries(result)) {
                                 if (typeof stateResult === 'object' && stateResult !== null) {
+                                    totalStates++;
                                     if (stateResult.result === true) {
                                         succeeded++;
                                         if (stateResult.changes && Object.keys(stateResult.changes).length > 0) {
@@ -701,20 +724,32 @@ document.addEventListener('DOMContentLoaded', () => {
                                         }
                                     } else if (stateResult.result === false) {
                                         failed++;
-                                        elements.statesOutput.textContent += `  FAILED: ${stateId}\n`;
-                                        elements.statesOutput.textContent += `    Comment: ${stateResult.comment || 'No comment'}\n`;
+                                        // Extract readable state ID (usually after the pipe)
+                                        const readableId = stateId.includes('|') ? stateId.split('|').slice(-1)[0] : stateId;
+                                        elements.statesOutput.textContent += `  FAILED: ${readableId}\n`;
+                                        elements.statesOutput.textContent += `    Reason: ${stateResult.comment || 'No details'}\n`;
                                     }
                                 }
                             }
                             
-                            elements.statesOutput.textContent += `  Summary: ${succeeded} succeeded, ${failed} failed, ${changed} changed\n`;
+                            if (totalStates > 0) {
+                                elements.statesOutput.textContent += `  Summary: ${succeeded} succeeded, ${failed} failed, ${changed} changed\n`;
+                            } else {
+                                elements.statesOutput.textContent += `  No state results returned (check if minion is responsive)\n`;
+                            }
                         } else {
-                            elements.statesOutput.textContent += `  ${result}\n`;
+                            elements.statesOutput.textContent += `  Unexpected result type: ${typeof result}\n`;
                         }
                     }
+                } else {
+                    elements.statesOutput.textContent += `No results returned from Salt API\n`;
                 }
                 
-                logToConsole(`State ${statePath} applied successfully`, 'success');
+                if (data.hasErrors) {
+                    logToConsole(`State ${statePath} applied with errors`, 'warn');
+                } else {
+                    logToConsole(`State ${statePath} applied successfully`, 'success');
+                }
                 
             } catch (error) {
                 elements.statesOutput.textContent += `ERROR: ${error.message}\n`;

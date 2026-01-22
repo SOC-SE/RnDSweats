@@ -570,94 +570,79 @@ app.post('/api/states/apply', async (req, res) => {
         // Read the state content
         const stateContent = fs.readFileSync(fullStatePath, 'utf8');
         
-        // Option 1: Try to apply as if state is in Salt's file_roots
-        // This requires the state to be in /srv/salt or equivalent
+        // Convert path to state name for logging
+        const stateName = statePath.replace(/\.sls$/, '').replace(/\//g, '.');
         
-        // Option 2: Use cmd.run with salt-call for local application
-        // This is more reliable when states aren't in file_roots
+        console.log(`Applying state ${statePath} to ${targets.join(', ')} (test=${testMode})`);
         
-        // Let's provide both approaches - first try state.apply, fallback to direct execution
+        // Use state.template_str to apply state content directly
+        // This is the most reliable approach as it doesn't require states to be in Salt's file_roots
+        // The state content is sent directly to minions for execution
         
         const payload = {
             client: 'local',
             tgt: targets,
             tgt_type: 'list',
-            fun: testMode ? 'state.apply' : 'state.apply',
+            fun: 'state.template_str',
+            arg: [stateContent],
             kwarg: testMode ? { test: true } : {},
             username: settings.username,
             password: settings.password,
             eauth: settings.eauth
         };
         
-        // Try to apply from Salt's standard state tree first
-        // State name format: osType.subdir.statename (e.g., linux.security.hardening)
-        const saltStateName = `${osType.toLowerCase()}.${stateName}`;
-        payload.arg = [saltStateName];
-        
-        console.log(`Applying state: ${saltStateName} to ${targets.join(', ')} (test=${testMode})`);
-        
-        const response = await axios.post(`${settings.saltAPIUrl}/run`, payload, 
-            getAxiosConfig(300000, settings.saltAPIUrl));
+        const response = await axios.post(`${settings.saltAPIUrl}/run`, payload,
+            getAxiosConfig(600000, settings.saltAPIUrl)); // 10 minute timeout for long states
         
         const results = response.data.return[0] || {};
         
-        // Check if state was found
-        let stateFound = true;
+        // Check for errors in results
+        let hasErrors = false;
+        let errorMessages = [];
+        
         for (const [minion, result] of Object.entries(results)) {
-            if (typeof result === 'string' && result.includes('No matching sls found')) {
-                stateFound = false;
-                break;
+            if (typeof result === 'string') {
+                // Error string returned
+                hasErrors = true;
+                errorMessages.push(`${minion}: ${result}`);
+            } else if (result && typeof result === 'object') {
+                // Check for state failures within the result
+                for (const [stateId, stateResult] of Object.entries(result)) {
+                    if (stateResult && stateResult.result === false) {
+                        hasErrors = true;
+                        errorMessages.push(`${minion}/${stateId}: ${stateResult.comment || 'Failed'}`);
+                    }
+                }
             }
         }
         
-        if (!stateFound) {
-            // State not in Salt's file_roots - try alternative approach
-            // Use state.sls_str to apply state content directly (Salt 2018.3+)
-            console.log('State not found in file_roots, trying state.template_str...');
-            
-            const altPayload = {
-                client: 'local',
-                tgt: targets,
-                tgt_type: 'list',
-                fun: 'state.template_str',
-                arg: [stateContent],
-                kwarg: testMode ? { test: true } : {},
-                username: settings.username,
-                password: settings.password,
-                eauth: settings.eauth
-            };
-            
-            const altResponse = await axios.post(`${settings.saltAPIUrl}/run`, altPayload,
-                getAxiosConfig(300000, settings.saltAPIUrl));
-            
-            res.json({
-                message: testMode ? 'State test completed (dry-run)' : 'State applied',
-                statePath: statePath,
-                saltStateName: saltStateName,
-                method: 'template_str',
-                testMode: testMode,
-                targets: targets,
-                results: altResponse.data.return[0]
-            });
-            return;
-        }
-        
+        // Format response
         res.json({
-            message: testMode ? 'State test completed (dry-run)' : 'State applied',
+            message: testMode ? 'State test completed (dry-run)' : (hasErrors ? 'State applied with errors' : 'State applied successfully'),
             statePath: statePath,
-            saltStateName: saltStateName,
-            method: 'state.apply',
+            stateName: stateName,
+            method: 'state.template_str',
             testMode: testMode,
             targets: targets,
+            hasErrors: hasErrors,
+            errorMessages: errorMessages.length > 0 ? errorMessages : undefined,
             results: results
         });
         
     } catch (error) {
         console.error('Error applying state:', error.message);
+        
+        // Provide more specific error info
+        let errorDetail = error.response?.data || error.message;
+        if (error.code === 'ECONNABORTED') {
+            errorDetail = 'Request timed out - state may still be running on minions';
+        }
+        
         res.status(500).json({ 
             message: 'Failed to apply state', 
-            error: error.response?.data || error.message,
-            suggestion: 'Ensure states are synced to Salt master file_roots or use state.template_str'
+            error: errorDetail,
+            statePath: statePath,
+            targets: targets
         });
     }
 });
