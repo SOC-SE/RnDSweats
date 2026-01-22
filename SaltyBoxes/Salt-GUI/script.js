@@ -691,10 +691,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.stateName) {
                     elements.statesOutput.textContent += `State: ${data.stateName}\n`;
                 }
+                if (data.warnings && data.warnings.length > 0) {
+                    elements.statesOutput.textContent += `\nWARNINGS:\n`;
+                    data.warnings.forEach(warn => {
+                        elements.statesOutput.textContent += `  ⚠ ${warn}\n`;
+                    });
+                }
                 if (data.hasErrors && data.errorMessages) {
                     elements.statesOutput.textContent += `\nERRORS:\n`;
                     data.errorMessages.forEach(err => {
-                        elements.statesOutput.textContent += `  - ${err}\n`;
+                        elements.statesOutput.textContent += `  ✗ ${err}\n`;
                     });
                 }
                 elements.statesOutput.textContent += `\n`;
