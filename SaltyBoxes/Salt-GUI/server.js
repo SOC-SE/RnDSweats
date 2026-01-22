@@ -549,52 +549,165 @@ app.post('/api/states/apply', async (req, res) => {
         testMode 
     });
     
-    // Convert path to Salt state name (remove .sls, replace / with .)
-    // e.g., "security/hardening.sls" -> "security.hardening"
-    // The states need to be synced to Salt's file_roots or we use state.apply with saltenv
-    const stateName = statePath.replace(/\.sls$/, '').replace(/\//g, '.');
-    
-    // For states stored locally, we have several options:
-    // 1. Use cmd.run to execute the state content directly (less ideal)
-    // 2. Copy the state to salt master and then apply (complex)
-    // 3. Use state.sls_id if we know specific state IDs
-    // 4. Use slsutil.renderer to render and apply
-    
-    // Best approach for competition: Read state content and use state.highstate or state.apply
-    // with a custom pillar containing the state data, or use cmd.script to run a helper
-    
-    // For now, let's use state.apply with the assumption states are synced to file_roots
-    // In production, you'd want a sync mechanism or use gitfs
-    
     try {
         // Read the state content
         const stateContent = fs.readFileSync(fullStatePath, 'utf8');
-        
-        // Convert path to state name for logging
         const stateName = statePath.replace(/\.sls$/, '').replace(/\//g, '.');
         
         console.log(`Applying state ${statePath} to ${targets.join(', ')} (test=${testMode})`);
         
-        // Use state.template_str to apply state content directly
-        // This is the most reliable approach as it doesn't require states to be in Salt's file_roots
-        // The state content is sent directly to minions for execution
+        // Check if state uses complex features that require proper Salt rendering
+        const hasJinja = stateContent.includes('{%') || stateContent.includes('{{');
+        const hasSaltSource = stateContent.includes('salt://');
         
-        const payload = {
-            client: 'local',
-            tgt: targets,
-            tgt_type: 'list',
-            fun: 'state.template_str',
-            arg: [stateContent],
-            kwarg: testMode ? { test: true } : {},
-            username: settings.username,
-            password: settings.password,
-            eauth: settings.eauth
-        };
+        let method = 'state.template_str';
+        let results = {};
+        let warnings = [];
         
-        const response = await axios.post(`${settings.saltAPIUrl}/run`, payload,
-            getAxiosConfig(600000, settings.saltAPIUrl)); // 10 minute timeout for long states
-        
-        const results = response.data.return[0] || {};
+        if (hasSaltSource) {
+            // State references salt:// sources - these MUST be on the Salt master's file_roots
+            // Try to apply using state.apply (requires state to be synced to master)
+            console.log(`State uses salt:// sources - attempting state.apply from master`);
+            method = 'state.apply (master)';
+            
+            warnings.push('This state uses salt:// sources which must exist on the Salt master file_roots');
+            
+            // Convert to Salt state name: osType/statename -> osType.statename
+            const saltStateName = `${osType.toLowerCase()}.${stateName}`;
+            
+            const payload = {
+                client: 'local',
+                tgt: targets,
+                tgt_type: 'list',
+                fun: 'state.apply',
+                arg: [saltStateName],
+                kwarg: testMode ? { test: true } : {},
+                username: settings.username,
+                password: settings.password,
+                eauth: settings.eauth
+            };
+            
+            try {
+                const response = await axios.post(`${settings.saltAPIUrl}/run`, payload,
+                    getAxiosConfig(600000, settings.saltAPIUrl));
+                
+                results = response.data.return[0] || {};
+                
+                // Check if state was not found
+                for (const [minion, result] of Object.entries(results)) {
+                    if (typeof result === 'string' && result.includes('No matching sls found')) {
+                        warnings.push(`State not found in Salt master file_roots. Copy states to /srv/salt/${osType.toLowerCase()}/`);
+                        break;
+                    }
+                }
+            } catch (err) {
+                console.error('state.apply failed:', err.message);
+                return res.status(500).json({
+                    message: 'Failed to apply state from master',
+                    error: err.response?.data || err.message,
+                    suggestion: `Sync the state and its salt:// dependencies to the Salt master file_roots at /srv/salt/${osType.toLowerCase()}/`
+                });
+            }
+            
+        } else if (hasJinja) {
+            // State has Jinja but NO salt:// sources - use salt-call with local file_root
+            console.log(`State uses Jinja - using salt-call approach`);
+            method = 'salt-call (local)';
+            
+            // Use Python to decode base64 (more reliable across systems)
+            const b64Content = Buffer.from(stateContent).toString('base64');
+            
+            const isWindows = osType.toLowerCase() === 'windows';
+            
+            let applyCmd;
+            if (isWindows) {
+                // PowerShell approach for Windows
+                applyCmd = `
+$ErrorActionPreference = 'Continue'
+$b64 = '${b64Content}'
+$content = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
+$tempDir = "$env:TEMP\\saltgui_states"
+New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+Set-Content -Path "$tempDir\\saltgui_temp.sls" -Value $content -Encoding UTF8
+salt-call --local state.apply saltgui_temp --file-root="$tempDir" ${testMode ? 'test=true' : ''} --out=json 2>&1
+Remove-Item -Path "$tempDir" -Recurse -Force -ErrorAction SilentlyContinue
+`.trim();
+            } else {
+                // Python-based approach for Linux (more reliable than base64 command)
+                applyCmd = `
+python3 -c "
+import base64
+import os
+content = base64.b64decode('${b64Content}').decode('utf-8')
+os.makedirs('/tmp/saltgui_states', exist_ok=True)
+with open('/tmp/saltgui_states/saltgui_temp.sls', 'w') as f:
+    f.write(content)
+" && salt-call --local state.apply saltgui_temp --file-root=/tmp/saltgui_states ${testMode ? 'test=true' : ''} --out=json 2>&1
+rm -rf /tmp/saltgui_states
+`.trim();
+            }
+            
+            const payload = {
+                client: 'local',
+                tgt: targets,
+                tgt_type: 'list',
+                fun: 'cmd.run',
+                arg: [applyCmd],
+                kwarg: {
+                    shell: isWindows ? 'powershell' : '/bin/bash',
+                    python_shell: true,
+                    timeout: 600
+                },
+                username: settings.username,
+                password: settings.password,
+                eauth: settings.eauth
+            };
+            
+            const response = await axios.post(`${settings.saltAPIUrl}/run`, payload,
+                getAxiosConfig(600000, settings.saltAPIUrl));
+            
+            const rawResults = response.data.return[0] || {};
+            
+            // Parse the JSON output from salt-call
+            for (const [minion, output] of Object.entries(rawResults)) {
+                if (typeof output === 'string') {
+                    // Try to extract JSON from the output (salt-call output may have extra text)
+                    const jsonMatch = output.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        try {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            results[minion] = parsed.local || parsed;
+                        } catch (e) {
+                            results[minion] = output;
+                        }
+                    } else {
+                        results[minion] = output;
+                    }
+                } else {
+                    results[minion] = output;
+                }
+            }
+        } else {
+            // Simple state without Jinja/salt:// - use state.template_str
+            console.log(`Simple state - using state.template_str`);
+            
+            const payload = {
+                client: 'local',
+                tgt: targets,
+                tgt_type: 'list',
+                fun: 'state.template_str',
+                arg: [stateContent],
+                kwarg: testMode ? { test: true } : {},
+                username: settings.username,
+                password: settings.password,
+                eauth: settings.eauth
+            };
+            
+            const response = await axios.post(`${settings.saltAPIUrl}/run`, payload,
+                getAxiosConfig(600000, settings.saltAPIUrl));
+            
+            results = response.data.return[0] || {};
+        }
         
         // Check for errors in results
         let hasErrors = false;
@@ -604,7 +717,9 @@ app.post('/api/states/apply', async (req, res) => {
             if (typeof result === 'string') {
                 // Error string returned
                 hasErrors = true;
-                errorMessages.push(`${minion}: ${result}`);
+                // Truncate long error messages
+                const truncated = result.length > 500 ? result.substring(0, 500) + '...' : result;
+                errorMessages.push(`${minion}: ${truncated}`);
             } else if (result && typeof result === 'object') {
                 // Check for state failures within the result
                 for (const [stateId, stateResult] of Object.entries(result)) {
@@ -621,10 +736,11 @@ app.post('/api/states/apply', async (req, res) => {
             message: testMode ? 'State test completed (dry-run)' : (hasErrors ? 'State applied with errors' : 'State applied successfully'),
             statePath: statePath,
             stateName: stateName,
-            method: 'state.template_str',
+            method: method,
             testMode: testMode,
             targets: targets,
             hasErrors: hasErrors,
+            warnings: warnings.length > 0 ? warnings : undefined,
             errorMessages: errorMessages.length > 0 ? errorMessages : undefined,
             results: results
         });

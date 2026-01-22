@@ -118,7 +118,7 @@ falco_install:
 falco_ccdc_rules:
   file.managed:
     - name: /etc/falco/rules.d/ccdc_extended_rules.yaml
-    - source: salt://security/falco/ccdc_extended_rules.yaml
+    - source: salt://falco/ccdc_extended_rules.yaml
     - mode: '0644'
     - require:
       - file: falco_rules_dir
