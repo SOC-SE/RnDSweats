@@ -3,6 +3,7 @@
  * 
  * Cross-browser compatible (Chrome, Firefox, Safari, Edge)
  * Samuel Brucker 2025-2026
+ * Enhanced with Salt States tab
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -48,12 +49,21 @@ document.addEventListener('DOMContentLoaded', () => {
         quickTerminalDevice: document.getElementById('quick-terminal-device'),
         quickCommand: document.getElementById('quick-command'),
         quickOutput: document.getElementById('quick-output'),
-        contextMenu: document.getElementById('custom-script-context-menu')
+        contextMenu: document.getElementById('custom-script-context-menu'),
+        // States tab elements
+        statesDeviceList: document.getElementById('states-device-list'),
+        statesDeviceSearch: document.getElementById('states-device-search'),
+        linuxStatesList: document.getElementById('linux-states-list'),
+        windowsStatesList: document.getElementById('windows-states-list'),
+        linuxStatesSearch: document.getElementById('linux-states-search'),
+        windowsStatesSearch: document.getElementById('windows-states-search'),
+        statesOutput: document.getElementById('states-output'),
+        stateTestMode: document.getElementById('state-test-mode'),
+        stateViewerModal: document.getElementById('state-viewer-modal'),
+        stateContextMenu: document.getElementById('state-context-menu')
     };
 
     // --- State ---
-    // CRITICAL: Use window.location.origin to get the actual server address
-    // This ensures the client talks to the server it loaded from, not localhost
     let proxyUrl = window.location.origin;
     let currentArgSpec = null;
     let selectedPlaybook = null;
@@ -61,6 +71,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let historyIndex = -1;
     let deviceCache = {};
     let consoleCollapsed = false;
+    
+    // States tab state
+    let linuxStatesCache = [];
+    let windowsStatesCache = [];
+    let deviceOsCache = { linux: [], windows: [], unknown: [] };
+    let currentStateFilter = 'all';
+    let currentStateContext = null; // For context menu
 
     // --- Utility Functions ---
 
@@ -148,6 +165,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (document.getElementById('alertWebhook')) {
                 document.getElementById('alertWebhook').value = settings.alertWebhook || '';
             }
+            if (document.getElementById('statesPath')) {
+                document.getElementById('statesPath').value = settings.statesPath || '/opt/salt-gui/states';
+            }
         } catch (error) {
             logToConsole('Error loading settings. Using defaults.', 'warn');
         }
@@ -160,7 +180,8 @@ document.addEventListener('DOMContentLoaded', () => {
             saltAPIUrl: document.getElementById('saltAPIUrl').value,
             username: document.getElementById('username').value,
             password: document.getElementById('password').value,
-            eauth: document.getElementById('eauth').value
+            eauth: document.getElementById('eauth').value,
+            statesPath: document.getElementById('statesPath')?.value || '/opt/salt-gui/states'
         };
         
         if (document.getElementById('enableAuth')) {
@@ -183,6 +204,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 logToConsole('Settings saved successfully.', 'success');
                 elements.settingsModal.style.display = 'none';
+                // Reload states after settings change
+                loadStates('linux');
+                loadStates('windows');
             } else {
                 throw new Error('Failed to save');
             }
@@ -241,35 +265,53 @@ document.addEventListener('DOMContentLoaded', () => {
                 const grainsResponse = await fetchWithTimeout(`${proxyUrl}/proxy`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ client: 'local', tgt: '*', fun: 'grains.item', arg: ['os', 'osrelease', 'kernel'] })
+                    body: JSON.stringify({ client: 'local', tgt: '*', fun: 'grains.item', arg: ['os', 'osrelease', 'kernel', 'os_family'] })
                 }, 15000);
                 
                 const grainsData = await grainsResponse.json();
                 const grains = grainsData.return ? grainsData.return[0] : {};
                 
-                // Merge grains into device cache
+                // Reset OS cache
+                deviceOsCache = { linux: [], windows: [], unknown: [] };
+                
+                // Merge grains into device cache and categorize by OS
                 Object.keys(grains).forEach(device => {
                     if (deviceCache[device] !== undefined) {
+                        const deviceGrains = grains[device] || {};
                         deviceCache[device] = {
                             online: deviceCache[device],
-                            os: grains[device]?.os || 'Unknown',
-                            osrelease: grains[device]?.osrelease || '',
-                            kernel: grains[device]?.kernel || ''
+                            os: deviceGrains.os || 'Unknown',
+                            osrelease: deviceGrains.osrelease || '',
+                            kernel: deviceGrains.kernel || '',
+                            os_family: deviceGrains.os_family || ''
                         };
+                        
+                        // Categorize by OS
+                        const kernel = (deviceGrains.kernel || '').toLowerCase();
+                        const osFamily = (deviceGrains.os_family || '').toLowerCase();
+                        
+                        if (kernel === 'windows' || osFamily === 'windows') {
+                            deviceOsCache.windows.push(device);
+                        } else if (kernel === 'linux' || ['debian', 'redhat', 'arch', 'suse', 'gentoo'].includes(osFamily)) {
+                            deviceOsCache.linux.push(device);
+                        } else {
+                            deviceOsCache.unknown.push(device);
+                        }
                     }
                 });
             } catch (grainError) {
                 logToConsole('Could not fetch OS info: ' + grainError.message, 'warn');
-                // Convert simple cache to object format
                 Object.keys(deviceCache).forEach(device => {
                     if (typeof deviceCache[device] !== 'object') {
                         deviceCache[device] = { online: deviceCache[device], os: 'Unknown' };
                     }
+                    deviceOsCache.unknown.push(device);
                 });
             }
             
             renderDeviceList(deviceCache);
             updateDeviceSelects(Object.keys(devices));
+            renderStatesDeviceList();
         } catch (error) {
             logToConsole('Error fetching devices: ' + error.message, 'error');
             elements.deviceList.innerHTML = '<li class="disabled">Error loading devices</li>';
@@ -294,7 +336,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const os = typeof deviceInfo === 'object' ? deviceInfo.os : 'Unknown';
             const kernel = typeof deviceInfo === 'object' ? deviceInfo.kernel : '';
             
-            // OS indicator
             let osIndicator = '[?]';
             const osLower = os.toLowerCase();
             if (osLower.includes('windows')) {
@@ -309,7 +350,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 osIndicator = '[Mac]';
             }
             
-            // Status indicator
             const statusClass = isOnline ? 'device-online' : 'device-offline';
             const statusDot = isOnline ? '●' : '○';
             
@@ -349,7 +389,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         
-        // Update playbook targets (multi-select)
         if (elements.playbookTargets) {
             elements.playbookTargets.innerHTML = '';
             devices.forEach(device => {
@@ -360,7 +399,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         
-        // Update emergency modal targets
         const emergencyTargets = document.getElementById('emergency-targets');
         if (emergencyTargets) {
             emergencyTargets.innerHTML = '';
@@ -377,6 +415,361 @@ document.addEventListener('DOMContentLoaded', () => {
         const selected = elements.deviceList.querySelectorAll('li.selected');
         return Array.from(selected).map(li => li.dataset.device);
     }
+
+    // ============================================================================
+    // SALT STATES TAB FUNCTIONALITY
+    // ============================================================================
+
+    /**
+     * Render the device list in the States tab with OS filtering
+     */
+    function renderStatesDeviceList(filter = '') {
+        if (!elements.statesDeviceList) return;
+        
+        elements.statesDeviceList.innerHTML = '';
+        
+        let devicesToShow = [];
+        
+        if (currentStateFilter === 'all') {
+            devicesToShow = Object.keys(deviceCache);
+        } else if (currentStateFilter === 'linux') {
+            devicesToShow = deviceOsCache.linux;
+        } else if (currentStateFilter === 'windows') {
+            devicesToShow = deviceOsCache.windows;
+        }
+        
+        // Apply text filter
+        if (filter) {
+            devicesToShow = devicesToShow.filter(d => d.toLowerCase().includes(filter.toLowerCase()));
+        }
+        
+        if (devicesToShow.length === 0) {
+            elements.statesDeviceList.innerHTML = '<li class="disabled">No devices found</li>';
+            return;
+        }
+        
+        devicesToShow.forEach(name => {
+            const li = document.createElement('li');
+            const deviceInfo = deviceCache[name];
+            const isOnline = typeof deviceInfo === 'object' ? deviceInfo.online : deviceInfo;
+            const os = typeof deviceInfo === 'object' ? deviceInfo.os : 'Unknown';
+            const kernel = typeof deviceInfo === 'object' ? deviceInfo.kernel : '';
+            
+            let osIndicator = '[?]';
+            const osLower = os.toLowerCase();
+            const kernelLower = (kernel || '').toLowerCase();
+            
+            if (osLower.includes('windows') || kernelLower === 'windows') {
+                osIndicator = '[Win]';
+            } else if (kernelLower === 'linux') {
+                osIndicator = '[Lin]';
+            }
+            
+            const statusClass = isOnline ? 'device-online' : 'device-offline';
+            const statusDot = isOnline ? '●' : '○';
+            
+            li.innerHTML = `<span class="device-status ${statusClass}">${statusDot}</span> <span class="device-os">${osIndicator}</span> ${escapeHtml(name)}`;
+            li.dataset.device = name;
+            li.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    li.classList.toggle('selected');
+                } else {
+                    elements.statesDeviceList.querySelectorAll('li').forEach(el => el.classList.remove('selected'));
+                    li.classList.add('selected');
+                }
+            });
+            elements.statesDeviceList.appendChild(li);
+        });
+    }
+
+    /**
+     * Get selected devices from the States tab
+     */
+    function getStatesSelectedDevices() {
+        if (!elements.statesDeviceList) return [];
+        const selected = elements.statesDeviceList.querySelectorAll('li.selected');
+        return Array.from(selected).map(li => li.dataset.device);
+    }
+
+    /**
+     * Load states from the server for a specific OS type
+     */
+    async function loadStates(osType) {
+        const listElement = osType === 'linux' ? elements.linuxStatesList : elements.windowsStatesList;
+        
+        if (!listElement) return;
+        
+        listElement.innerHTML = '<li class="disabled">Loading states...</li>';
+        
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/states/${osType}`);
+            const data = await response.json();
+            
+            if (osType === 'linux') {
+                linuxStatesCache = data.states || [];
+            } else {
+                windowsStatesCache = data.states || [];
+            }
+            
+            renderStatesList(osType);
+            logToConsole(`Loaded ${data.count} ${osType} state(s).`, 'success');
+        } catch (error) {
+            listElement.innerHTML = `<li class="disabled">Error loading states: ${escapeHtml(error.message)}</li>`;
+            logToConsole(`Error loading ${osType} states: ${error.message}`, 'error');
+        }
+    }
+
+    /**
+     * Render the states list for a specific OS type
+     */
+    function renderStatesList(osType, filter = '') {
+        const listElement = osType === 'linux' ? elements.linuxStatesList : elements.windowsStatesList;
+        const statesCache = osType === 'linux' ? linuxStatesCache : windowsStatesCache;
+        
+        if (!listElement) return;
+        
+        listElement.innerHTML = '';
+        
+        let statesToShow = statesCache;
+        
+        if (filter) {
+            statesToShow = statesCache.filter(s => 
+                s.name.toLowerCase().includes(filter.toLowerCase()) ||
+                s.path.toLowerCase().includes(filter.toLowerCase()) ||
+                (s.description && s.description.toLowerCase().includes(filter.toLowerCase()))
+            );
+        }
+        
+        if (statesToShow.length === 0) {
+            listElement.innerHTML = `<li class="disabled">No ${osType} states found</li>`;
+            return;
+        }
+        
+        statesToShow.forEach(state => {
+            const li = document.createElement('li');
+            li.className = 'state-item';
+            li.dataset.path = state.path;
+            li.dataset.osType = osType;
+            
+            // Format file size
+            const sizeKB = (state.size / 1024).toFixed(1);
+            
+            li.innerHTML = `
+                <div class="state-name">${escapeHtml(state.name)}</div>
+                <div class="state-path">${escapeHtml(state.path)}</div>
+                <div class="state-meta">${sizeKB} KB</div>
+            `;
+            
+            // Click to select
+            li.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    li.classList.toggle('selected');
+                } else {
+                    listElement.querySelectorAll('li').forEach(el => el.classList.remove('selected'));
+                    li.classList.add('selected');
+                }
+            });
+            
+            // Double-click to view
+            li.addEventListener('dblclick', () => {
+                viewState(osType, state.path);
+            });
+            
+            // Right-click context menu
+            li.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                showStateContextMenu(e, osType, state.path);
+            });
+            
+            listElement.appendChild(li);
+        });
+    }
+
+    /**
+     * View a state file's content
+     */
+    async function viewState(osType, statePath) {
+        try {
+            const response = await fetchWithTimeout(`${proxyUrl}/api/states/${osType}/content?path=${encodeURIComponent(statePath)}`);
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to load state');
+            }
+            
+            // Show in modal
+            const modal = elements.stateViewerModal;
+            if (modal) {
+                document.getElementById('state-viewer-title').textContent = statePath;
+                document.getElementById('state-viewer-path').textContent = data.fullPath;
+                document.getElementById('state-code').textContent = data.content;
+                
+                // Store current state info for the apply button
+                modal.dataset.osType = osType;
+                modal.dataset.statePath = statePath;
+                
+                modal.style.display = 'block';
+            }
+        } catch (error) {
+            logToConsole(`Error viewing state: ${error.message}`, 'error');
+            showNotification('Failed to load state file', 'error');
+        }
+    }
+
+    /**
+     * Apply selected states to selected devices
+     */
+    async function applyStates(osType) {
+        const listElement = osType === 'linux' ? elements.linuxStatesList : elements.windowsStatesList;
+        const selectedStates = listElement?.querySelectorAll('li.selected');
+        const targets = getStatesSelectedDevices();
+        const testMode = elements.stateTestMode?.checked || false;
+        
+        if (!selectedStates || selectedStates.length === 0) {
+            showNotification('Select at least one state to apply', 'warn');
+            return;
+        }
+        
+        if (targets.length === 0) {
+            showNotification('Select target devices first', 'warn');
+            return;
+        }
+        
+        // Warn if applying Linux states to Windows devices or vice versa
+        if (osType === 'linux' && deviceOsCache.windows.some(d => targets.includes(d))) {
+            if (!confirm('Warning: Some selected devices appear to be Windows. Continue applying Linux states?')) {
+                return;
+            }
+        }
+        if (osType === 'windows' && deviceOsCache.linux.some(d => targets.includes(d))) {
+            if (!confirm('Warning: Some selected devices appear to be Linux. Continue applying Windows states?')) {
+                return;
+            }
+        }
+        
+        const statePaths = Array.from(selectedStates).map(li => li.dataset.path);
+        
+        elements.statesOutput.textContent = `Applying ${statePaths.length} state(s) to ${targets.length} device(s)...\n${testMode ? '(TEST MODE - dry run)\n' : ''}\n`;
+        logToConsole(`Applying ${osType} states: ${statePaths.join(', ')} to ${targets.join(', ')}${testMode ? ' (test mode)' : ''}`);
+        
+        for (const statePath of statePaths) {
+            elements.statesOutput.textContent += `\n${'='.repeat(60)}\nApplying: ${statePath}\n${'='.repeat(60)}\n`;
+            
+            try {
+                const response = await fetchWithTimeout(`${proxyUrl}/api/states/apply`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        targets,
+                        osType,
+                        statePath,
+                        testMode
+                    })
+                }, 300000); // 5 minute timeout for state application
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    elements.statesOutput.textContent += `ERROR: ${data.message}\n`;
+                    if (data.suggestion) {
+                        elements.statesOutput.textContent += `Suggestion: ${data.suggestion}\n`;
+                    }
+                    logToConsole(`State apply error: ${data.message}`, 'error');
+                    continue;
+                }
+                
+                // Format results
+                elements.statesOutput.textContent += `Method: ${data.method}\n`;
+                elements.statesOutput.textContent += `Salt State Name: ${data.saltStateName || 'N/A'}\n\n`;
+                
+                if (data.results) {
+                    for (const [minion, result] of Object.entries(data.results)) {
+                        elements.statesOutput.textContent += `--- ${minion} ---\n`;
+                        
+                        if (typeof result === 'object') {
+                            // Parse Salt state results
+                            let succeeded = 0;
+                            let failed = 0;
+                            let changed = 0;
+                            
+                            for (const [stateId, stateResult] of Object.entries(result)) {
+                                if (typeof stateResult === 'object' && stateResult !== null) {
+                                    if (stateResult.result === true) {
+                                        succeeded++;
+                                        if (stateResult.changes && Object.keys(stateResult.changes).length > 0) {
+                                            changed++;
+                                        }
+                                    } else if (stateResult.result === false) {
+                                        failed++;
+                                        elements.statesOutput.textContent += `  FAILED: ${stateId}\n`;
+                                        elements.statesOutput.textContent += `    Comment: ${stateResult.comment || 'No comment'}\n`;
+                                    }
+                                }
+                            }
+                            
+                            elements.statesOutput.textContent += `  Summary: ${succeeded} succeeded, ${failed} failed, ${changed} changed\n`;
+                        } else {
+                            elements.statesOutput.textContent += `  ${result}\n`;
+                        }
+                    }
+                }
+                
+                logToConsole(`State ${statePath} applied successfully`, 'success');
+                
+            } catch (error) {
+                elements.statesOutput.textContent += `ERROR: ${error.message}\n`;
+                logToConsole(`State apply error: ${error.message}`, 'error');
+            }
+        }
+        
+        elements.statesOutput.textContent += `\n${'='.repeat(60)}\nState application complete.\n`;
+    }
+
+    /**
+     * Show context menu for state items
+     */
+    function showStateContextMenu(e, osType, statePath) {
+        const menu = elements.stateContextMenu;
+        if (!menu) return;
+        
+        currentStateContext = { osType, statePath };
+        
+        menu.style.top = `${e.clientY}px`;
+        menu.style.left = `${e.clientX}px`;
+        menu.style.display = 'block';
+    }
+
+    /**
+     * Apply a single state from the viewer modal
+     */
+    async function applyStateFromViewer() {
+        const modal = elements.stateViewerModal;
+        if (!modal) return;
+        
+        const osType = modal.dataset.osType;
+        const statePath = modal.dataset.statePath;
+        const targets = getStatesSelectedDevices();
+        const testMode = elements.stateTestMode?.checked || false;
+        
+        if (targets.length === 0) {
+            showNotification('Select target devices in the States tab first', 'warn');
+            return;
+        }
+        
+        modal.style.display = 'none';
+        
+        // Temporarily select this state and apply
+        const listElement = osType === 'linux' ? elements.linuxStatesList : elements.windowsStatesList;
+        listElement?.querySelectorAll('li').forEach(li => {
+            li.classList.toggle('selected', li.dataset.path === statePath);
+        });
+        
+        await applyStates(osType);
+    }
+
+    // ============================================================================
+    // END SALT STATES TAB FUNCTIONALITY
+    // ============================================================================
 
     // --- Script Management ---
 
@@ -506,7 +899,6 @@ document.addEventListener('DOMContentLoaded', () => {
         let payload;
         
         if (scriptType === 'salt') {
-            // Salt function
             const args = [];
             elements.scriptArgsContainer.querySelectorAll('input').forEach(input => {
                 if (input.value) args.push(input.value);
@@ -523,7 +915,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 arg: args
             };
         } else {
-            // Custom script
             let scriptPath = `salt://${scriptName}`;
             let cmdArgs = manualArgs;
             if (appendCmd) {
@@ -588,7 +979,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const unacceptedList = document.getElementById('unaccepted-keys-list');
             const acceptedList = document.getElementById('accepted-keys-list');
             
-            // Unaccepted keys
             unacceptedList.innerHTML = '';
             (keys.minions_pre || []).forEach(key => {
                 const li = document.createElement('li');
@@ -603,7 +993,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 unacceptedList.innerHTML = '<li class="disabled">No pending keys</li>';
             }
             
-            // Accepted keys
             acceptedList.innerHTML = '';
             (keys.minions || []).forEach(key => {
                 const li = document.createElement('li');
@@ -685,12 +1074,10 @@ document.addEventListener('DOMContentLoaded', () => {
     async function executeTerminalCommand(cmd) {
         if (!terminalDevice || !cmd.trim()) return;
         
-        // Add to history
         commandHistory.unshift(cmd);
         if (commandHistory.length > 100) commandHistory.pop();
         historyIndex = -1;
         
-        // Display command
         const cmdDiv = document.createElement('div');
         cmdDiv.className = 'terminal-command';
         cmdDiv.textContent = `$ ${cmd}`;
@@ -947,7 +1334,6 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.auditLogBody.innerHTML = '';
             entries.forEach(entry => {
                 const tr = document.createElement('tr');
-                // Map server format (timestamp, ip, method, path, body) to display
                 const action = entry.method ? `${entry.method} ${entry.path || ''}` : (entry.action || '');
                 const details = entry.body || entry.details || {};
                 tr.innerHTML = `
@@ -1088,6 +1474,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Load tab-specific data
                 if (tabId === 'playbooks') loadPlaybooks();
                 if (tabId === 'audit') loadAuditLog();
+                if (tabId === 'states') {
+                    loadStates('linux');
+                    loadStates('windows');
+                    renderStatesDeviceList();
+                }
             });
         });
     }
@@ -1114,7 +1505,6 @@ document.addEventListener('DOMContentLoaded', () => {
         loadKeyLists();
     });
     
-    // Global refresh button
     document.getElementById('refresh-all')?.addEventListener('click', async () => {
         logToConsole('Refreshing all connections...');
         await fetchAvailableDevices();
@@ -1131,7 +1521,6 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.deviceList.querySelectorAll('li').forEach(li => li.classList.remove('selected'));
     });
 
-    // Device search
     elements.deviceSearch?.addEventListener('input', debounce((e) => {
         renderDeviceList(deviceCache, e.target.value);
     }, 150));
@@ -1147,7 +1536,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Script search
     elements.scriptSearch?.addEventListener('input', debounce(() => {
         const type = document.querySelector('input[name="script-type"]:checked')?.value;
         if (type === 'custom') {
@@ -1240,6 +1628,132 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-kill-connections')?.addEventListener('click', killConnections);
     document.getElementById('btn-change-passwords')?.addEventListener('click', changePasswords);
 
+    // ============================================================================
+    // STATES TAB EVENT LISTENERS
+    // ============================================================================
+
+    // States device filter buttons
+    document.querySelectorAll('.states-filter-btn')?.forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.states-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentStateFilter = btn.dataset.filter;
+            renderStatesDeviceList(elements.statesDeviceSearch?.value || '');
+        });
+    });
+
+    // States device search
+    elements.statesDeviceSearch?.addEventListener('input', debounce((e) => {
+        renderStatesDeviceList(e.target.value);
+    }, 150));
+
+    // States device selection
+    document.getElementById('states-select-all')?.addEventListener('click', () => {
+        elements.statesDeviceList?.querySelectorAll('li:not(.disabled)').forEach(li => li.classList.add('selected'));
+    });
+
+    document.getElementById('states-deselect-all')?.addEventListener('click', () => {
+        elements.statesDeviceList?.querySelectorAll('li').forEach(li => li.classList.remove('selected'));
+    });
+
+    // Linux states
+    document.getElementById('refresh-linux-states')?.addEventListener('click', () => loadStates('linux'));
+    
+    elements.linuxStatesSearch?.addEventListener('input', debounce((e) => {
+        renderStatesList('linux', e.target.value);
+    }, 150));
+
+    document.getElementById('view-linux-state')?.addEventListener('click', () => {
+        const selected = elements.linuxStatesList?.querySelector('li.selected');
+        if (selected) {
+            viewState('linux', selected.dataset.path);
+        } else {
+            showNotification('Select a state to view', 'warn');
+        }
+    });
+
+    document.getElementById('apply-linux-state')?.addEventListener('click', () => applyStates('linux'));
+
+    // Windows states
+    document.getElementById('refresh-windows-states')?.addEventListener('click', () => loadStates('windows'));
+    
+    elements.windowsStatesSearch?.addEventListener('input', debounce((e) => {
+        renderStatesList('windows', e.target.value);
+    }, 150));
+
+    document.getElementById('view-windows-state')?.addEventListener('click', () => {
+        const selected = elements.windowsStatesList?.querySelector('li.selected');
+        if (selected) {
+            viewState('windows', selected.dataset.path);
+        } else {
+            showNotification('Select a state to view', 'warn');
+        }
+    });
+
+    document.getElementById('apply-windows-state')?.addEventListener('click', () => applyStates('windows'));
+
+    // States output clear
+    document.getElementById('clear-states-output')?.addEventListener('click', () => {
+        elements.statesOutput.textContent = 'Select states and devices, then click Apply to see output...';
+    });
+
+    // State viewer modal actions
+    document.getElementById('state-viewer-copy')?.addEventListener('click', () => {
+        const content = document.getElementById('state-code')?.textContent;
+        if (content) {
+            navigator.clipboard?.writeText(content);
+            showNotification('State content copied to clipboard', 'success');
+        }
+    });
+
+    document.getElementById('state-viewer-apply')?.addEventListener('click', applyStateFromViewer);
+
+    // State context menu
+    document.getElementById('state-context-view')?.addEventListener('click', () => {
+        if (currentStateContext) {
+            viewState(currentStateContext.osType, currentStateContext.statePath);
+        }
+        elements.stateContextMenu.style.display = 'none';
+    });
+
+    document.getElementById('state-context-apply')?.addEventListener('click', () => {
+        if (currentStateContext) {
+            elements.stateTestMode.checked = false;
+            // Select this state and apply
+            const listElement = currentStateContext.osType === 'linux' ? elements.linuxStatesList : elements.windowsStatesList;
+            listElement?.querySelectorAll('li').forEach(li => {
+                li.classList.toggle('selected', li.dataset.path === currentStateContext.statePath);
+            });
+            applyStates(currentStateContext.osType);
+        }
+        elements.stateContextMenu.style.display = 'none';
+    });
+
+    document.getElementById('state-context-test')?.addEventListener('click', () => {
+        if (currentStateContext) {
+            elements.stateTestMode.checked = true;
+            // Select this state and apply in test mode
+            const listElement = currentStateContext.osType === 'linux' ? elements.linuxStatesList : elements.windowsStatesList;
+            listElement?.querySelectorAll('li').forEach(li => {
+                li.classList.toggle('selected', li.dataset.path === currentStateContext.statePath);
+            });
+            applyStates(currentStateContext.osType);
+        }
+        elements.stateContextMenu.style.display = 'none';
+    });
+
+    document.getElementById('state-context-copy')?.addEventListener('click', () => {
+        if (currentStateContext) {
+            navigator.clipboard?.writeText(currentStateContext.statePath);
+            showNotification('State path copied', 'success');
+        }
+        elements.stateContextMenu.style.display = 'none';
+    });
+
+    // ============================================================================
+    // END STATES TAB EVENT LISTENERS
+    // ============================================================================
+
     // Context menu for scripts
     elements.scriptList?.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -1265,9 +1779,13 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.contextMenu.style.display = 'none';
     });
 
+    // Hide context menus on click elsewhere
     document.addEventListener('click', e => {
         if (!elements.contextMenu?.contains(e.target)) {
             elements.contextMenu.style.display = 'none';
+        }
+        if (!elements.stateContextMenu?.contains(e.target)) {
+            elements.stateContextMenu.style.display = 'none';
         }
     });
 
@@ -1293,6 +1811,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
             document.querySelectorAll('.modal').forEach(modal => modal.style.display = 'none');
+            elements.contextMenu.style.display = 'none';
+            elements.stateContextMenu.style.display = 'none';
         }
         if (e.ctrlKey && e.key === 'l') {
             e.preventDefault();

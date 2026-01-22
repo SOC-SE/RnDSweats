@@ -30,6 +30,7 @@
         <!-- Tab Navigation -->
         <nav class="tab-navigation">
             <button class="tab-btn active" data-tab="main">Main</button>
+            <button class="tab-btn" data-tab="states">Salt States</button>
             <button class="tab-btn" data-tab="monitoring">Monitoring</button>
             <button class="tab-btn" data-tab="services">Services</button>
             <button class="tab-btn" data-tab="playbooks">Playbooks</button>
@@ -104,6 +105,83 @@
                 </div>
             </div>
         </main>
+
+        <!-- Salt States Tab -->
+        <section id="tab-states" class="tab-content">
+            <div class="states-grid">
+                <!-- Target Selection Panel -->
+                <div class="states-targets-panel">
+                    <h3>Target Devices</h3>
+                    <p class="hint">Select devices to apply states to</p>
+                    <div class="states-device-filters">
+                        <button class="btn btn-small states-filter-btn active" data-filter="all">All</button>
+                        <button class="btn btn-small states-filter-btn" data-filter="linux">Linux</button>
+                        <button class="btn btn-small states-filter-btn" data-filter="windows">Windows</button>
+                    </div>
+                    <div class="search-container">
+                        <input type="text" id="states-device-search" placeholder="Filter devices...">
+                    </div>
+                    <ul id="states-device-list" class="item-list">
+                        <li class="disabled">Loading devices...</li>
+                    </ul>
+                    <div class="device-actions">
+                        <button class="btn btn-small" id="states-select-all">Select All Visible</button>
+                        <button class="btn btn-small" id="states-deselect-all">Deselect All</button>
+                    </div>
+                </div>
+
+                <!-- Linux States Panel -->
+                <div class="states-panel states-linux-panel">
+                    <div class="states-panel-header">
+                        <h3><span class="os-icon">[Lin]</span> Linux States</h3>
+                        <button class="btn btn-small" id="refresh-linux-states">Refresh</button>
+                    </div>
+                    <div class="search-container">
+                        <input type="text" id="linux-states-search" placeholder="Search Linux states...">
+                    </div>
+                    <ul id="linux-states-list" class="item-list states-list">
+                        <li class="disabled">Loading states...</li>
+                    </ul>
+                    <div class="states-actions">
+                        <button class="btn btn-small" id="view-linux-state">View</button>
+                        <button class="btn btn-small btn-apply" id="apply-linux-state">Apply Selected</button>
+                    </div>
+                </div>
+
+                <!-- Windows States Panel -->
+                <div class="states-panel states-windows-panel">
+                    <div class="states-panel-header">
+                        <h3><span class="os-icon">[Win]</span> Windows States</h3>
+                        <button class="btn btn-small" id="refresh-windows-states">Refresh</button>
+                    </div>
+                    <div class="search-container">
+                        <input type="text" id="windows-states-search" placeholder="Search Windows states...">
+                    </div>
+                    <ul id="windows-states-list" class="item-list states-list">
+                        <li class="disabled">Loading states...</li>
+                    </ul>
+                    <div class="states-actions">
+                        <button class="btn btn-small" id="view-windows-state">View</button>
+                        <button class="btn btn-small btn-apply" id="apply-windows-state">Apply Selected</button>
+                    </div>
+                </div>
+
+                <!-- State Output Panel -->
+                <div class="states-output-panel">
+                    <div class="states-output-header">
+                        <h3>State Application Output</h3>
+                        <div class="states-output-controls">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="state-test-mode">
+                                <span>Test Mode (dry-run)</span>
+                            </label>
+                            <button class="btn btn-small" id="clear-states-output">Clear</button>
+                        </div>
+                    </div>
+                    <pre id="states-output" class="output-box">Select states and devices, then click Apply to see output...</pre>
+                </div>
+            </div>
+        </section>
 
         <!-- Monitoring Tab -->
         <section id="tab-monitoring" class="tab-content">
@@ -251,6 +329,12 @@
                     <input type="text" id="alertWebhook" name="alertWebhook" placeholder="https://hooks.slack.com/...">
                 </div>
                 
+                <div class="settings-section">
+                    <h3>States Configuration</h3>
+                    <label for="statesPath">States Directory</label>
+                    <input type="text" id="statesPath" name="statesPath" placeholder="/opt/salt-gui/states" value="/opt/salt-gui/states">
+                </div>
+                
                 <button type="submit" class="btn">Save Settings</button>
             </form>
         </div>
@@ -308,6 +392,24 @@
         </div>
     </div>
 
+    <!-- State Viewer Modal -->
+    <div id="state-viewer-modal" class="modal">
+        <div class="modal-content modal-lg">
+            <span class="close-button">&times;</span>
+            <h2 id="state-viewer-title">State File</h2>
+            <div class="state-viewer-info">
+                <span class="state-path" id="state-viewer-path"></span>
+            </div>
+            <div class="code-display">
+                <pre id="state-code"></pre>
+            </div>
+            <div class="state-viewer-actions">
+                <button class="btn" id="state-viewer-copy">Copy to Clipboard</button>
+                <button class="btn btn-apply" id="state-viewer-apply">Apply This State</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Emergency Modal -->
     <div id="emergency-modal" class="modal">
         <div class="modal-content modal-danger">
@@ -350,6 +452,14 @@
     <div id="custom-script-context-menu" class="context-menu">
         <div class="context-menu-item" id="context-menu-view">View Script</div>
         <div class="context-menu-item" id="context-menu-copy">Copy Name</div>
+    </div>
+
+    <!-- State Context Menu -->
+    <div id="state-context-menu" class="context-menu">
+        <div class="context-menu-item" id="state-context-view">View State</div>
+        <div class="context-menu-item" id="state-context-apply">Apply State</div>
+        <div class="context-menu-item" id="state-context-test">Test State (dry-run)</div>
+        <div class="context-menu-item" id="state-context-copy">Copy Path</div>
     </div>
 
     <script src="script.js"></script>
