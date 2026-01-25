@@ -1,0 +1,84 @@
+set cli pager off
+set cli scripting-mode on
+configure
+set address rOracle-Splunk ip-netmask 172.20.242.20
+set address rServer19-ADDNS ip-netmask 172.20.240.102
+set address rUbuntu-Ecomm ip-netmask 172.20.242.104
+set address rFedora-Webmail ip-netmask 172.20.242.101
+set address rServer19-Web ip-netmask 172.20.240.101
+set address rServer22-FTP ip-netmask 172.20.240.104
+set address rWin11-Wkst ip-netmask 172.20.240.100
+set address rNAT-Oracle-Splunk ip-netmask 172.25.pub-ip.20
+set address rNAT-Server19-ADDNS ip-netmask 172.25.pub-ip.102
+set address rNAT-Ubuntu-Ecomm ip-netmask 172.25.pub-ip.104
+set address rNAT-Fedora-Webmail ip-netmask 172.25.pub-ip.101
+set service splunk-required protocol tcp port 9997,1514,1515,4505,4506,3000
+set service splunk-required protocol tcp override no
+set service ad-required-tcp protocol tcp port 53,88,135,389,445,464
+set service ad-required-tcp protocol tcp override no 
+set service ad-required-udp protocol udp port 53,88,123,389,464
+set service ad-required-udp protocol udp override no 
+set service rpc-dynamic protocol tcp port 49152-65535
+set service rpc-dynamic protocol tcp override no
+set service email-in protocol tcp port 25,110
+set service email-in protocol tcp override no
+set service-group required-ports members [ dns-required splunk-required ]
+set service-group ad-ports members [ ad-required-tcp ad-required-udp rpc-dynamic ]
+set rulebase security rules all-to-splunk to Internal
+set rulebase security rules all-to-splunk from any
+set rulebase security rules all-to-splunk source any
+set rulebase security rules all-to-splunk destination [ rOracle-Splunk rNAT-Oracle-Splunk ]
+set rulebase security rules all-to-splunk source-user any
+set rulebase security rules all-to-splunk category any
+set rulebase security rules all-to-splunk application any
+set rulebase security rules all-to-splunk service required-ports
+set rulebase security rules all-to-splunk source-hip any
+set rulebase security rules all-to-splunk destination-hip any
+set rulebase security rules all-to-splunk action allow
+set rulebase security rules web-out to External
+set rulebase security rules web-out from Internal
+set rulebase security rules web-out source any
+set rulebase security rules web-out destination any
+set rulebase security rules web-out source-user any
+set rulebase security rules web-out category any
+set rulebase security rules web-out application any
+set rulebase security rules web-out service [ service-http service-https ]
+set rulebase security rules web-out source-hip any
+set rulebase security rules web-out destination-hip any
+set rulebase security rules web-out action allow
+set rulebase security rules lan-to-ad to Internal
+set rulebase security rules lan-to-ad from any
+set rulebase security rules lan-to-ad source any
+set rulebase security rules lan-to-ad destination rServer19-ADDNS
+set rulebase security rules lan-to-ad source-user any
+set rulebase security rules lan-to-ad category any
+set rulebase security rules lan-to-ad application any
+set rulebase security rules lan-to-ad service ad-ports
+set rulebase security rules lan-to-ad source-hip any
+set rulebase security rules lan-to-ad destination-hip any
+set rulebase security rules lan-to-ad action allow
+set rulebase security rules Ecomm-In to Internal
+set rulebase security rules Ecomm-In from any
+set rulebase security rules Ecomm-In source any
+set rulebase security rules Ecomm-In destination [ rUbuntu-Ecomm rNAT-Ubuntu-Ecomm ]
+set rulebase security rules Ecomm-In source-user any
+set rulebase security rules Ecomm-In category any
+set rulebase security rules Ecomm-In application any
+set rulebase security rules Ecomm-In service [ service-http service-https ]
+set rulebase security rules Ecomm-In source-hip any
+set rulebase security rules Ecomm-In destination-hip any
+set rulebase security rules Ecomm-In action allow
+set rulebase security rules Ecomm-In to Internal
+set rulebase security rules Ecomm-In from any
+set rulebase security rules Ecomm-In source any
+set rulebase security rules Ecomm-In destination [ rFedora-Webmail rNAT-Fedora-Webmail ]
+set rulebase security rules Ecomm-In source-user any
+set rulebase security rules Ecomm-In category any
+set rulebase security rules Ecomm-In application any
+set rulebase security rules Ecomm-In service email-in
+set rulebase security rules Ecomm-In source-hip any
+set rulebase security rules Ecomm-In destination-hip any
+set rulebase security rules Ecomm-In action allow
+commit
+exit
+exit

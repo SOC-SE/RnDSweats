@@ -44,6 +44,7 @@ set network profiles zone-protection-profile strict-zone-prot discard-icmp-ping-
 set network profiles zone-protection-profile strict-zone-prot discard-icmp-frag yes
 set network profiles zone-protection-profile strict-zone-prot discard-icmp-large-packet yes
 set network profiles zone-protection-profile strict-zone-prot discard-icmp-error yes
+set zone Internal network zone-protection-profile strict-zone-prot
 set application-group int-to-ext-known members [ syslog dns dns-base github github-base ssl ntp-base web-browsing paloalto-updates apt-get quic ocsp ms-update ]
 set application-group pub-web-servers members [ ssl web-browsing quic ]
 set application-group pub-ad-server members [ active-directory kerberos ldap ms-netlogon ntp dns ]
