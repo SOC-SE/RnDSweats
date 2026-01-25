@@ -177,8 +177,14 @@ iptables -A INPUT -p tcp --dport 80 -j ACCEPT
 
 # Output
 iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 1514 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 1515 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 4505 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 4506 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 9997 -j ACCEPT
 
 # Logging
 iptables -A INPUT -m limit --limit 10/sec -j LOG --log-prefix "FW-DROP-IN: " --log-level 4
