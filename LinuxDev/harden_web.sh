@@ -193,6 +193,8 @@ echo "Running enumeration script"
 bash masterEnum.sh >> "$LOG_FILE" 2>&1
 echo "Running tool normalization script"
 bash normalizeTools.sh >> "$LOG_FILE"
+echo "Running opencart hardening script"
+bash opencart_hardener.sh >> "$LOG_FILE"
 
 # Backups
 TIMESTAMP=$(date +%Y%m%d%H%M%S)
