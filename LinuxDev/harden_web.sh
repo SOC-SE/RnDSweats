@@ -94,10 +94,15 @@ UNAUTHORIZED ACCESS PROHIBITED. VIOLATORS WILL BE PROSECUTED TO THE FULLEST EXTE
 EOF
 cp /etc/issue /etc/motd
 
-echo "Clearing Cron jobs..."
-echo "" > /etc/crontab
+echo "Nuking Cron jobs..."
+# Allow root only
+echo "root" > /etc/cron.allow
+echo "root" > /etc/at.allow
+# Clear all existing user cron tables
 rm -rf /var/spool/cron/*
 rm -rf /var/spool/cron/crontabs/*
+# Clear system-wide crontab content but keep file
+echo "" > /etc/crontab
 
 # 1. Wipe ALL SSH Authorized Keys (Removes Red Team Persistence)
 # We find every 'authorized_keys' file on the disk and delete it.
@@ -106,8 +111,8 @@ echo "Wiping ALL authorized_keys files..."
 find / -name "authorized_keys" -type f -delete 2>/dev/null
 
 # 2. Remove SSHD
-echo "Removing sshd..."
-apt remove openssh
+echo "Removing ssh..."
+apt remove openssh-server
 
 
 echo "Restricting user creation tools..."
@@ -167,9 +172,8 @@ iptables -A INPUT -p icmp -j ACCEPT
 iptables -A OUTPUT -p icmp -j ACCEPT
 
 # Input
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
+#iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
 
 # Output
 iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
@@ -195,6 +199,7 @@ echo "Running tool normalization script"
 bash normalizeTools.sh >> "$LOG_FILE"
 echo "Running opencart hardening script"
 bash opencart_hardener.sh >> "$LOG_FILE"
+echo "Scripts completed. Check $LOG_FILE for more details."
 
 # Backups
 TIMESTAMP=$(date +%Y%m%d%H%M%S)
