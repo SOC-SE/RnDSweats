@@ -1,628 +1,566 @@
 #!/bin/bash
 
 ################################################################################
-# ClamAV and RKhunter Installation & Management Script
-################################################################################
-# Made with Claude AI
-# Description:
-#   This script installs and configures ClamAV and RKhunter on major Linux
-#   distributions. It provides easy-to-use options for scanning systems.
+# Security Scanner Setup and Execution Script
+# Made with Claude AI + Cheat Sheet (makes it easier to go through cheat sheet rk commands rather than enter them manually)
 #
-# Usage:
-#   Installation:
-#     sudo bash security_scanner_setup.sh --install
+# Purpose:
+#   This script provides a comprehensive security scanning toolkit for Linux
+#   systems. It installs and manages three key security tools (rkhunter, 
+#   chkrootkit, and ClamAV) and provides various system integrity checks.
 #
-#   Scanning operations (not necessary, can still do regular scans with the tools themselves): 
-#     sudo bash security_scanner_setup.sh --clamscan-file <path>
-#     sudo bash security_scanner_setup.sh --clamscan-file <path> --no-log
-#     sudo bash security_scanner_setup.sh --clamscan-system
-#     sudo bash security_scanner_setup.sh --clamscan-system --no-log
-#     sudo bash security_scanner_setup.sh --rkhunter-scan
-#     sudo bash security_scanner_setup.sh --rkhunter-scan --no-log
-#     sudo bash security_scanner_setup.sh --rkhunter-baseline
-#
-#   Help:
-#     sudo bash security_scanner_setup.sh --help
-#
-# Important Notes:
-#   - Run as root/sudo (script will check)
-#   - For RKhunter: DO NOT run baseline until you're confident system is clean
-#   - Signature databases are updated during installation
-#   - Scan results saved to /var/log/security-scans/ (unless --no-log is used)
+# Features:
+#   - Automated installation of security tools across multiple distributions
+#   - ClamAV antivirus scanning with logging capabilities
+#   - chkrootkit rootkit detection with logging
+#   - Advanced security checks including:
+#     * Process integrity verification
+#     * Kernel module analysis
+#     * Binary integrity checks
+#     * /proc and /dev anomaly detection
+#     * Network anomaly detection
+#     * File hiding technique detection
 #
 # Supported Distributions:
-#   Ubuntu/Debian, Fedora, RHEL/CentOS/Rocky/Alma, Arch, openSUSE, Kali
+#   - Ubuntu (Desktop/Server 24.04.3 and others)
+#   - Fedora (42 and others)
+#   - Oracle Linux (9.2 and others)
+#   - Debian-based systems
+#   - RHEL-based systems
+#
+# Requirements:
+#   - Must be run as root
+#   - Internet connection for package installation
+#
+# Usage:
+#   sudo ./security_scanner_setup.sh or sudo bash security_scanner_setup.sh
 #
 ################################################################################
 
-# Color definitions
+# Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-CYAN='\033[0;36m'
 NC='\033[0m' # No Color
-BOLD='\033[1m'
 
 # Log directory
-LOG_DIR="/var/log/security-scans"
+LOG_DIR="/var/log/security_scans"
 
-################################################################################
-# Helper Functions
-################################################################################
-
-print_header() {
-    echo -e "${CYAN}${BOLD}"
-    echo "═══════════════════════════════════════════════════════════════"
-    echo "$1"
-    echo "═══════════════════════════════════════════════════════════════"
-    echo -e "${NC}"
-}
-
-print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}✗ $1${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠ $1${NC}"
-}
-
-print_info() {
-    echo -e "${BLUE}ℹ $1${NC}"
-}
-
-show_help() {
-    echo -e "${CYAN}${BOLD}ClamAV & RKhunter Security Scanner Script${NC}"
-    echo ""
-    echo -e "${BOLD}INSTALLATION:${NC}"
-    echo "  sudo bash $0 --install"
-    echo "    Install ClamAV and RKhunter with updated signatures"
-    echo ""
-    echo -e "${BOLD}SCANNING OPTIONS:${NC}"
-    echo "  sudo bash $0 --clamscan-file <path>"
-    echo "    Scan a specific file or directory with ClamAV"
-    echo "    Example: sudo bash $0 --clamscan-file /home"
-    echo ""
-    echo "  sudo bash $0 --clamscan-file <path> --no-log"
-    echo "    Scan without creating a log file (display summary only)"
-    echo ""
-    echo "  sudo bash $0 --clamscan-system"
-    echo "    Scan the entire system with ClamAV (may take a long time)"
-    echo ""
-    echo "  sudo bash $0 --clamscan-system --no-log"
-    echo "    Scan entire system without creating a log file"
-    echo ""
-    echo "  sudo bash $0 --rkhunter-scan"
-    echo "    Run RKhunter security scan for rootkits"
-    echo ""
-    echo "  sudo bash $0 --rkhunter-scan --no-log"
-    echo "    Run RKhunter scan without creating a log file"
-    echo ""
-    echo "  sudo bash $0 --rkhunter-baseline"
-    echo "    Establish RKhunter baseline (only after verifying system is clean!)"
-    echo ""
-    echo -e "${BOLD}OTHER OPTIONS:${NC}"
-    echo "  sudo bash $0 --help"
-    echo "    Display this help message"
-    echo ""
-    echo -e "${BOLD}NOTES:${NC}"
-    echo "  - All operations require root/sudo privileges"
-    echo "  - Scan logs are saved to: ${LOG_DIR}"
-    echo "  - Use --no-log flag to avoid creating log files (saves storage)"
-    echo -e "  - ${YELLOW}WARNING: Only run --rkhunter-baseline when system is verified clean!${NC}"
-    echo ""
-}
-
-################################################################################
-# Root Check
-################################################################################
-
+# Check if script is run as root
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        print_error "This script must be run as root or with sudo"
-        echo -e "${YELLOW}Usage: sudo $0 [option]${NC}"
-        echo -e "${YELLOW}Use --help for more information${NC}"
+        echo -e "${RED}This script must be run as root${NC}"
         exit 1
     fi
 }
 
-################################################################################
-# Distribution Detection
-################################################################################
+# Create log directory if it doesn't exist
+create_log_dir() {
+    if [[ ! -d "$LOG_DIR" ]]; then
+        mkdir -p "$LOG_DIR"
+        echo -e "${GREEN}Created log directory: $LOG_DIR${NC}"
+    fi
+}
 
+# Detect distribution
 detect_distro() {
-    if [ -f /etc/os-release ]; then
+    if [[ -f /etc/os-release ]]; then
         . /etc/os-release
         DISTRO=$ID
-        VERSION=$VERSION_ID
-    elif [ -f /etc/redhat-release ]; then
+    elif [[ -f /etc/redhat-release ]]; then
         DISTRO="rhel"
-    elif [ -f /etc/debian_version ]; then
-        DISTRO="debian"
     else
-        print_error "Unable to detect Linux distribution"
-        exit 1
-    fi
-    
-    print_info "Detected distribution: $DISTRO"
-}
-
-################################################################################
-# Package Manager Functions
-################################################################################
-
-update_system() {
-    print_info "Updating package lists..."
-    case $DISTRO in
-        ubuntu|debian|kali)
-            apt-get update -qq
-            ;;
-        fedora)
-            dnf check-update -q || true
-            ;;
-        rhel|centos|rocky|almalinux)
-            yum check-update -q || true
-            ;;
-        arch|manjaro)
-            pacman -Sy --noconfirm
-            ;;
-        opensuse*|sles)
-            zypper refresh -q
-            ;;
-        *)
-            print_warning "Unknown distribution, skipping update"
-            ;;
-    esac
-}
-
-install_package() {
-    local package=$1
-    print_info "Installing $package..."
-    
-    case $DISTRO in
-        ubuntu|debian|kali)
-            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $package
-            ;;
-        fedora)
-            dnf install -y -q $package
-            ;;
-        rhel|centos|rocky|almalinux)
-            yum install -y -q $package
-            ;;
-        arch|manjaro)
-            pacman -S --noconfirm --quiet $package
-            ;;
-        opensuse*|sles)
-            zypper install -y $package
-            ;;
-        *)
-            print_error "Unsupported distribution for automatic installation"
-            return 1
-            ;;
-    esac
-    
-    if [ $? -eq 0 ]; then
-        print_success "$package installed successfully"
-        return 0
-    else
-        print_error "Failed to install $package"
-        return 1
+        DISTRO="unknown"
     fi
 }
 
-################################################################################
-# ClamAV Installation and Configuration
-################################################################################
-
-install_clamav() {
-    print_header "ClamAV Installation"
+# Install packages based on distribution
+install_tools() {
+    echo -e "${BLUE}Installing rkhunter, chkrootkit, and clamav...${NC}"
     
-    # Check if already installed
-    if command -v clamscan &> /dev/null; then
-        print_warning "ClamAV is already installed"
-        read -p "Do you want to reinstall/update? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            return 0
-        fi
-    fi
-    
-    # Install ClamAV based on distribution
-    case $DISTRO in
-        ubuntu|debian|kali)
-            install_package "clamav clamav-freshclam"
-            ;;
-        fedora|rhel|centos|rocky|almalinux)
-            install_package "clamav clamav-update"
-            # Enable EPEL if needed on RHEL-based
-            if [[ $DISTRO == "rhel" ]] || [[ $DISTRO == "centos" ]]; then
-                install_package "epel-release" 2>/dev/null || true
-            fi
-            ;;
-        arch|manjaro)
-            install_package "clamav"
-            ;;
-        opensuse*|sles)
-            install_package "clamav"
-            ;;
-        *)
-            print_error "Unsupported distribution for ClamAV installation"
-            return 1
-            ;;
-    esac
-    
-    # Stop freshclam service if running to update manually
-    systemctl stop clamav-freshclam 2>/dev/null || service clamav-freshclam stop 2>/dev/null || true
-    
-    print_info "Updating ClamAV virus definitions (this may take a few minutes)..."
-    freshclam --quiet 2>/dev/null || freshclam
-    
-    if [ $? -eq 0 ]; then
-        print_success "ClamAV virus definitions updated successfully"
-    else
-        print_warning "ClamAV update completed with warnings (this is often normal)"
-    fi
-    
-    print_success "ClamAV installation complete"
-}
-
-################################################################################
-# RKhunter Installation and Configuration
-################################################################################
-
-install_rkhunter() {
-    print_header "RKhunter Installation"
-    
-    # Check if already installed
-    if command -v rkhunter &> /dev/null; then
-        print_warning "RKhunter is already installed"
-        read -p "Do you want to reinstall/update? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            return 0
-        fi
-    fi
-    
-    # Install RKhunter based on distribution
-    case $DISTRO in
-        ubuntu|debian|kali)
-            install_package "rkhunter"
-            ;;
-        fedora|rhel|centos|rocky|almalinux)
-            install_package "rkhunter"
-            ;;
-        arch|manjaro)
-            install_package "rkhunter"
-            ;;
-        opensuse*|sles)
-            install_package "rkhunter"
-            ;;
-        *)
-            print_error "Unsupported distribution for RKhunter installation"
-            return 1
-            ;;
-    esac
-    
-    print_info "Updating RKhunter data files..."
-    rkhunter --update --quiet 2>/dev/null || rkhunter --update
-    
-    if [ $? -eq 0 ]; then
-        print_success "RKhunter data files updated successfully"
-    else
-        print_warning "RKhunter update completed with warnings"
-    fi
-    
-    # Display important warning about baseline
-    echo ""
-    print_warning "IMPORTANT: RKhunter Baseline Notice"
-    echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║  RKhunter requires a baseline of your system's binaries.      ║${NC}"
-    echo -e "${YELLOW}║  DO NOT establish this baseline until you are CONFIDENT       ║${NC}"
-    echo -e "${YELLOW}║  your system is clean and free from rootkits/malware.         ║${NC}"
-    echo -e "${YELLOW}║                                                                ║${NC}"
-    echo -e "${YELLOW}║  To establish baseline later, use:                            ║${NC}"
-    echo -e "${YELLOW}║    ${CYAN}sudo bash $0 --rkhunter-baseline${YELLOW}                  ║${NC}"
-    echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    
-    print_success "RKhunter installation complete"
-}
-
-################################################################################
-# Scanning Functions
-################################################################################
-
-clamscan_file() {
-    local TARGET="$1"
-    local NO_LOG="$2"
-    local TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    local LOGFILE="$LOG_DIR/clamscan_${TIMESTAMP}.log"
-    
-    if [ -z "$TARGET" ]; then
-        print_error "Please specify a file or directory to scan"
-        echo -e "${CYAN}Usage: sudo bash $0 --clamscan-file <path> [--no-log]${NC}"
-        exit 1
-    fi
-    
-    if [ ! -e "$TARGET" ]; then
-        print_error "Path does not exist: $TARGET"
-        exit 1
-    fi
-    
-    # Check if ClamAV is installed
-    if ! command -v clamscan &> /dev/null; then
-        print_error "ClamAV is not installed. Run with --install first."
-        exit 1
-    fi
-    
-    print_header "ClamAV File/Directory Scan"
-    echo -e "${CYAN}Target: $TARGET${NC}"
-    
-    if [ "$NO_LOG" == "--no-log" ]; then
-        echo -e "${YELLOW}Running without log file (summary only)${NC}"
-        echo ""
-        clamscan -r -i "$TARGET"
-    else
-        # Ensure log directory exists
-        mkdir -p "$LOG_DIR"
-        echo -e "${CYAN}Log file: $LOGFILE${NC}"
-        echo ""
-        clamscan -r -i --log="$LOGFILE" "$TARGET" 2>&1 | tee -a "$LOGFILE"
-        echo ""
-        if [ -f "$LOGFILE" ]; then
-            print_success "Scan complete. Full log saved to: $LOGFILE"
-        else
-            print_warning "Scan complete but log file was not created at: $LOGFILE"
-        fi
-    fi
-}
-
-clamscan_system() {
-    local NO_LOG="$1"
-    local TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    local LOGFILE="$LOG_DIR/clamscan_system_${TIMESTAMP}.log"
-    
-    # Check if ClamAV is installed
-    if ! command -v clamscan &> /dev/null; then
-        print_error "ClamAV is not installed. Run with --install first."
-        exit 1
-    fi
-    
-    print_header "ClamAV Full System Scan"
-    print_warning "Full system scan may take a long time!"
-    
-    if [ "$NO_LOG" == "--no-log" ]; then
-        echo -e "${YELLOW}Running without log file (summary only)${NC}"
-        echo ""
-        clamscan -r -i --exclude-dir="^/sys" --exclude-dir="^/proc" --exclude-dir="^/dev" /
-    else
-        # Ensure log directory exists
-        mkdir -p "$LOG_DIR"
-        echo -e "${CYAN}Log file: $LOGFILE${NC}"
-        echo ""
-        clamscan -r -i --exclude-dir="^/sys" --exclude-dir="^/proc" --exclude-dir="^/dev" \
-            --log="$LOGFILE" / 2>&1 | tee -a "$LOGFILE"
-        echo ""
-        if [ -f "$LOGFILE" ]; then
-            print_success "System scan complete. Full log saved to: $LOGFILE"
-        else
-            print_warning "Scan complete but log file was not created at: $LOGFILE"
-        fi
-    fi
-}
-
-rkhunter_scan() {
-    local NO_LOG="$1"
-    local TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    local LOGFILE="$LOG_DIR/rkhunter_${TIMESTAMP}.log"
-    
-    # Check if RKhunter is installed
-    if ! command -v rkhunter &> /dev/null; then
-        print_error "RKhunter is not installed. Run with --install first."
-        exit 1
-    fi
-    
-    print_header "RKhunter Security Scan"
-    
-    # Check if baseline exists
-    if [ ! -f /var/lib/rkhunter/db/rkhunter.dat ]; then
-        print_warning "No RKhunter baseline found!"
-        echo -e "${YELLOW}This is expected if you haven't run '--rkhunter-baseline' yet.${NC}"
-        echo -e "${YELLOW}Results may show many warnings without a baseline.${NC}"
-        echo ""
-        read -p "Continue anyway? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 0
-        fi
-    fi
-    
-    if [ "$NO_LOG" == "--no-log" ]; then
-        echo -e "${YELLOW}Running without log file (summary only)${NC}"
-        echo ""
-        rkhunter --check --skip-keypress --report-warnings-only
-    else
-        # Ensure log directory exists
-        mkdir -p "$LOG_DIR"
-        echo -e "${CYAN}Log file: $LOGFILE${NC}"
-        echo ""
-        rkhunter --check --skip-keypress --report-warnings-only --log "$LOGFILE" 2>&1 | tee -a "$LOGFILE"
-        echo ""
-        if [ -f "$LOGFILE" ]; then
-            print_success "RKhunter scan complete. Full log saved to: $LOGFILE"
-            echo -e "${CYAN}Review the log for any warnings or suspicious findings.${NC}"
-        else
-            print_warning "Scan complete but log file was not created at: $LOGFILE"
-        fi
-    fi
-}
-
-rkhunter_baseline() {
-    # Check if RKhunter is installed
-    if ! command -v rkhunter &> /dev/null; then
-        print_error "RKhunter is not installed. Run with --install first."
-        exit 1
-    fi
-    
-    print_header "RKhunter Baseline Establishment"
-    echo ""
-    echo -e "${RED}WARNING: Only run this if you are CONFIDENT your system is clean!${NC}"
-    echo ""
-    echo -e "${CYAN}This will create a baseline of your system's binaries and files.${NC}"
-    echo -e "${CYAN}Future scans will compare against this baseline.${NC}"
-    echo ""
-    echo -e "${YELLOW}Have you verified your system is free from malware/rootkits?${NC}"
-    read -p "Are you sure you want to proceed? (yes/no): " -r
-    echo
-
-    if [[ ! $REPLY == "yes" ]]; then
-        print_info "Baseline creation cancelled."
-        exit 0
-    fi
-
-    echo ""
-    print_info "Updating RKhunter data files..."
-    rkhunter --update
-
-    print_info "Creating system baseline..."
-    rkhunter --propupd
-
-    if [ $? -eq 0 ]; then
-        echo ""
-        print_success "RKhunter baseline established successfully!"
-        echo -e "${CYAN}You can now run 'sudo bash $0 --rkhunter-scan' to check your system.${NC}"
-    else
-        echo ""
-        print_error "Error establishing baseline"
-        exit 1
-    fi
-}
-
-################################################################################
-# Main Installation Function
-################################################################################
-
-run_installation() {
-    clear
-    print_header "ClamAV & RKhunter Security Scanner Setup"
-    
-    # Detect distribution
     detect_distro
     
-    # Update system
-    update_system
+    case $DISTRO in
+        ubuntu|debian)
+            apt-get update
+            apt-get install -y rkhunter chkrootkit clamav clamav-daemon
+            freshclam
+            ;;
+        fedora)
+            dnf install -y rkhunter chkrootkit clamav clamd clamav-update
+            freshclam
+            ;;
+        ol|rhel|centos|rocky|almalinux)
+            # Enable EPEL for some packages
+            if ! rpm -q epel-release &>/dev/null; then
+                yum install -y epel-release
+            fi
+            yum install -y rkhunter chkrootkit clamav clamd clamav-update
+            freshclam
+            ;;
+        opensuse*|sles)
+            zypper install -y rkhunter chkrootkit clamav
+            freshclam
+            ;;
+        arch|manjaro)
+            pacman -Sy --noconfirm rkhunter chkrootkit clamav
+            freshclam
+            ;;
+        *)
+            echo -e "${RED}Unsupported distribution: $DISTRO${NC}"
+            echo -e "${YELLOW}Please install rkhunter, chkrootkit, and clamav manually${NC}"
+            return 1
+            ;;
+    esac
     
-    echo ""
-    print_info "This script will install ClamAV and RKhunter"
-    read -p "Continue with installation? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_warning "Installation cancelled"
-        exit 0
-    fi
-    
-    echo ""
-    
-    # Install ClamAV
-    read -p "Install ClamAV? (y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        install_clamav
-    fi
-    
-    echo ""
-    
-    # Install RKhunter
-    read -p "Install RKhunter? (y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        install_rkhunter
-    fi
-    
-    # Create log directory
-    mkdir -p "$LOG_DIR"
-    chmod 755 "$LOG_DIR"
-    
-    # Final summary
-    echo ""
-    print_header "Installation Complete!"
-    echo ""
-    print_success "Available options:"
-    echo -e "  ${CYAN}sudo bash $0 --clamscan-file <path>${NC}"
-    echo -e "    Scan specific file or directory"
-    echo ""
-    echo -e "  ${CYAN}sudo bash $0 --clamscan-file <path> --no-log${NC}"
-    echo -e "    Scan without creating a log file"
-    echo ""
-    echo -e "  ${CYAN}sudo bash $0 --clamscan-system${NC}"
-    echo -e "    Scan entire system (takes time)"
-    echo ""
-    echo -e "  ${CYAN}sudo bash $0 --clamscan-system --no-log${NC}"
-    echo -e "    Scan entire system without log file"
-    echo ""
-    echo -e "  ${CYAN}sudo bash $0 --rkhunter-scan${NC}"
-    echo -e "    Run RKhunter security scan"
-    echo ""
-    echo -e "  ${CYAN}sudo bash $0 --rkhunter-scan --no-log${NC}"
-    echo -e "    Run RKhunter scan without log file"
-    echo ""
-    echo -e "  ${CYAN}sudo bash $0 --rkhunter-baseline${NC}"
-    echo -e "    Establish RKhunter baseline (when clean)"
-    echo ""
-    print_info "Scan logs are saved to: $LOG_DIR (unless --no-log is used)"
-    echo ""
-    print_warning "Remember: Establish RKhunter baseline only when system is verified clean!"
-    echo ""
+    echo -e "${GREEN}Installation completed successfully!${NC}"
+    read -p "Press Enter to continue..."
 }
 
-################################################################################
-# Main Script Logic
-################################################################################
+# ClamAV scan
+clamav_scan() {
+    echo -e "${BLUE}ClamAV Scan${NC}"
+    read -p "Enter directory to scan (e.g., /home): " scan_dir
+    
+    if [[ ! -d "$scan_dir" ]]; then
+        echo -e "${RED}Directory does not exist: $scan_dir${NC}"
+        read -p "Press Enter to continue..."
+        return
+    fi
+    
+    timestamp=$(date +"%Y%m%d_%H%M%S")
+    log_file="$LOG_DIR/clamav_scan_$timestamp.log"
+    
+    echo -e "${YELLOW}Starting ClamAV scan on $scan_dir...${NC}"
+    echo -e "${YELLOW}This may take a while depending on the size of the directory.${NC}"
+    echo -e "${YELLOW}Log will be saved to: $log_file${NC}"
+    
+    clamscan -r "$scan_dir" | tee "$log_file"
+    
+    echo -e "${GREEN}Scan completed. Log saved to: $log_file${NC}"
+    read -p "Press Enter to continue..."
+}
 
-# Check root privileges
+# chkrootkit scan
+chkrootkit_scan() {
+    echo -e "${BLUE}chkrootkit Scan${NC}"
+    
+    timestamp=$(date +"%Y%m%d_%H%M%S")
+    log_file="$LOG_DIR/chkrootkit_$timestamp.log"
+    
+    echo -e "${YELLOW}Starting chkrootkit scan...${NC}"
+    echo -e "${YELLOW}Log will be saved to: $log_file${NC}"
+    
+    chkrootkit | tee "$log_file"
+    
+    echo -e "${GREEN}Scan completed. Log saved to: $log_file${NC}"
+    read -p "Press Enter to continue..."
+}
+
+# Process Integrity submenu
+process_integrity_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== Process Integrity ===${NC}"
+        echo "1. DELETED executables (!)"
+        echo "2. Processes from /tmp"
+        echo "3. Hidden process check"
+        echo "4. Process masquerading"
+        echo "5. Process exe vs cmdline"
+        echo "6. Back to previous menu"
+        echo
+        read -p "Select an option: " choice
+        
+        case $choice in
+            1)
+                echo -e "${YELLOW}Running: DELETED executables check${NC}"
+                ls -la /proc/*/exe 2>/dev/null | grep '(deleted)'
+                read -p "Press Enter to continue..."
+                ;;
+            2)
+                echo -e "${YELLOW}Running: Processes from /tmp check${NC}"
+                ls -la /proc/*/exe 2>/dev/null | grep -E '/tmp|/dev/shm|/var/tmp'
+                read -p "Press Enter to continue..."
+                ;;
+            3)
+                echo -e "${YELLOW}Running: Hidden process check${NC}"
+                echo -e "${YELLOW}Warning: This check may be resource-intensive${NC}"
+                diff <(ps aux | awk '{print $2}' | sort -n) <(ls /proc | grep -E '^[0-9]+$' | sort -n)
+                read -p "Press Enter to continue..."
+                ;;
+            4)
+                echo -e "${YELLOW}Running: Process masquerading check${NC}"
+                ps aux | grep -E '\[.*\]\$' | grep -v '\[kworker\]|\[rcu\]|\[migration'
+                read -p "Press Enter to continue..."
+                ;;
+            5)
+                echo -e "${YELLOW}Running: Process exe vs cmdline check${NC}"
+                for p in /proc/[0-9]*/exe; do echo "$p -> $(readlink $p 2>/dev/null)"; done | head -30
+                read -p "Press Enter to continue..."
+                ;;
+            6)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
+# Kernel Module Analysis submenu
+kernel_module_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== Kernel Module Analysis ===${NC}"
+        echo "1. Loaded modules"
+        echo "2. Module count comparison"
+        echo "3. Kernel tainted status"
+        echo "4. Module details"
+        echo "5. Recently modified modules"
+        echo "6. Unsigned modules"
+        echo "7. Back to previous menu"
+        echo
+        read -p "Select an option: " choice
+        
+        case $choice in
+            1)
+                echo -e "${YELLOW}Running: Loaded modules${NC}"
+                lsmod
+                read -p "Press Enter to continue..."
+                ;;
+            2)
+                echo -e "${YELLOW}Running: Module count comparison${NC}"
+                echo "lsmod: $(lsmod | wc -l)" && echo "/proc/modules: $(cat /proc/modules | wc -l)"
+                read -p "Press Enter to continue..."
+                ;;
+            3)
+                echo -e "${YELLOW}Running: Kernel tainted status${NC}"
+                cat /proc/sys/kernel/tainted
+                read -p "Press Enter to continue..."
+                ;;
+            4)
+                echo -e "${YELLOW}Running: Module details${NC}"
+                read -p "Enter module name: " module_name
+                if [[ -n "$module_name" ]]; then
+                    modinfo "$module_name"
+                else
+                    echo -e "${RED}No module name provided${NC}"
+                fi
+                read -p "Press Enter to continue..."
+                ;;
+            5)
+                echo -e "${YELLOW}Running: Recently modified modules${NC}"
+                find /lib/modules/$(uname -r) -name "*.ko" -mtime -30 2>/dev/null
+                read -p "Press Enter to continue..."
+                ;;
+            6)
+                echo -e "${YELLOW}Running: Unsigned modules${NC}"
+                for m in $(lsmod | awk 'NR>1 {print $1}'); do modinfo $m 2>/dev/null | grep -q "sig_" || echo "Unsigned: $m"; done
+                read -p "Press Enter to continue..."
+                ;;
+            7)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
+# Binary Integrity submenu
+binary_integrity_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== Binary Integrity ===${NC}"
+        echo "1. Verify Debian packages"
+        echo "2. Verify RPM packages"
+        echo "3. Critical binary hashes"
+        echo "4. Compare to package"
+        echo "5. Strings in suspect binary"
+        echo "6. Back to previous menu"
+        echo
+        read -p "Select an option: " choice
+        
+        case $choice in
+            1)
+                echo -e "${YELLOW}Running: Verify Debian packages${NC}"
+                if command -v debsums &>/dev/null; then
+                    debsums -c 2>/dev/null | head -30
+                else
+                    echo -e "${RED}debsums not installed${NC}"
+                fi
+                read -p "Press Enter to continue..."
+                ;;
+            2)
+                echo -e "${YELLOW}Running: Verify RPM packages${NC}"
+                if command -v rpm &>/dev/null; then
+                    rpm -Va 2>/dev/null | head -30
+                else
+                    echo -e "${RED}rpm not available on this system${NC}"
+                fi
+                read -p "Press Enter to continue..."
+                ;;
+            3)
+                echo -e "${YELLOW}Running: Critical binary hashes${NC}"
+                sha256sum /bin/ls /bin/ps /bin/ss /usr/bin/ssh /usr/sbin/sshd
+                read -p "Press Enter to continue..."
+                ;;
+            4)
+                echo -e "${YELLOW}Running: Compare to package${NC}"
+                if command -v dpkg &>/dev/null; then
+                    dpkg -V coreutils 2>/dev/null; rpm -V coreutils 2>/dev/null
+                elif command -v rpm &>/dev/null; then
+                    rpm -V coreutils 2>/dev/null
+                else
+                    echo -e "${RED}Neither dpkg nor rpm available${NC}"
+                fi
+                read -p "Press Enter to continue..."
+                ;;
+            5)
+                echo -e "${YELLOW}Running: Strings in suspect binary${NC}"
+                read -p "Enter path to binary (e.g., /bin/ls): " binary_path
+                if [[ -f "$binary_path" ]]; then
+                    strings "$binary_path" | grep -iE 'shell|exec|socket|/bin/sh'
+                else
+                    echo -e "${RED}Binary not found: $binary_path${NC}"
+                fi
+                read -p "Press Enter to continue..."
+                ;;
+            6)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
+# /proc & /dev Anomalies submenu
+proc_dev_anomalies_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== /proc & /dev Anomalies ===${NC}"
+        echo "1. Hidden /proc entries"
+        echo "2. /dev hidden files"
+        echo "3. /dev/shm contents"
+        echo "4. Unusual char devices"
+        echo "5. Recently modified /dev"
+        echo "6. Back to previous menu"
+        echo
+        read -p "Select an option: " choice
+        
+        case $choice in
+            1)
+                echo -e "${YELLOW}Running: Hidden /proc entries${NC}"
+                ls /proc | grep -v -E '^[0-9]+$|^[a-z]'
+                read -p "Press Enter to continue..."
+                ;;
+            2)
+                echo -e "${YELLOW}Running: /dev hidden files${NC}"
+                find /dev -type f 2>/dev/null
+                read -p "Press Enter to continue..."
+                ;;
+            3)
+                echo -e "${YELLOW}Running: /dev/shm contents${NC}"
+                ls -la /dev/shm/
+                read -p "Press Enter to continue..."
+                ;;
+            4)
+                echo -e "${YELLOW}Running: Unusual char devices${NC}"
+                ls -la /dev | grep "^c" | grep -v -E 'tty|pts|null|zero|random'
+                read -p "Press Enter to continue..."
+                ;;
+            5)
+                echo -e "${YELLOW}Running: Recently modified /dev${NC}"
+                find /dev -mtime -7 -type f 2>/dev/null
+                read -p "Press Enter to continue..."
+                ;;
+            6)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
+# Network Anomalies submenu
+network_anomalies_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== Network Anomalies ===${NC}"
+        echo "1. Promiscuous mode (sniffing)"
+        echo "2. Raw sockets"
+        echo "3. Unusual outbound"
+        echo "4. Packet capture processes"
+        echo "5. Back to previous menu"
+        echo
+        read -p "Select an option: " choice
+        
+        case $choice in
+            1)
+                echo -e "${YELLOW}Running: Promiscuous mode check${NC}"
+                ip link | grep PROMISC
+                read -p "Press Enter to continue..."
+                ;;
+            2)
+                echo -e "${YELLOW}Running: Raw sockets check${NC}"
+                cat /proc/net/raw 2>/dev/null
+                read -p "Press Enter to continue..."
+                ;;
+            3)
+                echo -e "${YELLOW}Running: Unusual outbound connections${NC}"
+                ss -tnp | grep -v -E ':22|:80|:443|:53'
+                read -p "Press Enter to continue..."
+                ;;
+            4)
+                echo -e "${YELLOW}Running: Packet capture processes${NC}"
+                ps aux | grep -iE 'tcpdump|wireshark|tshark'
+                read -p "Press Enter to continue..."
+                ;;
+            5)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
+# File Hiding Techniques submenu
+file_hiding_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== File Hiding Techniques ===${NC}"
+        echo "1. Immutable files scan"
+        echo "2. Check specific files"
+        echo "3. Files with no owner"
+        echo "4. Hidden dotfiles (unusual)"
+        echo "5. Dotfiles in root dirs"
+        echo "6. Extended attributes"
+        echo "7. Back to previous menu"
+        echo
+        read -p "Select an option: " choice
+        
+        case $choice in
+            1)
+                echo -e "${YELLOW}Running: Immutable files scan${NC}"
+                echo -e "${YELLOW}Warning: This check may be resource-intensive${NC}"
+                lsattr -R / 2>/dev/null | grep 'i' | less
+                ;;
+            2)
+                echo -e "${YELLOW}Running: Check specific files${NC}"
+                lsattr /etc/ld.so.preload /bin/ls /bin/login /bin/ps 2>/dev/null
+                read -p "Press Enter to continue..."
+                ;;
+            3)
+                echo -e "${YELLOW}Running: Files with no owner${NC}"
+                echo -e "${YELLOW}Warning: This check may be resource-intensive${NC}"
+                find / -nouser -o -nogroup 2>/dev/null | head -20
+                read -p "Press Enter to continue..."
+                ;;
+            4)
+                echo -e "${YELLOW}Running: Hidden dotfiles (unusual)${NC}"
+                find /tmp /var/tmp /dev/shm -name ".*" 2>/dev/null
+                read -p "Press Enter to continue..."
+                ;;
+            5)
+                echo -e "${YELLOW}Running: Dotfiles in root dirs${NC}"
+                find / -maxdepth 2 -name ".*" -type f 2>/dev/null | head -30
+                read -p "Press Enter to continue..."
+                ;;
+            6)
+                echo -e "${YELLOW}Running: Extended attributes${NC}"
+                getfattr -d /usr/bin/* 2>/dev/null | head -20
+                read -p "Press Enter to continue..."
+                ;;
+            7)
+                return
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
+# Other security checks menu
+other_checks_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== Other Security Checks ===${NC}"
+        echo "1. Process Integrity"
+        echo "2. Kernel Module Analysis"
+        echo "3. Binary Integrity"
+        echo "4. /proc & /dev Anomalies"
+        echo "5. Network Anomalies"
+        echo "6. File Hiding Techniques"
+        echo "7. Back to main menu"
+        echo
+        read -p "Select an option: " choice
+        
+        case $choice in
+            1) process_integrity_menu ;;
+            2) kernel_module_menu ;;
+            3) binary_integrity_menu ;;
+            4) proc_dev_anomalies_menu ;;
+            5) network_anomalies_menu ;;
+            6) file_hiding_menu ;;
+            7) return ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
+# Main menu
+main_menu() {
+    while true; do
+        clear
+        echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
+        echo -e "${GREEN}║    Security Scanner Setup Script      ║${NC}"
+        echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
+        echo
+        echo "1. Install rkhunter, chkrootkit, and clamav"
+        echo "2. ClamAV scan with a log"
+        echo "3. chkrootkit with a log"
+        echo "4. Other security checks"
+        echo "5. Exit"
+        echo
+        read -p "Select an option: " choice
+        
+        case $choice in
+            1) install_tools ;;
+            2) clamav_scan ;;
+            3) chkrootkit_scan ;;
+            4) other_checks_menu ;;
+            5)
+                echo -e "${GREEN}Exiting...${NC}"
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                read -p "Press Enter to continue..."
+                ;;
+        esac
+    done
+}
+
+# Main execution
 check_root
-
-# Parse command line arguments
-case "${1}" in
-    --install)
-        run_installation
-        ;;
-    --clamscan-file)
-        if [ "$3" == "--no-log" ]; then
-            clamscan_file "$2" "--no-log"
-        else
-            clamscan_file "$2"
-        fi
-        ;;
-    --clamscan-system)
-        if [ "$2" == "--no-log" ]; then
-            clamscan_system "--no-log"
-        else
-            clamscan_system
-        fi
-        ;;
-    --rkhunter-scan)
-        if [ "$2" == "--no-log" ]; then
-            rkhunter_scan "--no-log"
-        else
-            rkhunter_scan
-        fi
-        ;;
-    --rkhunter-baseline)
-        rkhunter_baseline
-        ;;
-    --help|-h|"")
-        show_help
-        exit 0
-        ;;
-    *)
-        print_error "Unknown option: $1"
-        echo ""
-        show_help
-        exit 1
-        ;;
-esac
+create_log_dir
+main_menu
