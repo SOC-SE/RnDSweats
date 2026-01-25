@@ -99,49 +99,16 @@ echo "" > /etc/crontab
 rm -rf /var/spool/cron/*
 rm -rf /var/spool/cron/crontabs/*
 
-# Harden SSH
-SSH_CONF="/etc/ssh/sshd_config"
-
-# Backup original config
-cp $SSH_CONF "$SSH_CONF.bak_$(date +%s)"
-
 # 1. Wipe ALL SSH Authorized Keys (Removes Red Team Persistence)
 # We find every 'authorized_keys' file on the disk and delete it.
 # Since you are using passwords, this forces Red Team to know the password to get back in.
 echo "Wiping ALL authorized_keys files..."
 find / -name "authorized_keys" -type f -delete 2>/dev/null
 
-# 2. Secure sshd_config
-# We use sed to force these values, whether they are currently commented out or set to yes.
-echo "Securing sshd_config..."
+# 2. Remove SSHD
+echo "Removing sshd..."
+apt remove openssh
 
-# Disable Root Login
-sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' $SSH_CONF
-sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' $SSH_CONF
-
-# Disable Empty Passwords
-sed -i 's/^PermitEmptyPasswords.*/PermitEmptyPasswords no/' $SSH_CONF
-sed -i 's/^#PermitEmptyPasswords.*/PermitEmptyPasswords no/' $SSH_CONF
-
-# Force Protocol 2
-sed -i 's/^Protocol.*/Protocol 2/' $SSH_CONF
-sed -i 's/^#Protocol.*/Protocol 2/' $SSH_CONF
-
-# Disable X11 Forwarding (prevents GUI hijacking)
-sed -i 's/^X11Forwarding.*/X11Forwarding no/' $SSH_CONF
-sed -i 's/^#X11Forwarding.*/X11Forwarding no/' $SSH_CONF
-
-# Reduce Max Auth Tries (Mitigates brute force speed)
-sed -i 's/^MaxAuthTries.*/MaxAuthTries 3/' $SSH_CONF
-sed -i 's/^#MaxAuthTries.*/MaxAuthTries 3/' $SSH_CONF
-
-# Ensure settings exist if they weren't in the file at all
-grep -q "^PermitRootLogin" $SSH_CONF || echo "PermitRootLogin no" >> $SSH_CONF
-grep -q "^PermitEmptyPasswords" $SSH_CONF || echo "PermitEmptyPasswords no" >> $SSH_CONF
-grep -q "^Protocol" $SSH_CONF || echo "Protocol 2" >> $SSH_CONF
-
-echo "Restarting SSH..."
-systemctl restart sshd || systemctl restart ssh
 
 echo "Restricting user creation tools..."
 chmod 700 /usr/sbin/useradd
@@ -202,7 +169,6 @@ iptables -A OUTPUT -p icmp -j ACCEPT
 # Input
 iptables -A INPUT -p tcp --dport 22 -j ACCEPT
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-iptables -A INPUT -p tcp --dport 443 -j ACCEPT
 iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
 
 # Output
@@ -226,8 +192,10 @@ iptables -P FORWARD DROP
 echo "Running enumeration script"
 bash masterEnum.sh >> "$LOG_FILE" 2>&1
 echo "Running tool normalization script"
-bash normalizeTools.sh >> "$LOG_FILE" &
+bash normalizeTools.sh >> "$LOG_FILE"
 
+iptables -A OUTPUT -p tcp --dport 80 -j DROP
+iptables -A OUTPUT -p tcp --dport 443 -j DROP
 
 # Backups
 TIMESTAMP=$(date +%Y%m%d%H%M%S)
@@ -241,10 +209,6 @@ if [ -d /var/www ]; then
 else
     echo "/var/www not found; skipping /var/www backup."
 fi
-
-# Backup SSH configs
-echo "Backing up SSH configuration to $BACKUP_DIR..."
-cp -r /etc/ssh "$BACKUP_DIR/ssh_config_$TIMESTAMP"
 
 # Backup apache configs
 cp -r /etc/apache2 "$BACKUP_DIR/apache2_config_$TIMESTAMP" 2>/dev/null
