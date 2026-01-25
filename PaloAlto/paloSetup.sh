@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 echo -n "Enter the admin username [blank for admin]: "
 read user
@@ -29,12 +30,12 @@ if [ "$bbob" = "y" ] || [ "$bbob" = "Y" ]; then
 	else
 		sed -i "s/password/$password/" "$userfilepath"
 	fi
-	ssh -n -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $userfilepath
+	ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $userfilepath
 	echo -n "Removing plaintext password... "
 	sed -i "s/$password/password/" "$userfilepath"
 fi
 
-ssh -n -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
+ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
 
 echo -n "Run comp-spec? [y/n] "
 read resp
@@ -44,5 +45,5 @@ if [ "$resp" = "y" ] || [ "$resp" = "Y" ]; then
 	echo -n "Enter 3rd-octet of public IP: "
 	read pubip
 	sed -i "s/pub-ip/$pubip/" $filepath
-	ssh -n -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
+	ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
 fi
