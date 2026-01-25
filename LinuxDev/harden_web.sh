@@ -194,9 +194,6 @@ bash masterEnum.sh >> "$LOG_FILE" 2>&1
 echo "Running tool normalization script"
 bash normalizeTools.sh >> "$LOG_FILE"
 
-iptables -A OUTPUT -p tcp --dport 80 -j DROP
-iptables -A OUTPUT -p tcp --dport 443 -j DROP
-
 # Backups
 TIMESTAMP=$(date +%Y%m%d%H%M%S)
 mkdir -p "$BACKUP_DIR"
