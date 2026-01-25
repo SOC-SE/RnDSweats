@@ -27,11 +27,22 @@ if [ "$bbob" = "y" ] || [ "$bbob" = "Y" ]; then
 		echo -n "Password cannot be empty; exiting..."
 		exit 1
 	else
-		sed -i "s/password/$password/"
+		sed -i "s/password/$password/" "$userfilepath"
 	fi
-	ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $userfilepath
+	ssh -n -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $userfilepath
 	echo -n "Removing plaintext password... "
-	sed -i "s/$password/password/"
+	sed -i "s/$password/password/" "$userfilepath"
 fi
 
-ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
+ssh -n -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
+
+echo -n "Run comp-spec? [y/n] "
+read resp
+
+if [ "$resp" = "y" ] || [ "$resp" = "Y" ]; then
+	filepath="$(pwd)/comp-spec.txt"
+	echo -n "Enter 3rd-octet of public IP: "
+	read pubip
+	sed -i "s/pub-ip/$pubip/" $filepath
+	ssh -n -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
+fi
