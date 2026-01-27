@@ -67,7 +67,7 @@ prepare_os() {
     # 1. GENTOO (Portage)
     if command -v emerge &> /dev/null; then
         echo "    > Gentoo detected. Checking IPTables..."
-        emerge --ask n --noreplace net-firewall/iptables
+        emerge --noreplace net-firewall/iptables
         manage_service iptables enable
 
     # 2. RHEL/CentOS/Fedora (DNF/YUM)
@@ -78,7 +78,12 @@ prepare_os() {
             manage_service firewalld disable
             manage_service firewalld mask
         fi
-        rpm -q iptables-services &> /dev/null || yum install -y iptables-services
+        # Use dnf if available, fall back to yum
+        if command -v dnf &> /dev/null; then
+            rpm -q iptables-services &> /dev/null || dnf install -y iptables-services
+        else
+            rpm -q iptables-services &> /dev/null || yum install -y iptables-services
+        fi
         manage_service iptables enable
 
     # 3. Debian/Ubuntu (APT)
@@ -127,85 +132,85 @@ interactive_menu() {
     
     # 1. ESSENTIALS
     echo "--- ESSENTIALS ---"
-    read -p "1. Allow SSH (Inbound 22)? [Y/n]: " ans
+    read -r -p "1. Allow SSH (Inbound 22)? [Y/n]: " ans
     [[ "$ans" =~ ^[Nn]$ ]] || IN_TCP+=("22") # Default Yes
 
-    read -p "2. Allow DNS Lookup (Outbound 53)? [Y/n]: " ans
+    read -r -p "2. Allow DNS Lookup (Outbound 53)? [Y/n]: " ans
     [[ "$ans" =~ ^[Nn]$ ]] || { OUT_UDP+=("53"); OUT_TCP+=("53"); }
 
-    read -p "3. Allow System Updates (Outbound 80/443)? [y/N]: " ans
+    read -r -p "3. Allow System Updates (Outbound 80/443)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && OUT_TCP+=("80" "443")
 
-    read -p "4. Allow NTP Sync (Outbound 123)? [y/N]: " ans
+    read -r -p "4. Allow NTP Sync (Outbound 123)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && OUT_UDP+=("123")
 
     # 2. STANDARD SERVICES
     echo -e "\n--- STANDARD SERVICES ---"
-    read -p "5. Configure Web/Mail/File Services? [y/N]: " cat_ans
+    read -r -p "5. Configure Web/Mail/File Services? [y/N]: " cat_ans
     if [[ "$cat_ans" =~ ^[Yy]$ ]]; then
-        read -p "   > Web Server (In: 80/443)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("80" "443")
-        read -p "   > Mail Server (In: SMTP/IMAP/POP3)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("25" "465" "587" "110" "143" "993" "995")
-        read -p "   > SMB/Windows Share (In: 139/445)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("139" "445")
-        read -p "   > FTP Server (In: 20/21)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("20" "21"); MOD_FTP=true; }
-        read -p "   > NFS Share (In: 2049)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("2049"); IN_UDP+=("2049"); }
+        read -r -p "   > Web Server (In: 80/443)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("80" "443")
+        read -r -p "   > Mail Server (In: SMTP/IMAP/POP3)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("25" "465" "587" "110" "143" "993" "995")
+        read -r -p "   > SMB/Windows Share (In: 139/445)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("139" "445")
+        read -r -p "   > FTP Server (In: 20/21)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("20" "21"); MOD_FTP=true; }
+        read -r -p "   > NFS Share (In: 2049)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("2049"); IN_UDP+=("2049"); }
     fi
 
     # 3. INFRASTRUCTURE
     echo -e "\n--- INFRASTRUCTURE ---"
-    read -p "6. Configure DNS/Auth/Databases? [y/N]: " cat_ans
+    read -r -p "6. Configure DNS/Auth/Databases? [y/N]: " cat_ans
     if [[ "$cat_ans" =~ ^[Yy]$ ]]; then
-        read -p "   > DNS Server (In: 53)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("53"); IN_UDP+=("53"); }
-        read -p "   > LDAP (In: 389/636)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("389" "636")
-        read -p "   > Kerberos (In: 88)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("88"); IN_UDP+=("88"); }
-        read -p "   > MySQL/MariaDB (In: 3306)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("3306")
-        read -p "   > PostgreSQL (In: 5432)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("5432")
+        read -r -p "   > DNS Server (In: 53)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("53"); IN_UDP+=("53"); }
+        read -r -p "   > LDAP (In: 389/636)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("389" "636")
+        read -r -p "   > Kerberos (In: 88)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("88"); IN_UDP+=("88"); }
+        read -r -p "   > MySQL/MariaDB (In: 3306)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("3306")
+        read -r -p "   > PostgreSQL (In: 5432)? [y/N]: " sub; [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("5432")
     fi
 
     # 4. SECURITY TOOLS
     echo -e "\n--- SECURITY TOOLS (Server = Inbound / Agent = Outbound) ---"
-    read -p "7. Configure Splunk/Wazuh/ELK/Salt? [y/N]: " cat_ans
+    read -r -p "7. Configure Splunk/Wazuh/ELK/Salt? [y/N]: " cat_ans
     if [[ "$cat_ans" =~ ^[Yy]$ ]]; then
         # SPLUNK
-        read -p "   > Splunk SERVER (In: 8000/8089/9997/514)? [y/N]: " sub
+        read -r -p "   > Splunk SERVER (In: 8000/8089/9997/514)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("8000" "8089" "9997" "514"); IN_UDP+=("514"); }
-        read -p "   > Splunk FORWARDER (Out: 9997/8089)? [y/N]: " sub
+        read -r -p "   > Splunk FORWARDER (Out: 9997/8089)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("9997" "8089")
 
         # WAZUH
-        read -p "   > Wazuh SERVER (In: 1514/1515/55000)? [y/N]: " sub
+        read -r -p "   > Wazuh SERVER (In: 1514/1515/55000)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("1514" "1515" "55000" "443")
-        read -p "   > Wazuh AGENT (Out: 1514/1515)? [y/N]: " sub
+        read -r -p "   > Wazuh AGENT (Out: 1514/1515)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("1514" "1515")
 
         # ELK
-        read -p "   > ELK Stack (In: 9200/9300/5601/514)? [y/N]: " sub
+        read -r -p "   > ELK Stack (In: 9200/9300/5601/514)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("9200" "9300" "5601" "5044" "514"); IN_UDP+=("514"); }
-        read -p "   > Elastic AGENT (Out: 8220/9200)? [y/N]: " sub
+        read -r -p "   > Elastic AGENT (Out: 8220/9200)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("8220" "9200")
         
         # SALT
-        read -p "   > Salt MASTER (In: 4505-4506, 8881, 3000)? [y/N]: " sub
+        read -r -p "   > Salt MASTER (In: 4505-4506, 8881, 3000)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("4505" "4506" "8881" "3000")
-        read -p "   > Salt MINION (Out: 4505/4506)? [y/N]: " sub
+        read -r -p "   > Salt MINION (Out: 4505/4506)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("4505" "4506")
 
         # VELOCIRAPTOR
-        read -p "   > Velociraptor SERVER (In: 8000-8003)? [y/N]: " sub
+        read -r -p "   > Velociraptor SERVER (In: 8000-8003)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("8000" "8001" "8003")
-        read -p "   > Velociraptor AGENT (Out: 8001)? [y/N]: " sub
+        read -r -p "   > Velociraptor AGENT (Out: 8001)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("8001")
         
         # PALO ALTO
-        read -p "   > Palo Alto Mgmt (In: 443/22)? [y/N]: " sub
+        read -r -p "   > Palo Alto Mgmt (In: 443/22)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("443" "22")
     fi
 
     # 5. ORCHESTRATION & MISC
     echo -e "\n--- MISC ---"
-    read -p "8. Minecraft Server (In: 25565)? [y/N]: " ans
+    read -r -p "8. Minecraft Server (In: 25565)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("25565"); IN_UDP+=("25565"); }
     
-    read -p "9. Kubernetes Node (Force Enable)? [y/N]: " ans
+    read -r -p "9. Kubernetes Node (Force Enable)? [y/N]: " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
         IS_K8S=true
         IN_TCP+=("6443" "10250")
@@ -213,7 +218,7 @@ interactive_menu() {
     fi
 
     echo -e "\n--- FINALIZE ---"
-    read -p "10. Enable Persistence? [Y/n]: " ans
+    read -r -p "10. Enable Persistence? [Y/n]: " ans
     [[ "$ans" =~ ^[Nn]$ ]] || PERSIST=true
 }
 
@@ -250,8 +255,28 @@ parse_args() {
             --minecraft )       IN_TCP+=("25565"); IN_UDP+=("25565") ;;
             --k8s )             IS_K8S=true; IN_TCP+=("6443" "10250") ;;
             --persist )         PERSIST=true ;;
-            --custom-in )       shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do IN_TCP+=("$i"); done ;;
-            --custom-out )      shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do OUT_TCP+=("$i"); done ;;
+            --custom-in )
+                shift
+                IFS=',' read -ra ADDR <<< "$1"
+                for i in "${ADDR[@]}"; do
+                    if [[ "$i" =~ ^[0-9]+$ ]] && [ "$i" -ge 1 ] && [ "$i" -le 65535 ]; then
+                        IN_TCP+=("$i")
+                    else
+                        echo "    [!] Invalid port ignored: $i" >&2
+                    fi
+                done
+                ;;
+            --custom-out )
+                shift
+                IFS=',' read -ra ADDR <<< "$1"
+                for i in "${ADDR[@]}"; do
+                    if [[ "$i" =~ ^[0-9]+$ ]] && [ "$i" -ge 1 ] && [ "$i" -le 65535 ]; then
+                        OUT_TCP+=("$i")
+                    else
+                        echo "    [!] Invalid port ignored: $i" >&2
+                    fi
+                done
+                ;;
         esac
         shift
     done
@@ -270,7 +295,7 @@ start_failsafe() {
 
 confirm_failsafe() {
     echo ""
-    read -t $FAILSAFE_DELAY -p "Apply Permanent? (y/N): " response
+    read -r -t $FAILSAFE_DELAY -p "Apply Permanent? (y/N): " response
     if [[ "$response" =~ ^[Yy]$ ]]; then
         kill $FAILSAFE_PID 2>/dev/null
         echo -e "[+] Configuration Confirmed."
@@ -281,8 +306,19 @@ confirm_failsafe() {
 
 apply_rules() {
     echo "[*] Applying Rules..."
-    
-    if [ "$MOD_FTP" = true ]; then 
+
+    # Backup current rules before making changes
+    local backup_dir="/var/backups/iptables"
+    mkdir -p "$backup_dir"
+    local backup_file
+    backup_file="$backup_dir/rules.pre-ccdc.$(date +%Y%m%d_%H%M%S)"
+    if iptables-save > "$backup_file" 2>/dev/null; then
+        echo "    > Backed up current rules to: $backup_file"
+    else
+        echo "    > Warning: Could not backup current rules"
+    fi
+
+    if [ "$MOD_FTP" = true ]; then
         modprobe nf_conntrack_ftp 2>/dev/null || echo "    > Warning: Could not load FTP conntrack."
     fi
 
@@ -322,15 +358,15 @@ apply_rules() {
     IFS=" " read -r -a U_IN_TCP <<< "$(echo "${IN_TCP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
     IFS=" " read -r -a U_IN_UDP <<< "$(echo "${IN_UDP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
     
-    for port in "${U_IN_TCP[@]}"; do [ ! -z "$port" ] && iptables -A INPUT -p tcp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
-    for port in "${U_IN_UDP[@]}"; do [ ! -z "$port" ] && iptables -A INPUT -p udp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
+    for port in "${U_IN_TCP[@]}"; do [[ -n "$port" ]] && iptables -A INPUT -p tcp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT; done
+    for port in "${U_IN_UDP[@]}"; do [[ -n "$port" ]] && iptables -A INPUT -p udp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT; done
 
     # 6. OUTBOUND RULES
     IFS=" " read -r -a U_OUT_TCP <<< "$(echo "${OUT_TCP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
     IFS=" " read -r -a U_OUT_UDP <<< "$(echo "${OUT_UDP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
 
-    for port in "${U_OUT_TCP[@]}"; do [ ! -z "$port" ] && iptables -A OUTPUT -p tcp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
-    for port in "${U_OUT_UDP[@]}"; do [ ! -z "$port" ] && iptables -A OUTPUT -p udp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
+    for port in "${U_OUT_TCP[@]}"; do [[ -n "$port" ]] && iptables -A OUTPUT -p tcp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT; done
+    for port in "${U_OUT_UDP[@]}"; do [[ -n "$port" ]] && iptables -A OUTPUT -p udp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT; done
 
     # 7. LOGGING
     iptables -A INPUT -m limit --limit 2/sec -j LOG --log-prefix "FW-DROP-IN: " --log-level 4

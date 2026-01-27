@@ -6,12 +6,11 @@
 # Samuel Brucker 2025-2026
 #
 
-set -e
+set -euo pipefail
 
 SOURCE_DIR="../SaltyBoxes/Salt-GUI"
 INSTALL_DIR="/opt/salt-gui"
-SALT_USER="hiblueteam"
-SALT_PASS="PlzNoHackThisAccountItsUseless!"
+SALT_USER="${SALT_USER:-hiblueteam}"
 API_PORT=8881
 GUI_PORT=3000
 MASTER_CONF="/etc/salt/master"
@@ -30,6 +29,28 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# Prompt for password if not set via environment
+if [[ -z "${SALT_PASS:-}" ]]; then
+    log "Enter password for Salt API user '$SALT_USER':"
+    while true; do
+        echo -n "Password: "
+        stty -echo
+        read -r pass1
+        stty echo
+        echo
+        echo -n "Confirm password: "
+        stty -echo
+        read -r pass2
+        stty echo
+        echo
+        if [[ "$pass1" == "$pass2" ]] && [[ -n "$pass1" ]]; then
+            SALT_PASS="$pass1"
+            break
+        else
+            error "Passwords do not match or are empty. Try again."
+        fi
+    done
+fi
 
 log "Cleaning up existing services..."
 systemctl stop salt-gui salt-minion salt-master salt-api 2>/dev/null || true
@@ -52,7 +73,7 @@ if command -v dnf &> /dev/null || command -v yum &> /dev/null; then
         if [[ "$ID" == "fedora" ]]; then
              EL_VERSION="9" 
         else
-             EL_VERSION=$(echo $VERSION_ID | cut -d. -f1)
+             EL_VERSION=$(echo "$VERSION_ID" | cut -d. -f1)
         fi
     else
         EL_VERSION=$(rpm -E %rhel)

@@ -478,7 +478,7 @@ install_wireguard() {
       fi
 
       mkdir -p /etc/wireguard
-      wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key >/dev/null 2>>"$err_file" || { echo "Key generation failed." >>"$err_file"; exit 1; }
+      wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key 2>>"$err_file" || { echo "Key generation failed." >>"$err_file"; exit 1; }
       chmod 600 /etc/wireguard/private.key >/dev/null 2>>"$err_file" || true
 
       local ext_interface=$(ip route | awk '/default/ {print $5; exit}')

@@ -12,7 +12,7 @@
 
 # --- Script Configuration ---
 # Exit immediately if a command exits with a non-zero status.
-set -e
+set -euo pipefail
 
 # --- Color Codes for Output ---
 GREEN='\033[0;32m'
@@ -31,7 +31,7 @@ log_warning() {
 }
 
 log_step() {
-    echo -e "\n${CYAN}--- $1 ---"${NC}
+    echo -e "\n${CYAN}--- $1 ---${NC}"
 }
 
 # --- Root User Check (Modified for Safety) ---
@@ -44,14 +44,14 @@ if [ "$(id -u)" -eq 0 ]; then
     echo ""
     echo "If you are profiling a SYSTEM service (like Nginx, Apache), running as root is fine."
     echo ""
-    read -p "Press [Enter] to continue as ROOT, or Ctrl+C to abort and run as a normal user..."
+    read -r -p "Press [Enter] to continue as ROOT, or Ctrl+C to abort and run as a normal user..."
 else
     log_message "Running as standard user. This is perfect for profiling user applications."
 fi
 
 # --- Step 1: Get Application Path ---
 log_step "Step 1: Select Application to Profile"
-read -p "Enter the full path to the application executable (e.g., /usr/bin/firefox): " APP_PATH
+read -r -p "Enter the full path to the application executable (e.g., /usr/bin/firefox): " APP_PATH
 
 if [ -z "$APP_PATH" ]; then
     log_warning "Application path cannot be empty. Aborting."
@@ -74,7 +74,7 @@ log_message "A new profile will be generated at: $TEMP_PROFILE_PATH"
 
 if [ -f "$TEMP_PROFILE_PATH" ]; then
     log_warning "A temporary profile file '$TEMP_PROFILE_PATH' already exists."
-    read -p "Do you want to overwrite it? (y/n): " confirm
+    read -r -p "Do you want to overwrite it? (y/n): " confirm
     if [[ "$confirm" != [yY] ]]; then
         log_message "Aborting."
         exit 0
@@ -89,7 +89,7 @@ echo -e "1. ${CYAN}Interact with the application${NC} in another terminal. Perfo
 echo -e "2. FireJail will record these actions to build the profile."
 echo -e "3. When you are finished interacting with the application, ${CYAN}press [Enter] in THIS window${NC} to stop the trace and finalize the profile."
 echo ""
-read -p "Press [Enter] to begin the trace..."
+read -r -p "Press [Enter] to begin the trace..."
 
 # Run firejail --build in the background
 # This runs as the current user, avoiding perm issues if not root
@@ -97,7 +97,7 @@ firejail --build="$TEMP_PROFILE_PATH" "$APP_PATH" &
 FJ_PID=$!
 
 # Wait for the user to finish their interaction
-read -p "Tracing is active. Press [Enter] when you are done interacting with the application..."
+read -r -p "Tracing is active. Press [Enter] when you are done interacting with the application..."
 
 # Stop the tracing process
 log_message "Stopping the trace and killing the application process (PID: $FJ_PID)..."
@@ -122,7 +122,7 @@ echo ""
 log_warning "The profile above is a baseline. It may be too permissive."
 log_warning "It is STRONGLY recommended to review it and remove unnecessary 'read' or 'write' permissions."
 
-read -p "Do you want to install this profile to /etc/firejail/? (y/n): " install_confirm
+read -r -p "Do you want to install this profile to /etc/firejail/? (y/n): " install_confirm
 if [[ "$install_confirm" != [yY] ]]; then
     log_message "Profile not installed. You can find it at '$TEMP_PROFILE_PATH'."
     exit 0

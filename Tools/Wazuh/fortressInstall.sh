@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # This script automates the installation of specific rules, decoders, and scripts
 # from the SOCFortress wazuh-rules repository by cloning the repo, copying

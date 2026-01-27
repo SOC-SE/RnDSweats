@@ -16,7 +16,7 @@
 # ==============================================================================
 
 # --- Script Configuration ---
-set -e
+set -euo pipefail
 
 # --- Functions ---
 
@@ -83,7 +83,7 @@ echo " "
 # Get HOME_NET from user
 echo -e "Add multiple network ranges as comma-seperated, with the following syntax:"
 echo -e "192.168.0.0/16,172.16.0.0/16,10.0.0.0/8"
-read -p "Enter your home network range (e.g., 192.168.1.0/24): " HOME_NET
+read -r -p "Enter your home network range (e.g., 192.168.1.0/24): " HOME_NET
 if [ -z "$HOME_NET" ]; then
     exit_with_error "Home network range cannot be empty."
 fi
@@ -93,7 +93,7 @@ echo " "
 echo "Available network interfaces:"
 ip -br a | awk '{print $1}' | grep -v "lo"
 echo " "
-read -p "Enter the network interface to monitor (e.g., eth0): " IFACE
+read -r -p "Enter the network interface to monitor (e.g., eth0): " IFACE
 if [ -z "$IFACE" ]; then
     exit_with_error "Network interface cannot be empty."
 fi
@@ -103,7 +103,7 @@ echo "Configuration:"
 echo "  - Home Network: $HOME_NET"
 echo "  - Interface:    $IFACE"
 echo " "
-read -p "Is this correct? (y/n): " confirm
+read -r -p "Is this correct? (y/n): " confirm
 if [[ "$confirm" != [yY] ]]; then
     echo "Script cancelled by user."
     exit 0
@@ -278,6 +278,7 @@ systemctl start suricata
 
 # Verify that the service has started
 echo "Waiting for Suricata engine to initialize..."
+# shellcheck disable=SC2034  # Used in commented-out verification block below
 SURICATA_LOG="/var/log/suricata/suricata.log"
 
 # someday, this test might work...

@@ -1,10 +1,11 @@
 #!/bin/bash
+set -euo pipefail
 
 CNF_FILE="$HOME/.my.cnf"
 OUTPUT_FILE="$(dirname "$0")/mysql_audit_report.txt"
 
 if [ ! -f "$CNF_FILE" ]; then
-    echo "❌ Error: Configuration file $CNF_FILE not found."
+    echo "Error: Configuration file $CNF_FILE not found."
     echo "Please run the backup script setup first to generate credentials."
     exit 1
 fi
@@ -16,11 +17,11 @@ fi
     echo "========================================================"
     echo ""
 
-    echo "--- 📂 EXISTING DATABASES ---"
+    echo "--- EXISTING DATABASES ---"
     mysql --defaults-extra-file="$CNF_FILE" -t -e "SHOW DATABASES;"
 
     echo ""
-    echo "--- 👤 USERS AND PERMISSIONS ---"
+    echo "--- USERS AND PERMISSIONS ---"
 
     USER_LIST=$(mysql --defaults-extra-file="$CNF_FILE" -N -e "SELECT CONCAT('\'', User, '\'@\'', Host, '\'') FROM mysql.user")
 

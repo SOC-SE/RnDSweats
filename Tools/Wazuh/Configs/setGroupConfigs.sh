@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # ==============================================================================
 # Wazuh Group and Configuration Automation Script (Multi-Group Ready)
@@ -83,8 +84,7 @@ configure_wazuh_group() {
     else
         # Create the Group
         log_info "Group '${GROUP_NAME}' not found. Creating it now..."
-        ${AGENT_GROUPS_TOOL} -a -g "${GROUP_NAME}"
-        if [ $? -ne 0 ]; then
+        if ! ${AGENT_GROUPS_TOOL} -a -g "${GROUP_NAME}"; then
             log_error "Failed to create the Wazuh group '${GROUP_NAME}'. Please check Wazuh logs."
         fi
         log_success "Successfully created group '${GROUP_NAME}'."
@@ -95,8 +95,7 @@ configure_wazuh_group() {
     # Ensure the target directory exists
     mkdir -p "${GROUP_CONF_DIR}"
     # Copy the file to the required 'agent.conf' name within the group directory
-    cp "${LOCAL_CONF_FILE}" "${GROUP_AGENT_CONF}"
-    if [ $? -ne 0 ]; then
+    if ! cp "${LOCAL_CONF_FILE}" "${GROUP_AGENT_CONF}"; then
         log_error "Failed to copy configuration file for group '${GROUP_NAME}'."
     fi
     log_success "Configuration file copied to '${GROUP_AGENT_CONF}'."
@@ -125,9 +124,9 @@ log_success "Root privileges confirmed."
 # 2. Loop through the groups and configure them
 for GROUP_ENTRY in "${GROUPS[@]}"; do
     # Extract Group Name and Configuration File Name from the entry (e.g., 'linux-default:linux-default.conf')
-    GROUP_NAME=$(echo "$GROUP_ENTRY" | cut -d: -f1)
-    LOCAL_CONF_FILE=$(echo "$GROUP_ENTRY" | cut -d: -f2)
-    
+    GROUP_NAME="${GROUP_ENTRY%%:*}"
+    LOCAL_CONF_FILE="${GROUP_ENTRY#*:}"
+
     # Execute the configuration logic for the current group
     configure_wazuh_group "$GROUP_NAME" "$LOCAL_CONF_FILE"
 done

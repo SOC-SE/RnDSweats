@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Automates the installation of the Splunk Universal Forwarder. Currently set to v10.0.1. I'm not sure if the link will be valid during the entire CCDC season
 # with how much is still left to go. If the download gives you any trouble, create a Splunk account, go to the universal forwarder downloads, pick the one you want,
 # then extract the random set of characters found in the link. In this script, these are stored in the variable "SPLUNK_BUILD".
@@ -24,13 +25,35 @@ INSTALL_DIR="/opt/splunkforwarder"
 # Set defaults for configuration
 DEFAULT_INDEXER_IP="172.20.242.20"
 DEFAULT_ADMIN_USERNAME="admin"
-DEFAULT_ADMIN_PASSWORD="Changeme1!"  # Replace with a secure password
 
 # Override defaults with command-line arguments if they are provided
 # Usage: ./script.sh [indexer_ip] [username] [password]
 INDEXER_IP=${1:-$DEFAULT_INDEXER_IP}
 ADMIN_USERNAME=${2:-$DEFAULT_ADMIN_USERNAME}
-ADMIN_PASSWORD=${3:-$DEFAULT_ADMIN_PASSWORD}
+ADMIN_PASSWORD=${3:-}
+
+# Prompt for password if not provided via CLI argument
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+    echo "Enter password for Splunk admin user:"
+    while true; do
+        echo -n "Password: "
+        stty -echo
+        read -r pass1
+        stty echo
+        echo
+        echo -n "Confirm password: "
+        stty -echo
+        read -r pass2
+        stty echo
+        echo
+        if [[ "$pass1" == "$pass2" ]]; then
+            ADMIN_PASSWORD="$pass1"
+            break
+        else
+            echo "Passwords do not match. Please try again."
+        fi
+    done
+fi
 
 # Pretty colors :)
 RED=$'\e[0;31m'
@@ -84,14 +107,15 @@ install_dependencies() {
       if [ -n "$package_name" ]; then
         # Run install non-interactively
         if [ "$PKG_MANAGER" == "apt-get" ]; then
-            sudo DEBIAN_FRONTEND=noninteractive $PKG_MANAGER install -y "$package_name"
+            if ! sudo DEBIAN_FRONTEND=noninteractive "$PKG_MANAGER" install -y "$package_name"; then
+                echo "${RED}Failed to install package '$package_name' for command '$cmd'.${NC}"
+                all_deps_installed=false
+            fi
         else
-            sudo $PKG_MANAGER install -y "$package_name"
-        fi
-
-        if [ $? -ne 0 ]; then
-            echo "${RED}Failed to install package '$package_name' for command '$cmd'.${NC}"
-            all_deps_installed=false
+            if ! sudo "$PKG_MANAGER" install -y "$package_name"; then
+                echo "${RED}Failed to install package '$package_name' for command '$cmd'.${NC}"
+                all_deps_installed=false
+            fi
         fi
       else
          echo "${RED}Don't know which package provides '$cmd' for this system.${NC}"
@@ -158,7 +182,7 @@ create_splunk_user() {
   if ! id -u splunk &>/dev/null; then
     echo "${BLUE}Creating splunk user and group...${NC}"
     sudo groupadd splunk
-    sudo useradd -r -g splunk -d $INSTALL_DIR splunk
+    sudo useradd -r -g splunk -d "$INSTALL_DIR" splunk
   else
     echo "${GREEN}Splunk user already exists.${NC}"
   fi
@@ -173,15 +197,14 @@ install_splunk() {
   echo "${BLUE}Downloading Splunk Forwarder tarball...${NC}"
 
   while [ $retry_count -lt $max_retries ] && [ $download_success = false ]; do
+    local status=0
     if [ $retry_count -eq 0 ]; then
       # First attempt: Try with certificate verification
-      wget -O $SPLUNK_PACKAGE_TGZ $SPLUNK_DOWNLOAD_URL
-      local status=$?
+      wget -O "$SPLUNK_PACKAGE_TGZ" "$SPLUNK_DOWNLOAD_URL" || status=$?
     else
       # Subsequent attempts: Try without certificate verification
       echo "${YELLOW}Certificate verification failed, attempting download without certificate check...${NC}"
-      wget --no-check-certificate -O $SPLUNK_PACKAGE_TGZ $SPLUNK_DOWNLOAD_URL
-      local status=$?
+      wget --no-check-certificate -O "$SPLUNK_PACKAGE_TGZ" "$SPLUNK_DOWNLOAD_URL" || status=$?
     fi
 
     if [ $status -eq 0 ]; then
@@ -199,12 +222,12 @@ install_splunk() {
   fi
 
   echo "${BLUE}Extracting Splunk Forwarder tarball...${NC}"
-  sudo tar -xvzf $SPLUNK_PACKAGE_TGZ -C /opt
-  rm -f $SPLUNK_PACKAGE_TGZ
+  sudo tar -xvzf "$SPLUNK_PACKAGE_TGZ" -C /opt
+  rm -f "$SPLUNK_PACKAGE_TGZ"
 
   echo "${BLUE}Setting permissions...${NC}"
   create_splunk_user
-  sudo chown -R splunk:splunk $INSTALL_DIR
+  sudo chown -R splunk:splunk "$INSTALL_DIR"
 }
 
 
@@ -217,7 +240,7 @@ set_admin_credentials() {
 USERNAME = $ADMIN_USERNAME
 PASSWORD = $ADMIN_PASSWORD
 EOL
-  sudo chown splunk:splunk $USER_SEED_FILE
+  sudo chown splunk:splunk "$USER_SEED_FILE"
   echo "${GREEN}Admin credentials set.${NC}"
 }
 
@@ -541,14 +564,14 @@ crcSalt = <SOURCE>
 $MONITORS
 EOL
 
-  sudo chown splunk:splunk $MONITOR_CONFIG
+  sudo chown splunk:splunk "$MONITOR_CONFIG"
   echo "${GREEN}Monitors configured.${NC}"
 }
 
 # Function to configure the forwarder to send logs to the Splunk indexer
 configure_forwarder() {
   echo "${BLUE}Configuring Splunk Universal Forwarder to send logs to $INDEXER_IP:9997...${NC}"
-  sudo $INSTALL_DIR/bin/splunk add forward-server $INDEXER_IP:9997 -auth $ADMIN_USERNAME:$ADMIN_PASSWORD
+  sudo "$INSTALL_DIR/bin/splunk" add forward-server "$INDEXER_IP:9997" -auth "$ADMIN_USERNAME:$ADMIN_PASSWORD"
   echo "${GREEN}Forward-server configuration complete.${NC}"
 }
 
@@ -576,8 +599,8 @@ set_admin_credentials
 # Enable Splunk service and accept license agreement
 if [ -d "$INSTALL_DIR/bin" ]; then
   echo "${BLUE}Starting and enabling Splunk Universal Forwarder service...${NC}"
-  sudo $INSTALL_DIR/bin/splunk start --accept-license --answer-yes --no-prompt
-  sudo $INSTALL_DIR/bin/splunk enable boot-start
+  sudo "$INSTALL_DIR/bin/splunk" start --accept-license --answer-yes --no-prompt
+  sudo "$INSTALL_DIR/bin/splunk" enable boot-start
 
   # Add monitors
   setup_monitors
@@ -601,6 +624,6 @@ echo "Test log entry" > /tmp/test.log
 sudo setfacl -m u:splunk:r /tmp/test.log
 
 # Verify installation
-sudo $INSTALL_DIR/bin/splunk version
+sudo "$INSTALL_DIR/bin/splunk" version
 
 echo "${YELLOW}Splunk Universal Forwarder v$SPLUNK_VERSION installation complete with monitors and forwarder configuration!${NC}"

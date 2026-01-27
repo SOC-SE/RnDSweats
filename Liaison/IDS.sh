@@ -130,7 +130,9 @@ configure_suricata_initial() {
     log_info "Available interfaces:"
     ip link show | grep -E '^[0-9]+: ' | awk -F: '{print $2}' | tr -d ' '
     read -p "Enter network interface (e.g., eth0): " INTERFACE
-    [[ -z $INTERFACE || ! ip link show "$INTERFACE" > /dev/null 2>&1 ]] && log_error "Invalid interface."
+    if [[ -z "$INTERFACE" ]] || ! ip link show "$INTERFACE" > /dev/null 2>&1; then
+        log_error "Invalid interface."
+    fi
     read -p "Enter HOME_NET CIDR (e.g., 172.20.240.0/24): " CIDR
     [[ ! $CIDR =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]] && log_error "Invalid CIDR."
     sed -i "s/^  HOME_NET: .*/  HOME_NET: \"[$CIDR]\"/; /^  EXTERNAL_NET: .*/s//  EXTERNAL_NET: \"!\$HOME_NET\"/" "$CONFIG_FILE"

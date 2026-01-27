@@ -1,29 +1,35 @@
 #!/bin/bash
 #
-# for ubuntu web
+# Hardening script for Ubuntu web servers
+# Tested on: Ubuntu 20.04-24.04
 #
-# Reminder: test this script before comp
+# Samuel Brucker 2025-2026
 
-set -u
+set -euo pipefail
+
+# --- SCRIPT DIRECTORY ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- HELPER FUNCTIONS ---
+# Global password variable (set by prompt_password)
+_PROMPTED_PASS=""
+
 prompt_password() {
-    local user_label=$1
-    local var_name=$2
+    local user_label="$1"
     while true; do
         echo -n "Enter new password for $user_label: "
         stty -echo
-        read pass1
+        read -r pass1
         stty echo
         echo
         echo -n "Confirm new password for $user_label: "
         stty -echo
-        read pass2
+        read -r pass2
         stty echo
         echo
-        
+
         if [ "$pass1" == "$pass2" ] && [ -n "$pass1" ]; then
-            eval "$var_name='$pass1'"
+            _PROMPTED_PASS="$pass1"
             break
         else
             echo "Passwords do not match or are empty. Please try again."
@@ -43,7 +49,7 @@ LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/baseHarden.log"
 
 # Create log dir
-mkdir -p $LOG_DIR
+mkdir -p "$LOG_DIR"
 
 # Redirect output to log
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -54,12 +60,16 @@ echo "==================================================="
 
 # --- PASSWORD PROMPTS ---
 echo "--- CREDENTIAL SETUP ---"
-prompt_password "ROOT User" ROOT_PASS
-prompt_password "BBOB Backdoor User" BBOB_PASS
+prompt_password "ROOT User"
+ROOT_PASS="$_PROMPTED_PASS"
+
+prompt_password "BBOB Backup User"
+BBOB_PASS="$_PROMPTED_PASS"
 
 # Check if sysadmin exists before asking for password
 if id "sysadmin" &>/dev/null; then
-    prompt_password "SYSADMIN User" SYSADMIN_PASS
+    prompt_password "SYSADMIN User"
+    SYSADMIN_PASS="$_PROMPTED_PASS"
 else
     echo "User 'sysadmin' not found. Skipping."
     SYSADMIN_PASS=""
@@ -78,11 +88,12 @@ if [ -n "$SYSADMIN_PASS" ]; then
 fi
 
 # Create Backdoor User 'bbob'
+# Ubuntu uses 'sudo' group, not 'wheel'
 if ! id "bbob" &>/dev/null; then
     echo "Creating backup user..."
-    useradd bbob
+    useradd -m bbob
     echo "bbob:$BBOB_PASS" | chpasswd
-    usermod -aG wheel bbob
+    usermod -aG sudo bbob
 else
     echo "Updating bbob password..."
     echo "bbob:$BBOB_PASS" | chpasswd
@@ -105,14 +116,21 @@ rm -rf /var/spool/cron/crontabs/*
 echo "" > /etc/crontab
 
 # 1. Wipe ALL SSH Authorized Keys (Removes Red Team Persistence)
-# We find every 'authorized_keys' file on the disk and delete it.
-# Since you are using passwords, this forces Red Team to know the password to get back in.
+# WARNING: This removes ALL authorized_keys including legitimate ones!
 echo "Wiping ALL authorized_keys files..."
-find / -name "authorized_keys" -type f -delete 2>/dev/null
+echo "WARNING: This removes all SSH keys including legitimate ones!"
+# Backup first (timestamp is intentionally computed once for all files)
+BACKUP_TS=$(date +%s)
+find /home -name "authorized_keys" -type f -exec cp {} "{}.bak.${BACKUP_TS}" \; 2>/dev/null || true
+find /root -name "authorized_keys" -type f -exec cp {} "{}.bak.${BACKUP_TS}" \; 2>/dev/null || true
+# Now delete
+find / -name "authorized_keys" -type f -delete 2>/dev/null || true
 
-# 2. Remove SSHD
+# 2. Remove SSHD (CAUTION: May lock you out if this is your only access method!)
+# Comment out the next two lines if SSH is required for competition scoring
 echo "Removing ssh..."
-apt remove openssh-server
+echo "WARNING: Removing SSH! Make sure you have console access!"
+apt-get remove -y openssh-server || echo "openssh-server not installed or already removed"
 
 
 echo "Restricting user creation tools..."
@@ -140,7 +158,7 @@ echo "Removing SUID from dangerous binaries (GTFOBins mitigation)..."
 # These binaries allow priv esc if they have SUID bit set. We strip it.
 DANGEROUS_BINS="find vim nmap less awk sed python python3 perl ruby tar zip netcat nc man"
 for bin in $DANGEROUS_BINS; do
-    BINARY_PATH=$(which $bin 2>/dev/null)
+    BINARY_PATH=$(which "$bin" 2>/dev/null)
     if [ -n "$BINARY_PATH" ]; then
         chmod u-s "$BINARY_PATH"
         echo "Removed SUID from $bin"
@@ -148,20 +166,54 @@ for bin in $DANGEROUS_BINS; do
 done
 
 echo "Setting Kernel parameters (Sysctl)..."
+# Use a dedicated hardening sysctl file to avoid duplicates
+SYSCTL_HARDEN="/etc/sysctl.d/99-ccdc-hardening.conf"
+cat > "$SYSCTL_HARDEN" << 'SYSCTL_EOF'
+# CCDC Hardening - Network Security
 # Prevent IP Spoofing
-echo "net.ipv4.conf.all.rp_filter = 1" >> /etc/sysctl.conf
-echo "net.ipv4.conf.default.rp_filter = 1" >> /etc/sysctl.conf
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
 # Disable IP Source Routing
-echo "net.ipv4.conf.all.accept_source_route = 0" >> /etc/sysctl.conf
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
 # Enable SYN Cookies (Syn Flood protection)
-echo "net.ipv4.tcp_syncookies = 1" >> /etc/sysctl.conf
+net.ipv4.tcp_syncookies = 1
 # Disable ICMP Redirects (MITM mitigation)
-echo "net.ipv4.conf.all.accept_redirects = 0" >> /etc/sysctl.conf
-echo "net.ipv4.conf.default.accept_redirects = 0" >> /etc/sysctl.conf
-sysctl -p
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+# IPv6 hardening
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_source_route = 0
+# Ignore ICMP broadcast requests
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+# Ignore bogus ICMP responses
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+# Log martian packets
+net.ipv4.conf.all.log_martians = 1
+# Disable core dumps for SUID binaries
+fs.suid_dumpable = 0
+# Restrict kernel pointer exposure
+kernel.kptr_restrict = 2
+# Restrict dmesg access
+kernel.dmesg_restrict = 1
+SYSCTL_EOF
+sysctl -p "$SYSCTL_HARDEN"
 
 # --- FIREWALL (STRICT MODE) ---
 echo "[+] Phase 2: Firewall Configuration (Strict Output Control)"
+
+# Backup existing rules before changes
+IPTABLES_BACKUP="$BACKUP_DIR/iptables_pre_harden_$(date +%Y%m%d%H%M%S).rules"
+mkdir -p "$BACKUP_DIR"
+iptables-save > "$IPTABLES_BACKUP" 2>/dev/null || true
+echo "Backed up iptables rules to: $IPTABLES_BACKUP"
+
+# Flush existing rules for idempotency (safe to run multiple times)
+iptables -F
+iptables -X 2>/dev/null || true
 
 # Base
 iptables -A INPUT -i lo -j ACCEPT
@@ -171,8 +223,10 @@ iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -p icmp -j ACCEPT
 iptables -A OUTPUT -p icmp -j ACCEPT
 
-# Input
-iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+# Input - Web Server Ports
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT   # HTTP
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT  # HTTPS
+# Uncomment below if MySQL needs to be accessible externally (not recommended)
 #iptables -A INPUT -p tcp --dport 3306 -j ACCEPT
 
 # Output
@@ -195,16 +249,40 @@ iptables -P INPUT DROP
 iptables -P OUTPUT DROP
 iptables -P FORWARD DROP
 
-# Save Rules
-/usr/libexec/iptables/iptables.init save
+# Save Rules (Ubuntu uses netfilter-persistent)
+if command -v netfilter-persistent &>/dev/null; then
+    netfilter-persistent save
+else
+    # Install if missing and save
+    apt-get install -y iptables-persistent netfilter-persistent
+    netfilter-persistent save
+fi
 
-# Run Other Scripts
-echo "Running enumeration script"
-bash masterEnum.sh >> "$LOG_FILE" 2>&1
-echo "Running tool normalization script"
-bash normalizeTools.sh >> "$LOG_FILE"
-echo "Running opencart hardening script"
-bash opencart_hardener.sh >> "$LOG_FILE"
+# Run Other Scripts (use SCRIPT_DIR for reliable paths)
+ENUM_SCRIPT="$SCRIPT_DIR/../enumeration/masterEnum.sh"
+NORMALIZE_SCRIPT="$SCRIPT_DIR/../utilities/normalizeTools.sh"
+OPENCART_SCRIPT="$SCRIPT_DIR/../services/web/opencart_hardener.sh"
+
+if [[ -f "$ENUM_SCRIPT" ]]; then
+    echo "Running enumeration script"
+    bash "$ENUM_SCRIPT" >> "$LOG_FILE" 2>&1 || echo "Enumeration script had errors"
+else
+    echo "Enumeration script not found at $ENUM_SCRIPT, skipping"
+fi
+
+if [[ -f "$NORMALIZE_SCRIPT" ]]; then
+    echo "Running tool normalization script"
+    bash "$NORMALIZE_SCRIPT" >> "$LOG_FILE" 2>&1 || echo "Normalize script had errors"
+else
+    echo "Normalize script not found, skipping"
+fi
+
+if [[ -f "$OPENCART_SCRIPT" ]]; then
+    echo "Running opencart hardening script"
+    bash "$OPENCART_SCRIPT" >> "$LOG_FILE" 2>&1 || echo "Opencart hardening had errors"
+else
+    echo "Opencart hardening script not found, skipping"
+fi
 echo "Scripts completed. Check $LOG_FILE for more details."
 
 # Backups
@@ -212,7 +290,7 @@ TIMESTAMP=$(date +%Y%m%d%H%M%S)
 mkdir -p "$BACKUP_DIR"
 
 # Backup www directory
-if [ -d /var/www ]; then
+if [[ -d /var/www ]]; then
     echo "Backing up /var/www to $BACKUP_DIR..."
     tar -czpf "$BACKUP_DIR/www_backup_$TIMESTAMP.tar.gz" -C / var/www
     echo "Backup saved to $BACKUP_DIR/www_backup_$TIMESTAMP.tar.gz"
@@ -221,10 +299,16 @@ else
 fi
 
 # Backup apache configs
-cp -r /etc/apache2 "$BACKUP_DIR/apache2_config_$TIMESTAMP" 2>/dev/null
+if [[ -d /etc/apache2 ]]; then
+    cp -r /etc/apache2 "$BACKUP_DIR/apache2_config_$TIMESTAMP" 2>/dev/null || true
+fi
 
-# Backup mysql configs
-cp -r /etc/mysql "$BACKUP_DIR/mysql_$TIMESTAMP"
+# Backup mysql/mariadb configs
+if [[ -d /etc/mysql ]]; then
+    cp -r /etc/mysql "$BACKUP_DIR/mysql_$TIMESTAMP" 2>/dev/null || true
+elif [[ -f /etc/my.cnf ]]; then
+    cp /etc/my.cnf "$BACKUP_DIR/my.cnf_$TIMESTAMP" 2>/dev/null || true
+fi
 
 echo "==================================================="
 echo "        SYSTEM HARDENING COMPLETE"

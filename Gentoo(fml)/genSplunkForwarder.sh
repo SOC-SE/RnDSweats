@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # =============================================================================
 # SPLUNK FORWARDER INSTALLER (GENTOO / OPENRC EDITION)
 # Based on Samuel Brucker's General Linux Script
@@ -15,16 +16,39 @@ INSTALL_DIR="/opt/splunkforwarder"
 # Defaults
 DEFAULT_INDEXER_IP="172.20.242.20"
 DEFAULT_ADMIN_USERNAME="admin"
-DEFAULT_ADMIN_PASSWORD="Changeme1!"
 
 # CLI Overrides
 INDEXER_IP=${1:-$DEFAULT_INDEXER_IP}
 ADMIN_USERNAME=${2:-$DEFAULT_ADMIN_USERNAME}
-ADMIN_PASSWORD=${3:-$DEFAULT_ADMIN_PASSWORD}
+ADMIN_PASSWORD=${3:-}
+
+# Prompt for password if not provided via CLI argument
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+    echo "Enter password for Splunk admin user:"
+    while true; do
+        echo -n "Password: "
+        stty -echo
+        read -r pass1
+        stty echo
+        echo
+        echo -n "Confirm password: "
+        stty -echo
+        read -r pass2
+        stty echo
+        echo
+        if [[ "$pass1" == "$pass2" ]]; then
+            ADMIN_PASSWORD="$pass1"
+            break
+        else
+            echo "Passwords do not match. Please try again."
+        fi
+    done
+fi
 
 # Colors
 RED=$'\e[0;31m'
 GREEN=$'\e[0;32m'
+YELLOW=$'\e[0;33m'
 BLUE=$'\e[0;34m'
 NC=$'\e[0m'
 
@@ -38,7 +62,8 @@ install_dependencies() {
       # Check for wget, tar, setfacl (acl)
       # --noreplace prevents recompiling if already installed (Saves time!)
       echo "${BLUE}    > Ensuring wget, tar, and acl are installed...${NC}"
-      emerge --ask n --noreplace net-misc/wget app-arch/tar sys-apps/acl
+      # --ask=n for non-interactive mode (--ask n is invalid syntax)
+      emerge --ask=n --noreplace net-misc/wget app-arch/tar sys-apps/acl
       
   elif command -v apt-get &> /dev/null; then
       # Fallback for Debian dev boxes
@@ -54,7 +79,7 @@ create_splunk_user() {
   if ! id -u splunk &>/dev/null; then
     echo "${BLUE}[*] Creating splunk user...${NC}"
     groupadd splunk 2>/dev/null
-    useradd -r -g splunk -d $INSTALL_DIR splunk
+    useradd -r -g splunk -d "$INSTALL_DIR" splunk
   else
     echo "${GREEN}[*] Splunk user exists.${NC}"
   fi
@@ -68,14 +93,14 @@ install_splunk() {
   fi
 
   echo "${BLUE}[*] Downloading Splunk Forwarder...${NC}"
-  wget --no-check-certificate -O $SPLUNK_PACKAGE_TGZ $SPLUNK_DOWNLOAD_URL || { echo "${RED}Download failed.${NC}"; exit 1; }
+  wget --no-check-certificate -O "$SPLUNK_PACKAGE_TGZ" "$SPLUNK_DOWNLOAD_URL" || { echo "${RED}Download failed.${NC}"; exit 1; }
 
   echo "${BLUE}[*] Extracting...${NC}"
-  tar -xzf $SPLUNK_PACKAGE_TGZ -C /opt
-  rm -f $SPLUNK_PACKAGE_TGZ
+  tar -xzf "$SPLUNK_PACKAGE_TGZ" -C /opt
+  rm -f "$SPLUNK_PACKAGE_TGZ"
 
   create_splunk_user
-  chown -R splunk:splunk $INSTALL_DIR
+  chown -R splunk:splunk "$INSTALL_DIR"
 }
 
 # --- 4. CONFIGURATION ---
@@ -92,7 +117,7 @@ EOL
   # Configure Forwarding
   echo "${BLUE}[*] Adding Forward Server: $INDEXER_IP:9997${NC}"
   # We use --accept-license here to prime the system
-  sudo -u splunk $INSTALL_DIR/bin/splunk add forward-server $INDEXER_IP:9997 -auth "$ADMIN_USERNAME:$ADMIN_PASSWORD" --accept-license --answer-yes --no-prompt
+  sudo -u splunk "$INSTALL_DIR/bin/splunk" add forward-server "$INDEXER_IP:9997" -auth "$ADMIN_USERNAME:$ADMIN_PASSWORD" --accept-license --answer-yes --no-prompt
 }
 
 # --- 5. MONITORS (GENTOO ENHANCED) ---
@@ -171,7 +196,7 @@ manage_service() {
     
     # Let Splunk generate the init script
     # It usually detects /etc/init.d and places 'splunk' there
-    $INSTALL_DIR/bin/splunk enable boot-start --accept-license --answer-yes --no-prompt --user splunk
+    "$INSTALL_DIR/bin/splunk" enable boot-start --accept-license --answer-yes --no-prompt --user splunk
 
     # GENTOO / OPENRC FIX
     if command -v rc-update &> /dev/null; then
@@ -189,7 +214,7 @@ manage_service() {
     else
         # Manual Fallback
         echo "${YELLOW}    > No init system detected. Starting manually.${NC}"
-        sudo -u splunk $INSTALL_DIR/bin/splunk restart
+        sudo -u splunk "$INSTALL_DIR/bin/splunk" restart
     fi
 }
 

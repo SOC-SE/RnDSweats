@@ -1,28 +1,34 @@
 #!/bin/bash
+set -euo pipefail
 #Hardening script for Splunk. Assumes some version of Oracle Linux 9.2
 #
 # Samuel Brucker 2024-2026
 
-set -u
+# Get script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Global variable to hold prompted password (avoids eval)
+_PROMPTED_PASS=""
 
 # --- HELPER FUNCTIONS ---
+# SECURITY: Uses global variable instead of eval to avoid command injection
 prompt_password() {
     local user_label=$1
-    local var_name=$2
+    _PROMPTED_PASS=""
     while true; do
         echo -n "Enter new password for $user_label: "
         stty -echo
-        read pass1
+        read -r pass1
         stty echo
         echo
         echo -n "Confirm new password for $user_label: "
         stty -echo
-        read pass2
+        read -r pass2
         stty echo
         echo
-        
+
         if [ "$pass1" == "$pass2" ] && [ -n "$pass1" ]; then
-            eval "$var_name='$pass1'"
+            _PROMPTED_PASS="$pass1"
             break
         else
             echo "Passwords do not match or are empty. Please try again."
@@ -49,7 +55,7 @@ LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/splunkHarden.log"
 
 # Create log dir
-mkdir -p $LOG_DIR
+mkdir -p "$LOG_DIR"
 
 # Redirect output to log
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -61,7 +67,12 @@ echo "==================================================="
 
 #Enumeration
 echo "Performing first enumeration cycle"
-bash ../../LinuxDev/masterEnum.sh
+ENUM_SCRIPT="$SCRIPT_DIR/../../enumeration/masterEnum.sh"
+if [[ -f "$ENUM_SCRIPT" ]]; then
+    bash "$ENUM_SCRIPT"
+else
+    echo "[WARN] masterEnum.sh not found at $ENUM_SCRIPT, skipping enumeration."
+fi
 
 
 # --- PASSWORD PROMPTS (Gather all creds first) ---
@@ -69,12 +80,17 @@ echo "--- CREDENTIAL SETUP ---"
 
 echo "Changing System Passwords..."
 
-prompt_password "Root" ROOT_PASS
-prompt_password "Bbob" BBOB_PASS
-prompt_password "Splunk Admin" SPLUNK_PASSWORD
-prompt_password "sysadmin" SYSADMIN_PASS
+prompt_password "Root"
+ROOT_PASS="$_PROMPTED_PASS"
 
+prompt_password "Bbob"
+BBOB_PASS="$_PROMPTED_PASS"
 
+prompt_password "Splunk Admin"
+SPLUNK_PASSWORD="$_PROMPTED_PASS"
+
+prompt_password "sysadmin"
+SYSADMIN_PASS="$_PROMPTED_PASS"
 
 echo "root:$ROOT_PASS" | chpasswd
 echo "sysadmin:$SYSADMIN_PASS" | chpasswd
@@ -106,7 +122,7 @@ if [ -d "$SPLUNK_HOME" ]; then
     echo "Found existing Splunk. Backing up licenses..."
     mkdir -p "$BACKUP_DIR/licenses"
     if [ -d "$SPLUNK_HOME/etc/licenses" ]; then
-        cp -R "$SPLUNK_HOME/etc/licenses/*" "$BACKUP_DIR/licenses/" 
+        cp -R "$SPLUNK_HOME/etc/licenses/." "$BACKUP_DIR/licenses/"
     fi
 
     #base Splunk installation
@@ -134,20 +150,20 @@ echo "Installing Splunk..."
 dnf install -y "$SPLUNK_PKG"
 
 # Create Admin User (Seed)
-mkdir -p $SPLUNK_HOME/etc/system/local
-cat > $SPLUNK_HOME/etc/system/local/user-seed.conf <<EOF
+mkdir -p "$SPLUNK_HOME/etc/system/local"
+cat > "$SPLUNK_HOME/etc/system/local/user-seed.conf" <<EOF
 [user_info]
 USERNAME = $SPLUNK_USERNAME
 PASSWORD = $SPLUNK_PASSWORD
 EOF
-chown -R splunk:splunk $SPLUNK_HOME/etc/system/local
+chown -R splunk:splunk "$SPLUNK_HOME/etc/system/local"
 
 # Restore Licenses
-if [ -d "$BACKUP_DIR/licenses" ]; then
+if [ -d "$BACKUP_DIR/licenses" ] && [ "$(ls -A "$BACKUP_DIR/licenses" 2>/dev/null)" ]; then
     echo "Restoring licenses..."
-    mkdir -p $SPLUNK_HOME/etc/licenses
-    cp -r "$BACKUP_DIR/licenses/"* $SPLUNK_HOME/etc/licenses/
-    chown -R splunk:splunk $SPLUNK_HOME/etc/licenses
+    mkdir -p "$SPLUNK_HOME/etc/licenses"
+    cp -r "$BACKUP_DIR/licenses/." "$SPLUNK_HOME/etc/licenses/"
+    chown -R splunk:splunk "$SPLUNK_HOME/etc/licenses"
 fi
 
 # First Start (Accept License)
@@ -158,10 +174,10 @@ echo "Hardening Splunk keys and certs"
 
 # C. Bind MongoDB to Localhost
 echo "Locking down MongoDB..."
-sed -i '$a [kvstore]\nbind_ip = 127.0.0.1' $SPLUNK_HOME/etc/system/local/server.conf
+sed -i '$a [kvstore]\nbind_ip = 127.0.0.1' "$SPLUNK_HOME/etc/system/local/server.conf"
 
 # D. Inputs (Forwarder/Syslog)
-cat > $SPLUNK_HOME/etc/system/local/inputs.conf << EOF
+cat > "$SPLUNK_HOME/etc/system/local/inputs.conf" << EOF
 [default]
 host = $(hostname)
 
@@ -178,9 +194,14 @@ disabled = 0
 EOF
 
 
-#move the custom props.conf
-chown splunk:splunk props.conf
-mv props.conf $SPLUNK_HOME/etc/system/local/
+#move the custom props.conf if it exists
+PROPS_CONF="$SCRIPT_DIR/props.conf"
+if [[ -f "$PROPS_CONF" ]]; then
+    chown splunk:splunk "$PROPS_CONF"
+    mv "$PROPS_CONF" "$SPLUNK_HOME/etc/system/local/"
+else
+    echo "[WARN] props.conf not found at $PROPS_CONF, skipping."
+fi
 
 
 # Start Splunk Back Up 

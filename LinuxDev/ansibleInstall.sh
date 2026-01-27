@@ -3,7 +3,7 @@
 # Enhanced detection based on package manager and service manager
 # More robust for competitions where /etc/os-release might be tampered with
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -221,7 +221,7 @@ display_detection_summary() {
     echo -e "Package Manager:  ${CYAN}${PACKAGE_MANAGER}${NC}"
     echo -e "Service Manager:  ${CYAN}${SERVICE_MANAGER}${NC}"
     echo -e "Python:           ${CYAN}${PYTHON_CMD:-not found}${NC}"
-    if [ -n "$PYTHON_VERSION" ]; then
+    if [ -n "${PYTHON_VERSION:-}" ]; then
         echo -e "Python Version:   ${CYAN}${PYTHON_VERSION}${NC}"
     fi
     echo -e "${GREEN}=========================================${NC}"
@@ -454,7 +454,7 @@ verify_installation() {
         log_success "✓ $ANSIBLE_VERSION"
         
         # Display ansible location
-        log_info "Ansible executable: $(which ansible)"
+        log_info "Ansible executable: $(command -v ansible)"
         
         # Display ansible config
         if command -v ansible-config &> /dev/null; then
@@ -527,9 +527,7 @@ main() {
     install_ansible
     
     echo ""
-    verify_installation
-    
-    if [ $? -eq 0 ]; then
+    if verify_installation; then
         display_postinstall_info
         exit 0
     else

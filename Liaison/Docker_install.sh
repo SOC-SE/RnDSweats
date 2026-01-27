@@ -152,14 +152,16 @@ install_docker() {
 
     # Uninstall old versions with spinner and error capture
     printf "Removing any old Docker packages... "
-    local err_file=$(mktemp /tmp/docker_err_XXXXXX)
+    local err_file
+    err_file=$(mktemp /tmp/docker_err_XXXXXX)
     ( $REMOVE_CMD docker docker-engine docker.io containerd runc >/dev/null 2>"$err_file" || true
       $REMOVE_EXTRA >/dev/null 2>>"$err_file" || true ) &
     local pid=$!
     spinner $pid
     wait $pid
     local exit_status=$?
-    local err_content=$(cat "$err_file")
+    local err_content
+    err_content=$(cat "$err_file")
     rm -f "$err_file"
     if [ $exit_status -ne 0 ]; then
         echo ""  # Newline after spinner
@@ -171,7 +173,8 @@ install_docker() {
 
     # Main installation with spinner and error capture
     printf "Installing Docker... "
-    local err_file=$(mktemp /tmp/docker_err_XXXXXX)
+    local err_file
+    err_file=$(mktemp /tmp/docker_err_XXXXXX)
     local distro_version
         if [ "$PKG_MANAGER" = "apt" ]; then
                 ( $UPDATE_CMD >/dev/null 2>"$err_file"
@@ -323,24 +326,22 @@ prompt_mode() {
     echo "1) Install Docker"
     echo "2) Uninstall Docker"
     echo "3) Quit"
-    read -p "Enter your choice (1-3): " mode
+    read -r -p "Enter your choice (1-3): " mode
     case "$mode" in
-        1) 
-            read -p "Are you sure you want to install Docker? (y/n): " confirm
+        1)
+            read -r -p "Are you sure you want to install Docker? (y/n): " confirm
             if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-                install_docker
-                if [ $? -eq 0 ]; then
+                if install_docker; then
                     log_info "Installation complete."
                 fi
             else
                 log_warn "Installation cancelled."
             fi
             ;;
-        2) 
-            read -p "Are you sure you want to uninstall Docker? (y/n): " confirm
+        2)
+            read -r -p "Are you sure you want to uninstall Docker? (y/n): " confirm
             if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-                uninstall_docker
-                if [ $? -eq 0 ]; then
+                if uninstall_docker; then
                     log_info "Uninstallation complete."
                 fi
             else

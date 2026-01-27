@@ -1,4 +1,8 @@
 #!/bin/bash
+# shellcheck disable=SC2034,SC2155,SC2178
+# SC2034: Variables used by sourced scripts or for readability
+# SC2155: Declare/assign separately - intentionally combined for readability in local vars
+# SC2178: False positive with nameref arrays
 #
 #   masterEnum.sh
 #   
@@ -14,7 +18,7 @@
 #   Samuel Brucker 2025-2026
 #
 
-set -u pipefail 
+set -euo pipefail
 
 
 # Ensure we are root
@@ -76,14 +80,17 @@ get_inventory(){
 
     # RENAMED to avoid conflict with your main get_users module
     get_group_members() {
-       grep "^$1:" /etc/group | cut -d: -f4 | tr ',' '\n'
+       grep "^$1:" /etc/group 2>/dev/null | cut -d: -f4 | tr ',' '\n' || true
     }
 
     # --- Gathering Variables ---
     # We use local variables where possible to be safe
-    local HOSTNAME=$(hostname || cat /etc/hostname)
-    local IP_ADDR=$( ( ip a | grep -oE '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}/[[:digit:]]{1,2}' | grep -v '127.0.0.1' ) || ( ifconfig | grep -oE 'inet.+([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}' | grep -v '127.0.0.1' ) )
-    local OS=$( (hostnamectl 2>/dev/null | grep "Operating System" | cut -d: -f2) || (cat /etc/*-release 2>/dev/null | grep "PRETTY_NAME" | sed 's/PRETTY_NAME=//' | sed 's/"//g') )
+    local HOSTNAME
+    HOSTNAME=$(hostname || cat /etc/hostname)
+    local IP_ADDR
+    IP_ADDR=$( ( ip a | grep -oE '([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}/[[:digit:]]{1,2}' | grep -v '127.0.0.1' ) || ( ifconfig | grep -oE 'inet.+([[:digit:]]{1,3}\.){3}[[:digit:]]{1,3}' | grep -v '127.0.0.1' ) )
+    local OS
+    OS=$( (hostnamectl 2>/dev/null | grep "Operating System" | cut -d: -f2) || (cat /etc/*-release 2>/dev/null | grep "PRETTY_NAME" | sed 's/PRETTY_NAME=//' | sed 's/"//g') )
 
     # --- Output ---
     echo "System Inventory - Security Assessment"
@@ -94,30 +101,32 @@ get_inventory(){
     empty_line
 
     printf "Hostname: "
-    echo -e $HOSTNAME
+    echo -e "$HOSTNAME"
     empty_line
 
     printf "IP Address: "
-    echo -e $IP_ADDR
+    echo -e "$IP_ADDR"
     empty_line
 
     printf "Script User: "
-    echo -e $USER
+    echo -e "${USER:-$(whoami)}"
     empty_line
 
     printf "Operating System: "
-    echo -e $OS
+    echo -e "$OS"
     empty_line
 
     echo "Hardware Resources:"
     
     # CPU Information
+    local cpu_model
+    local cpu_cores
     if command_exists lscpu; then
-        local cpu_model=$(lscpu | grep "Model name:" | sed 's/Model name:[ \t]*//')
-        local cpu_cores=$(lscpu | grep "^CPU(s):" | awk '{print $2}')
+        cpu_model=$(lscpu | grep "Model name:" | sed 's/Model name:[ \t]*//')
+        cpu_cores=$(lscpu | grep "^CPU(s):" | awk '{print $2}')
     else
-        local cpu_model=$(grep "model name" /proc/cpuinfo | head -n1 | cut -d: -f2 | sed 's/^[ \t]*//')
-        local cpu_cores=$(grep -c ^processor /proc/cpuinfo)
+        cpu_model=$(grep "model name" /proc/cpuinfo | head -n1 | cut -d: -f2 | sed 's/^[ \t]*//')
+        cpu_cores=$(grep -c ^processor /proc/cpuinfo)
     fi
 
     printf "CPU Model: "
@@ -126,8 +135,9 @@ get_inventory(){
     echo "$cpu_cores"
 
     # RAM Information
+    local ram_total
     if command_exists free; then
-        local ram_total=$(free -m | awk '/Mem:/ {print $2}')
+        ram_total=$(free -m | awk '/Mem:/ {print $2}')
         printf "Total RAM: "
         echo "${ram_total} MB"
     else
@@ -247,16 +257,16 @@ get_inventory(){
     fi
 
     echo "MOUNTS:"
-    grep -v '^#' /etc/fstab
+    grep -v '^#' /etc/fstab 2>/dev/null || echo "  (no mounts in fstab)"
     empty_line
 
     echo "Processes possibly tied to services:"
-    ps aux | awk 'NR==1; /docker|samba|postfix|dovecot|smtp|psql|ssh|clamav|mysql|bind9|apache|smbfs|samba|openvpn|splunk|nginx|mysql|mariadb|ftp|slapd|amavisd|wazuh/ && !/awk/ {print $0}' | grep -v "grep"
+    ps aux | awk 'NR==1; /docker|samba|postfix|dovecot|smtp|psql|ssh|clamav|mysql|bind9|apache|smbfs|samba|openvpn|splunk|nginx|mysql|mariadb|ftp|slapd|amavisd|wazuh/ && !/awk/ {print $0}' | grep -v "grep" || echo "  (no matching processes found)"
     empty_line
 
     if command -v kubectl >/dev/null; then
         echo "KUBERNETES:"
-        k=$(kubectl get nodes $HOSTNAME 2>/dev/null | grep "control-plane")
+        k=$(kubectl get nodes "$HOSTNAME" 2>/dev/null | grep "control-plane")
         if [ -z "$k" ]; then
             echo "THIS IS A KUBERNETES WORKER NODE"
         else
@@ -504,10 +514,10 @@ get_cron() {
         printf "%-${USER_WIDTH}s %-${SCHEDULE_WIDTH}s %-${COMMAND_WIDTH}s %-${FLAGS_WIDTH}s\n" \
             "USER" "SCHEDULE" "COMMAND" "FLAGS"
         printf "%-${USER_WIDTH}s %-${SCHEDULE_WIDTH}s %-${COMMAND_WIDTH}s %-${FLAGS_WIDTH}s\n" \
-            "$(printf '%*s' 4 | tr ' ' '-')" \
-            "$(printf '%*s' 8 | tr ' ' '-')" \
-            "$(printf '%*s' 7 | tr ' ' '-')" \
-            "$(printf '%*s' 5 | tr ' ' '-')"
+            "$(printf '%*s' 4 '' | tr ' ' '-')" \
+            "$(printf '%*s' 8 '' | tr ' ' '-')" \
+            "$(printf '%*s' 7 '' | tr ' ' '-')" \
+            "$(printf '%*s' 5 '' | tr ' ' '-')"
     }
 
     # Function to print cron jobs from array
@@ -754,12 +764,12 @@ get_users(){
         printf "%-${USERNAME_WIDTH}s %-${UID_WIDTH}s %-${GROUPS_WIDTH}s %-${SHELL_WIDTH}s %-${HOME_WIDTH}s %-${FLAGS_WIDTH}s\n" \
             "USERNAME" "UID" "GROUPS" "SHELL" "HOME" "FLAGS"
         printf "%-${USERNAME_WIDTH}s %-${UID_WIDTH}s %-${GROUPS_WIDTH}s %-${SHELL_WIDTH}s %-${HOME_WIDTH}s %-${FLAGS_WIDTH}s\n" \
-            "$(printf '%*s' 8 | tr ' ' '-')" \
-            "$(printf '%*s' 3 | tr ' ' '-')" \
-            "$(printf '%*s' 6 | tr ' ' '-')" \
-            "$(printf '%*s' 5 | tr ' ' '-')" \
-            "$(printf '%*s' 4 | tr ' ' '-')" \
-            "$(printf '%*s' 5 | tr ' ' '-')"
+            "$(printf '%*s' 8 '' | tr ' ' '-')" \
+            "$(printf '%*s' 3 '' | tr ' ' '-')" \
+            "$(printf '%*s' 6 '' | tr ' ' '-')" \
+            "$(printf '%*s' 5 '' | tr ' ' '-')" \
+            "$(printf '%*s' 4 '' | tr ' ' '-')" \
+            "$(printf '%*s' 5 '' | tr ' ' '-')"
     }
 
     # Function to print users from array
@@ -785,10 +795,10 @@ get_users(){
         printf "%-${FLAG_DETAIL_FLAG_WIDTH}s %-${FLAG_DETAIL_USERNAME_WIDTH}s %-${FLAG_DETAIL_UID_WIDTH}s %-${FLAG_DETAIL_REASON_WIDTH}s\n" \
             "FLAG" "USERNAME" "UID" "REASON"
         printf "%-${FLAG_DETAIL_FLAG_WIDTH}s %-${FLAG_DETAIL_USERNAME_WIDTH}s %-${FLAG_DETAIL_UID_WIDTH}s %-${FLAG_DETAIL_REASON_WIDTH}s\n" \
-            "$(printf '%*s' 4 | tr ' ' '-')" \
-            "$(printf '%*s' 8 | tr ' ' '-')" \
-            "$(printf '%*s' 3 | tr ' ' '-')" \
-            "$(printf '%*s' 6 | tr ' ' '-')"
+            "$(printf '%*s' 4 '' | tr ' ' '-')" \
+            "$(printf '%*s' 8 '' | tr ' ' '-')" \
+            "$(printf '%*s' 3 '' | tr ' ' '-')" \
+            "$(printf '%*s' 6 '' | tr ' ' '-')"
         
         if [[ ${#flag_details[@]} -eq 0 ]]; then
             echo "No flags to detail."
@@ -886,12 +896,11 @@ get_users(){
         echo "  Total flags: ${#flag_details[@]}"
         
         log "User enumeration completed - High-risk: ${#high_risk_users[@]}, Privileged: ${#privileged_users[@]}, Standard: ${#standard_users[@]}, Flags: ${#flag_details[@]}"
-
-
-        #Execute grabbing the users
-        check_system
-        enumerate_users
     }
+
+    # Execute the user enumeration
+    check_system
+    enumerate_users
 }
 
 get_sudoers(){
@@ -1149,11 +1158,11 @@ get_sudoers(){
         printf "%-${ENTITY_WIDTH}s %-${TYPE_WIDTH}s %-${PERMISSIONS_WIDTH}s %-${COMMANDS_WIDTH}s %-${FLAGS_WIDTH}s\n" \
             "ENTITY" "TYPE" "PERMISSIONS" "COMMANDS" "FLAGS"
         printf "%-${ENTITY_WIDTH}s %-${TYPE_WIDTH}s %-${PERMISSIONS_WIDTH}s %-${COMMANDS_WIDTH}s %-${FLAGS_WIDTH}s\n" \
-            "$(printf '%*s' 6 | tr ' ' '-')" \
-            "$(printf '%*s' 4 | tr ' ' '-')" \
-            "$(printf '%*s' 11 | tr ' ' '-')" \
-            "$(printf '%*s' 8 | tr ' ' '-')" \
-            "$(printf '%*s' 5 | tr ' ' '-')"
+            "$(printf '%*s' 6 '' | tr ' ' '-')" \
+            "$(printf '%*s' 4 '' | tr ' ' '-')" \
+            "$(printf '%*s' 11 '' | tr ' ' '-')" \
+            "$(printf '%*s' 8 '' | tr ' ' '-')" \
+            "$(printf '%*s' 5 '' | tr ' ' '-')"
     }
 
     # Function to print sudoers rules from array
@@ -1273,38 +1282,76 @@ get_services(){
 
     # Arrays to store services by category
     declare -a active_services
-    declare -a inactive_services  
+    declare -a inactive_services
     declare -a malformed_services
 
+    # --- SYSTEMD DETECTION ---
+    if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
+        # Read systemctl output and categorize services
+        while read -r unit load active sub description; do
+            # Skip empty lines
+            [[ -z "$unit" ]] && continue
 
-    # Read systemctl output and categorize services
-    while read -r unit load active sub description; do
-        # Skip empty lines
-        [[ -z "$unit" ]] && continue
-        
-        # Handle malformed services with ● character (different field order)
-        if [[ "$unit" == *"●"* ]]; then
-            # For ● entries: ● service.name not-found inactive dead service.name
-            service_name=${load%.service}  # load field contains the actual service name
-            load_state="$active"           # active field contains the load state
-            active_state="$sub"            # sub field contains the active state
-            malformed_services+=("$service_name|$active_state|$load_state")
-        else
-            # Normal services: service.name loaded active sub description
-            service_name=${unit%.service}
-            
-            if [[ "$load" == "not-found" ]]; then
-                # Malformed services without ● character
-                malformed_services+=("$service_name|$active|$load")
-            elif [[ "$active" == "active" ]]; then
-                # Active services
-                active_services+=("$service_name|$active|$sub")
+            # Handle malformed services with ● character (different field order)
+            if [[ "$unit" == *"●"* ]]; then
+                # For ● entries: ● service.name not-found inactive dead service.name
+                service_name=${load%.service}  # load field contains the actual service name
+                load_state="$active"           # active field contains the load state
+                active_state="$sub"            # sub field contains the active state
+                malformed_services+=("$service_name|$active_state|$load_state")
             else
-                # Inactive services (loaded but not active)
-                inactive_services+=("$service_name|$active|$sub")
+                # Normal services: service.name loaded active sub description
+                service_name=${unit%.service}
+
+                if [[ "$load" == "not-found" ]]; then
+                    # Malformed services without ● character
+                    malformed_services+=("$service_name|$active|$load")
+                elif [[ "$active" == "active" ]]; then
+                    # Active services
+                    active_services+=("$service_name|$active|$sub")
+                else
+                    # Inactive services (loaded but not active)
+                    inactive_services+=("$service_name|$active|$sub")
+                fi
             fi
-        fi
-    done < <(systemctl list-units --type=service --no-pager --no-legend --all)
+        done < <(systemctl list-units --type=service --no-pager --no-legend --all)
+
+    # --- OPENRC DETECTION (Gentoo/Alpine) ---
+    elif command -v rc-update >/dev/null 2>&1; then
+        log "OpenRC detected - enumerating services via rc-status"
+
+        # Use rc-status to get running services
+        while read -r line; do
+            # rc-status output format: [ started/stopped ] service_name
+            if echo "$line" | grep -q "started"; then
+                service_name=$(echo "$line" | awk '{print $1}')
+                # Handle alternate format where service name comes after status
+                [[ -z "$service_name" || "$service_name" == "[" ]] && service_name=$(echo "$line" | awk '{print $3}')
+                [[ -n "$service_name" ]] && active_services+=("$service_name|active|running")
+            fi
+        done < <(rc-status -a 2>/dev/null)
+
+        # Iterate over init scripts to find stopped/inactive services
+        for svc_path in /etc/init.d/*; do
+            [[ -x "$svc_path" ]] || continue
+            [[ -d "$svc_path" ]] && continue
+            service_name=$(basename "$svc_path")
+
+            # Skip if already found in active list
+            local found=false
+            for active in "${active_services[@]}"; do
+                if [[ "$active" == "$service_name|"* ]]; then
+                    found=true
+                    break
+                fi
+            done
+
+            [[ "$found" == "false" ]] && inactive_services+=("$service_name|inactive|stopped")
+        done
+    else
+        echo "[-] Neither systemd nor OpenRC detected. Cannot enumerate services."
+        return
+    fi
 
     # Function to print section header
     print_header() {
@@ -1314,7 +1361,7 @@ get_services(){
         echo
         echo "=== $title ==="
         printf "%-50s %-10s %-15s\n" "SERVICE" "STATUS" "$col3_name"
-        printf "%-50s %-10s %-15s\n" "$(printf '%*s' 50 | tr ' ' '-')" "$(printf '%*s' 10 | tr ' ' '-')" "$(printf '%*s' 15 | tr ' ' '-')"
+        printf "%-50s %-10s %-15s\n" "$(printf '%*s' 50 '' | tr ' ' '-')" "$(printf '%*s' 10 '' | tr ' ' '-')" "$(printf '%*s' 15 '' | tr ' ' '-')"
     }
 
     # Function to get state priority for sorting (lower number = higher priority)
@@ -1424,6 +1471,406 @@ get_services(){
     generate_report
     log "Service enumeration completed."
 
+}
+
+get_persistence(){
+    # Check for common persistence mechanisms and rootkit indicators
+    echo "Persistence & Rootkit Indicators - Security Assessment"
+    echo "======================================================="
+
+    echo ""
+    echo "=== LD_PRELOAD / Shared Library Hijacking ==="
+
+    # Check LD_PRELOAD environment variable
+    if [[ -n "${LD_PRELOAD:-}" ]]; then
+        echo "[CRITICAL] LD_PRELOAD is set: $LD_PRELOAD"
+    else
+        echo "[OK] LD_PRELOAD not set in current environment"
+    fi
+
+    # Check /etc/ld.so.preload
+    if [[ -f /etc/ld.so.preload ]]; then
+        echo "[WARNING] /etc/ld.so.preload exists:"
+        cat /etc/ld.so.preload | sed 's/^/    /'
+    else
+        echo "[OK] /etc/ld.so.preload does not exist"
+    fi
+
+    # Check for unusual entries in ld.so.conf.d
+    echo ""
+    echo "=== Dynamic Linker Configuration ==="
+    if [[ -d /etc/ld.so.conf.d ]]; then
+        local unusual_ldconf=0
+        for conf in /etc/ld.so.conf.d/*.conf; do
+            [[ -f "$conf" ]] || continue
+            while read -r line; do
+                [[ "$line" =~ ^# ]] && continue
+                [[ -z "$line" ]] && continue
+                # Flag paths outside standard locations
+                if [[ ! "$line" =~ ^/(usr/)?(lib|lib64|local/lib) ]]; then
+                    echo "[SUSPICIOUS] Unusual path in $conf: $line"
+                    unusual_ldconf=1
+                fi
+            done < "$conf"
+        done
+        [[ $unusual_ldconf -eq 0 ]] && echo "[OK] No unusual ld.so.conf.d entries"
+    fi
+
+    echo ""
+    echo "=== SSH Authorized Keys Audit ==="
+    local auth_keys_found=0
+    while IFS=: read -r username _ uid _ _ home shell; do
+        # Skip system accounts and nologin shells
+        [[ "$uid" -lt 1000 && "$username" != "root" ]] && continue
+        [[ "$shell" =~ (nologin|false)$ ]] && continue
+
+        local auth_file="$home/.ssh/authorized_keys"
+        if [[ -f "$auth_file" ]]; then
+            local key_count
+            key_count=$(grep -c "^ssh-" "$auth_file" 2>/dev/null || echo 0)
+            if [[ "$key_count" -gt 0 ]]; then
+                echo "[$username] $auth_file ($key_count keys)"
+                auth_keys_found=1
+
+                # Check for suspicious patterns
+                if grep -q "command=" "$auth_file" 2>/dev/null; then
+                    echo "  [WARNING] Contains command= restrictions (could be legitimate or backdoor)"
+                fi
+                if grep -q "no-.*forwarding" "$auth_file" 2>/dev/null; then
+                    echo "  [INFO] Contains forwarding restrictions"
+                fi
+            fi
+        fi
+
+        # Also check root's authorized_keys in /root
+        if [[ "$username" == "root" && -f "/root/.ssh/authorized_keys" ]]; then
+            local root_keys
+            root_keys=$(grep -c "^ssh-" /root/.ssh/authorized_keys 2>/dev/null || echo 0)
+            [[ "$root_keys" -gt 0 ]] && echo "[root] /root/.ssh/authorized_keys ($root_keys keys)"
+        fi
+    done < /etc/passwd
+    [[ $auth_keys_found -eq 0 ]] && echo "[INFO] No authorized_keys files found"
+
+    echo ""
+    echo "=== Loaded Kernel Modules ==="
+    if command -v lsmod &>/dev/null; then
+        local module_count
+        module_count=$(lsmod | wc -l)
+        echo "Total modules loaded: $((module_count - 1))"
+
+        # List modules, flagging potentially suspicious ones
+        local -a suspicious_module_patterns=(
+            "rootkit" "hide" "stealth" "diamorphine" "reptile" "suterusu"
+        )
+
+        while read -r module _ _ used_by; do
+            [[ "$module" == "Module" ]] && continue
+            for pattern in "${suspicious_module_patterns[@]}"; do
+                if [[ "${module,,}" =~ $pattern ]]; then
+                    echo "[CRITICAL] Suspicious module: $module"
+                fi
+            done
+        done < <(lsmod)
+    else
+        echo "[SKIP] lsmod not available"
+    fi
+
+    echo ""
+    echo "=== Package Integrity Verification ==="
+    if command -v rpm &>/dev/null; then
+        echo "Running: rpm -Va (modified packages)..."
+        local rpm_issues
+        # Use set +o pipefail locally to avoid SIGPIPE when head closes early
+        rpm_issues=$(set +o pipefail; rpm -Va 2>/dev/null | grep -E "^..5" | head -20)
+        if [[ -n "$rpm_issues" ]]; then
+            echo "[WARNING] Modified system files detected (showing first 20):"
+            echo "$rpm_issues" | sed 's/^/    /'
+        else
+            echo "[OK] No modified package files detected"
+        fi
+    elif command -v dpkg &>/dev/null; then
+        echo "Running: dpkg -V (modified packages)..."
+        local dpkg_issues
+        # Use set +o pipefail locally to avoid SIGPIPE when head closes early
+        dpkg_issues=$(set +o pipefail; dpkg -V 2>/dev/null | head -20)
+        if [[ -n "$dpkg_issues" ]]; then
+            echo "[WARNING] Modified system files detected (showing first 20):"
+            echo "$dpkg_issues" | sed 's/^/    /'
+        else
+            echo "[OK] No modified package files detected"
+        fi
+    elif command -v apk &>/dev/null; then
+        echo "Running: apk verify (modified packages)..."
+        local apk_issues
+        # Use set +o pipefail locally to avoid SIGPIPE when head closes early
+        apk_issues=$(set +o pipefail; apk verify 2>&1 | grep -i "UNTRUSTED\|MISSING\|changed" | head -20)
+        if [[ -n "$apk_issues" ]]; then
+            echo "[WARNING] Package verification issues (showing first 20):"
+            echo "$apk_issues" | sed 's/^/    /'
+        else
+            echo "[OK] No package verification issues"
+        fi
+    else
+        echo "[SKIP] No supported package verification tool found"
+    fi
+
+    echo ""
+    echo "=== Failed Login Attempts (Last 24h) ==="
+    if command -v journalctl &>/dev/null; then
+        local failed_logins
+        failed_logins=$(journalctl --since "24 hours ago" 2>/dev/null | grep -iE "failed|invalid|authentication failure" | wc -l)
+        echo "Failed authentication events: $failed_logins"
+        if [[ "$failed_logins" -gt 50 ]]; then
+            echo "[WARNING] High number of failed logins - possible brute force"
+            echo "Top source IPs:"
+            (set +o pipefail; journalctl --since "24 hours ago" 2>/dev/null | grep -iE "failed|invalid" | grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" | sort | uniq -c | sort -rn | head -5) | sed 's/^/    /' || true
+        fi
+    elif [[ -f /var/log/auth.log ]]; then
+        local failed_logins
+        failed_logins=$(grep -c -iE "failed|invalid" /var/log/auth.log 2>/dev/null || echo 0)
+        echo "Failed authentication events in auth.log: $failed_logins"
+    elif [[ -f /var/log/secure ]]; then
+        local failed_logins
+        failed_logins=$(grep -c -iE "failed|invalid" /var/log/secure 2>/dev/null || echo 0)
+        echo "Failed authentication events in secure log: $failed_logins"
+    else
+        echo "[SKIP] No accessible authentication logs"
+    fi
+
+    echo ""
+    echo "=== World-Writable Files (Outside /tmp) ==="
+    local world_writable
+    world_writable=$(set +o pipefail; find / -xdev -type f -perm -0002 ! -path "/tmp/*" ! -path "/var/tmp/*" ! -path "/dev/*" ! -path "/proc/*" ! -path "/sys/*" 2>/dev/null | head -20)
+    if [[ -n "$world_writable" ]]; then
+        echo "[WARNING] World-writable files found:"
+        echo "$world_writable" | sed 's/^/    /'
+    else
+        echo "[OK] No world-writable files outside temp directories"
+    fi
+
+    echo ""
+    echo "=== Unowned Files ==="
+    local unowned_files
+    unowned_files=$(set +o pipefail; find / -xdev \( -nouser -o -nogroup \) ! -path "/proc/*" ! -path "/sys/*" 2>/dev/null | head -20)
+    if [[ -n "$unowned_files" ]]; then
+        echo "[WARNING] Unowned files found:"
+        echo "$unowned_files" | sed 's/^/    /'
+    else
+        echo "[OK] No unowned files found"
+    fi
+
+    echo ""
+    echo "=== Rootkit Scanner Status ==="
+    local scanners_available=0
+    if command -v chkrootkit &>/dev/null; then
+        echo "[INFO] chkrootkit is installed - run manually: chkrootkit"
+        scanners_available=1
+    fi
+    if command -v rkhunter &>/dev/null; then
+        echo "[INFO] rkhunter is installed - run manually: rkhunter --check"
+        scanners_available=1
+    fi
+    if [[ $scanners_available -eq 0 ]]; then
+        echo "[INFO] No rootkit scanners installed (chkrootkit, rkhunter)"
+        echo "       Consider: apt install chkrootkit rkhunter (Debian/Ubuntu)"
+        echo "                 dnf install chkrootkit rkhunter (RHEL/Fedora)"
+    fi
+
+    log "Persistence & rootkit indicator enumeration completed"
+}
+
+get_network_security(){
+    # Network security enumeration
+    echo "Network Security - Firewall & Connections"
+    echo "=========================================="
+
+    echo ""
+    echo "=== Active Firewall Rules ==="
+
+    # Check nftables first (newer)
+    if command -v nft &>/dev/null; then
+        echo "--- nftables rules ---"
+        (set +o pipefail; nft list ruleset 2>/dev/null | head -50) || echo "[INFO] No nftables rules or access denied"
+    fi
+
+    # Check iptables
+    if command -v iptables &>/dev/null; then
+        echo ""
+        echo "--- iptables rules (IPv4) ---"
+        # Use subshell with +pipefail to avoid SIGPIPE when head closes early
+        (set +o pipefail; iptables -L -n -v 2>/dev/null | head -40) || echo "[INFO] No iptables rules or access denied"
+    fi
+
+    # Check ip6tables
+    if command -v ip6tables &>/dev/null; then
+        local ipv6_rules
+        # Use set +o pipefail to avoid SIGPIPE issues with grep | wc
+        ipv6_rules=$(set +o pipefail; ip6tables -L -n 2>/dev/null | grep -v "^Chain\|^target\|^$" | wc -l || echo 0)
+        if [[ "$ipv6_rules" -gt 0 ]]; then
+            echo ""
+            echo "--- ip6tables rules (IPv6) ---"
+            ip6tables -L -n -v 2>/dev/null | head -30 || true
+        else
+            echo "[INFO] No IPv6 firewall rules configured"
+        fi
+    fi
+
+    # Check firewalld status
+    if command -v firewall-cmd &>/dev/null; then
+        echo ""
+        echo "--- firewalld status ---"
+        firewall-cmd --state 2>/dev/null || echo "firewalld not running"
+        if firewall-cmd --state &>/dev/null; then
+            echo "Active zones:"
+            firewall-cmd --get-active-zones 2>/dev/null
+            echo "Default zone rules:"
+            (set +o pipefail; firewall-cmd --list-all 2>/dev/null | head -20) || true
+        fi
+    fi
+
+    # Check UFW status
+    if command -v ufw &>/dev/null; then
+        echo ""
+        echo "--- UFW status ---"
+        ufw status verbose 2>/dev/null || echo "UFW not available or access denied"
+    fi
+
+    echo ""
+    echo "=== Established Connections ==="
+    if command -v ss &>/dev/null; then
+        echo "Outbound established connections (ESTAB):"
+        # Use set +o pipefail to avoid issues when no connections exist
+        (set +o pipefail; ss -tun state established 2>/dev/null | grep -v "Local Address" | sort -k5 | head -20) || echo "  (none)"
+    elif command -v netstat &>/dev/null; then
+        (set +o pipefail; netstat -tun 2>/dev/null | grep ESTABLISHED | head -20) || echo "  (none)"
+    fi
+
+    echo ""
+    echo "=== Routing Table ==="
+    if command -v ip &>/dev/null; then
+        (set +o pipefail; ip route 2>/dev/null | head -10) || echo "  (unable to get routes)"
+    else
+        (set +o pipefail; route -n 2>/dev/null | head -10) || echo "  (unable to get routes)"
+    fi
+
+    echo ""
+    echo "=== Network Interfaces (Non-Loopback) ==="
+    if command -v ip &>/dev/null; then
+        ip -br addr 2>/dev/null | grep -v "^lo " || echo "  (none found)"
+    else
+        ifconfig 2>/dev/null | grep -A1 "^[a-z]" | grep -v "^lo\|^--" || echo "  (none found)"
+    fi
+
+    log "Network security enumeration completed"
+}
+
+get_ssh_config(){
+    # SSH configuration security analysis
+    echo "SSH Configuration Analysis"
+    echo "==========================="
+
+    local sshd_config="/etc/ssh/sshd_config"
+
+    if [[ ! -f "$sshd_config" ]]; then
+        echo "[INFO] SSH server not installed (sshd_config not found)"
+        return
+    fi
+
+    echo ""
+    echo "=== Critical SSH Settings ==="
+
+    # Function to get effective setting (last occurrence wins, or default)
+    get_ssh_setting() {
+        local setting="$1"
+        local default="$2"
+        local value
+        value=$(grep -i "^[[:space:]]*$setting" "$sshd_config" 2>/dev/null | tail -1 | awk '{print $2}')
+        echo "${value:-$default}"
+    }
+
+    # Check PermitRootLogin
+    local root_login
+    root_login=$(get_ssh_setting "PermitRootLogin" "prohibit-password")
+    if [[ "$root_login" == "yes" ]]; then
+        echo "[CRITICAL] PermitRootLogin: yes (allows root password login!)"
+    elif [[ "$root_login" == "prohibit-password" || "$root_login" == "without-password" ]]; then
+        echo "[OK] PermitRootLogin: $root_login (key-only)"
+    elif [[ "$root_login" == "no" ]]; then
+        echo "[OK] PermitRootLogin: no (disabled)"
+    else
+        echo "[INFO] PermitRootLogin: $root_login"
+    fi
+
+    # Check PasswordAuthentication
+    local password_auth
+    password_auth=$(get_ssh_setting "PasswordAuthentication" "yes")
+    if [[ "$password_auth" == "yes" ]]; then
+        echo "[WARNING] PasswordAuthentication: yes (consider key-only)"
+    else
+        echo "[OK] PasswordAuthentication: no (key-only)"
+    fi
+
+    # Check PermitEmptyPasswords
+    local empty_pass
+    empty_pass=$(get_ssh_setting "PermitEmptyPasswords" "no")
+    if [[ "$empty_pass" == "yes" ]]; then
+        echo "[CRITICAL] PermitEmptyPasswords: yes (extremely dangerous!)"
+    else
+        echo "[OK] PermitEmptyPasswords: no"
+    fi
+
+    # Check Port
+    local ssh_port
+    ssh_port=$(get_ssh_setting "Port" "22")
+    if [[ "$ssh_port" == "22" ]]; then
+        echo "[INFO] Port: 22 (default)"
+    else
+        echo "[INFO] Port: $ssh_port (non-standard)"
+    fi
+
+    # Check X11Forwarding
+    local x11_fwd
+    x11_fwd=$(get_ssh_setting "X11Forwarding" "no")
+    if [[ "$x11_fwd" == "yes" ]]; then
+        echo "[INFO] X11Forwarding: yes (enabled)"
+    else
+        echo "[OK] X11Forwarding: no"
+    fi
+
+    # Check MaxAuthTries
+    local max_tries
+    max_tries=$(get_ssh_setting "MaxAuthTries" "6")
+    if [[ "$max_tries" -gt 6 ]]; then
+        echo "[WARNING] MaxAuthTries: $max_tries (high - consider lowering)"
+    else
+        echo "[OK] MaxAuthTries: $max_tries"
+    fi
+
+    # Check for AllowUsers/AllowGroups restrictions
+    if grep -qiE "^[[:space:]]*(AllowUsers|AllowGroups)" "$sshd_config" 2>/dev/null; then
+        echo "[OK] User/Group restrictions configured:"
+        grep -iE "^[[:space:]]*(AllowUsers|AllowGroups)" "$sshd_config" | sed 's/^/    /'
+    else
+        echo "[INFO] No AllowUsers/AllowGroups restrictions"
+    fi
+
+    # Check Protocol (only relevant for very old configs)
+    if grep -qi "^[[:space:]]*Protocol[[:space:]]*1" "$sshd_config" 2>/dev/null; then
+        echo "[CRITICAL] Protocol 1 enabled (insecure, deprecated!)"
+    fi
+
+    # Check for weak ciphers/MACs if specified
+    if grep -qi "^[[:space:]]*Ciphers" "$sshd_config" 2>/dev/null; then
+        local ciphers
+        ciphers=$(grep -i "^[[:space:]]*Ciphers" "$sshd_config" | tail -1)
+        if [[ "$ciphers" =~ (3des|arcfour|blowfish) ]]; then
+            echo "[WARNING] Weak ciphers detected: $ciphers"
+        else
+            echo "[OK] Custom cipher suite configured"
+        fi
+    fi
+
+    log "SSH configuration analysis completed"
 }
 
 get_privesc(){
@@ -1746,11 +2193,11 @@ get_privesc(){
         printf "%-${BINARY_WIDTH}s %-${OWNER_WIDTH}s %-${PERMISSIONS_WIDTH}s %-${CAPABILITIES_WIDTH}s %-${FLAGS_WIDTH}s\n" \
             "BINARY" "OWNER" "PERMISSIONS" "CAPABILITIES" "FLAGS"
         printf "%-${BINARY_WIDTH}s %-${OWNER_WIDTH}s %-${PERMISSIONS_WIDTH}s %-${CAPABILITIES_WIDTH}s %-${FLAGS_WIDTH}s\n" \
-            "$(printf '%*s' 6 | tr ' ' '-')" \
-            "$(printf '%*s' 5 | tr ' ' '-')" \
-            "$(printf '%*s' 11 | tr ' ' '-')" \
-            "$(printf '%*s' 12 | tr ' ' '-')" \
-            "$(printf '%*s' 5 | tr ' ' '-')"
+            "$(printf '%*s' 6 '' | tr ' ' '-')" \
+            "$(printf '%*s' 5 '' | tr ' ' '-')" \
+            "$(printf '%*s' 11 '' | tr ' ' '-')" \
+            "$(printf '%*s' 12 '' | tr ' ' '-')" \
+            "$(printf '%*s' 5 '' | tr ' ' '-')"
     }
 
     # Function to print privilege escalation findings from array
@@ -1879,9 +2326,21 @@ main() {
         echo -e "\n\n"
 
         # --- 6. PRIVESC ---
-        get_privesc 
-        echo -e "\n\n" 
-        
+        get_privesc
+        echo -e "\n\n"
+
+        # --- 7. PERSISTENCE & ROOTKIT INDICATORS ---
+        get_persistence
+        echo -e "\n\n"
+
+        # --- 8. NETWORK SECURITY ---
+        get_network_security
+        echo -e "\n\n"
+
+        # --- 9. SSH CONFIGURATION ---
+        get_ssh_config
+        echo -e "\n\n"
+
         # --- FOOTER ---
         echo "=================================================================="
         echo "AUDIT COMPLETE"

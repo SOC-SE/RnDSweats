@@ -4,7 +4,7 @@
 # Usage: sudo ./harden_universal_v2.sh
 #
 
-set -u
+set -euo pipefail
 
 # --- 0. OS DETECTION & PRE-CHECKS ---
 if [ "$(id -u)" != "0" ]; then
@@ -22,6 +22,7 @@ if [ -f /etc/debian_version ]; then
 elif [ -f /etc/redhat-release ]; then
     OS_FAMILY="rhel"
     GROUP_ADMIN="wheel"
+    # shellcheck disable=SC2034  # PKG_MGR used for reference/future expansion
     PKG_MGR="dnf"
     echo "Detected RHEL/CentOS system."
 else
@@ -46,12 +47,12 @@ prompt_password() {
     while true; do
         echo -n "Enter new password for $user_label: "
         stty -echo
-        read pass1
+        read -r pass1
         stty echo
         echo
         echo -n "Confirm new password for $user_label: "
         stty -echo
-        read pass2
+        read -r pass2
         stty echo
         echo
         
@@ -183,7 +184,7 @@ echo "Removing SUID from dangerous binaries (GTFOBins mitigation)..."
 # These binaries allow priv esc if they have SUID bit set. We strip it.
 DANGEROUS_BINS="find vim nmap less awk sed python python3 perl ruby tar zip netcat nc man"
 for bin in $DANGEROUS_BINS; do
-    BINARY_PATH=$(which $bin 2>/dev/null)
+    BINARY_PATH=$(which "$bin" 2>/dev/null)
     if [ -n "$BINARY_PATH" ]; then
         chmod u-s "$BINARY_PATH"
         echo "Removed SUID from $bin"
@@ -191,17 +192,22 @@ for bin in $DANGEROUS_BINS; do
 done
 
 echo "Setting Kernel parameters (Sysctl)..."
+# Use a dedicated hardening sysctl file to avoid duplicates
+SYSCTL_HARDEN="/etc/sysctl.d/99-ccdc-hardening.conf"
+cat > "$SYSCTL_HARDEN" << 'SYSCTL_EOF'
+# CCDC Hardening - Network Security
 # Prevent IP Spoofing
-echo "net.ipv4.conf.all.rp_filter = 1" >> /etc/sysctl.conf
-echo "net.ipv4.conf.default.rp_filter = 1" >> /etc/sysctl.conf
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
 # Disable IP Source Routing
-echo "net.ipv4.conf.all.accept_source_route = 0" >> /etc/sysctl.conf
+net.ipv4.conf.all.accept_source_route = 0
 # Enable SYN Cookies (Syn Flood protection)
-echo "net.ipv4.tcp_syncookies = 1" >> /etc/sysctl.conf
+net.ipv4.tcp_syncookies = 1
 # Disable ICMP Redirects (MITM mitigation)
-echo "net.ipv4.conf.all.accept_redirects = 0" >> /etc/sysctl.conf
-echo "net.ipv4.conf.default.accept_redirects = 0" >> /etc/sysctl.conf
-sysctl -p
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+SYSCTL_EOF
+sysctl -p "$SYSCTL_HARDEN"
 
 
 

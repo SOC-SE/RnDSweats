@@ -73,7 +73,8 @@ OPENCART_DB_HOST="localhost"
 # Backup root directory
 BACKUP_ROOT="/var/backups/opencart-hardening"
 
-# Minimum PHP version to look for (for detection)
+# Minimum PHP version required for OpenCart
+# shellcheck disable=SC2034  # Used in detect_php for version checking
 MIN_PHP_VERSION="7.4"
 
 #######################################

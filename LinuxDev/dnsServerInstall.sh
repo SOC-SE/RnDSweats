@@ -6,7 +6,7 @@
 # Author: Enhanced version
 # ==============================================================================
 
-set -e  # Exit on error
+set -euo pipefail  # Exit on error, unset variable, or pipe failure
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -83,7 +83,7 @@ handle_port53_conflict() {
         echo "  2) Continue anyway (may fail)"
         echo "  3) Exit and fix manually"
         
-        read -p "Choose option [1-3]: " choice
+        read -r -p "Choose option [1-3]: " choice
         
         case $choice in
             1)
@@ -228,7 +228,8 @@ verify_installation() {
 
 # Display final information
 show_completion_info() {
-    local host_ip=$(hostname -I | awk '{print $1}')
+    local host_ip
+    host_ip=$(hostname -I | awk '{print $1}')
     
     print_header "Installation Complete!"
     

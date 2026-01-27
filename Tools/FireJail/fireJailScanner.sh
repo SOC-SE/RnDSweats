@@ -4,7 +4,7 @@
 # FireJail Service Scanner and Hardening Script (v2 - Fixed Arg Parsing)
 # ====================================================================================
 
-set -o pipefail
+set -euo pipefail
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -17,7 +17,7 @@ EXCLUDED_SERVICES=("sshd" "ssh" "docker" "fail2ban" "rsyslog" "NetworkManager" "
 log_message() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_danger()  { echo -e "${RED}[DANGER]${NC} $1"; }
-log_step()    { echo -e "\n${CYAN}--- $1 ---"${NC}; }
+log_step()    { echo -e "\n${CYAN}--- $1 ---${NC}"; }
 
 if [ "$(id -u)" -ne 0 ]; then
   log_warning "Run as root."
@@ -57,14 +57,15 @@ secure_service() {
          return 1
     fi
 
-    local firejail_path=$(command -v firejail)
+    local firejail_path
+    firejail_path=$(command -v firejail)
     local new_exec_start="${firejail_path} ${exec_command_line}"
 
     log_step "Proposed Change for '$service_name'"
     echo "Original: $exec_command_line"
     echo "New:      $new_exec_start"
     
-    read -p "Apply this change? (y/N): " apply_confirm
+    read -r -p "Apply this change? (y/N): " apply_confirm
     if [[ "$apply_confirm" != [yY] ]]; then
         return 0
     fi

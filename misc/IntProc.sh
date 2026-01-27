@@ -76,12 +76,14 @@ revert_settings() {
     local target_gw="$3"
     local target_dns="$4"      # space-separated
     local change_type="$5"     # "ip", "gateway", or "dns"
-    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    local timestamp
+    timestamp=$(date +"%Y-%m-%d %H:%M:%S")
 
     # Parse IP and CIDR
     local target_ip="${target_ip_cidr%%/*}"
     local target_cidr="${target_ip_cidr##*/}"
-    local target_mask=$(cidr_to_netmask "$target_cidr")
+    local target_mask
+    target_mask=$(cidr_to_netmask "$target_cidr")
 
     # Prioritize tools for IP and gateway: nmcli > ip > ifconfig
     if [ "$change_type" = "ip" ] || [ "$change_type" = "gateway" ]; then
@@ -123,11 +125,12 @@ revert_settings() {
             :
         elif command -v resolvectl >/dev/null 2>&1 && is_resolved_active; then
             echo "Using resolvectl to revert DNS..."
+            # shellcheck disable=SC2086  # Word splitting intentional for DNS list
             resolvectl dns "$iface" $target_dns
             resolvectl flush-caches
         else
             echo "[$timestamp] Editing /etc/resolv.conf to revert DNS..." >> "$log_file"
-            > /etc/resolv.conf
+            : > /etc/resolv.conf
             IFS=' ' read -r -a dns_array <<< "$target_dns"
             for dns in "${dns_array[@]}"; do
                 echo "nameserver $dns" >> /etc/resolv.conf
@@ -176,6 +179,7 @@ if [ "$1" = "--install" ]; then
 
     # If config exists, load it and enter update mode
     if [ -f "$config_file" ]; then
+        # shellcheck source=/dev/null
         source "$config_file"
         echo -e "${GREEN}Existing config found. Entering update mode.${NC}"
         echo "Current settings:"
@@ -195,42 +199,43 @@ if [ "$1" = "--install" ]; then
     if [ "$UPDATE_ONLY" = "no" ]; then
         echo -e "${YELLOW}Detecting available network interfaces...${NC}"
         available_ifaces=$(get_available_interfaces)
+        # shellcheck disable=SC2206  # Word splitting intentional for interface list
         interfaces=($available_ifaces)
         echo "Available interfaces:"
         for i in "${!interfaces[@]}"; do
             echo "$((i+1)). ${interfaces[i]}"
         done
-        read -p "Enter the number of the interface to protect: " num
+        read -r -p "Enter the number of the interface to protect: " num
         if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt "${#interfaces[@]}" ]; then
             echo -e "${RED}Error: Invalid selection.${NC}"
             exit 1
         fi
         interface="${interfaces[$((num-1))]}"
     else
-        read -p "Enter the interface to protect [$INTERFACE]: " interface
+        read -r -p "Enter the interface to protect [$INTERFACE]: " interface
         interface=${interface:-$INTERFACE}
     fi
 
     current_ip=$(get_current_ip "$interface")
-    read -p "Enter the correct static IPv4 address and subnet mask in CIDR notation (e.g., 192.168.1.100/24) [$IP or $current_ip]: " ip
+    read -r -p "Enter the correct static IPv4 address and subnet mask in CIDR notation (e.g., 192.168.1.100/24) [$IP or $current_ip]: " ip
     ip=${ip:-${IP:-$current_ip}}
 
     current_gw=$(get_current_gateway)
-    read -p "Enter the correct default gateway [$GATEWAY or $current_gw]: " gw
+    read -r -p "Enter the correct default gateway [$GATEWAY or $current_gw]: " gw
     gw=${gw:-${GATEWAY:-$current_gw}}
 
     current_dns=$(get_current_dns "$interface")
-    read -p "Enter space-separated list of DNS servers (e.g., '8.8.8.8 1.1.1.1') [$DNS or $current_dns]: " dns
+    read -r -p "Enter space-separated list of DNS servers (e.g., '8.8.8.8 1.1.1.1') [$DNS or $current_dns]: " dns
     dns=${dns:-${DNS:-$current_dns}}
 
     # Backup iptables and routes (prompt to update/backup)
-    read -p "Backup/update current iptables rules? (y/n) [y]: " backup_ipt
+    read -r -p "Backup/update current iptables rules? (y/n) [y]: " backup_ipt
     backup_ipt=${backup_ipt:-y}
     if [ "$backup_ipt" = "y" ]; then
         backup_iptables
     fi
 
-    read -p "Backup/update current route table? (y/n) [y]: " backup_rts
+    read -r -p "Backup/update current route table? (y/n) [y]: " backup_rts
     backup_rts=${backup_rts:-y}
     if [ "$backup_rts" = "y" ]; then
         backup_routes
@@ -291,6 +296,7 @@ if [ ! -f "$config_file" ]; then
     echo "Error: Configuration file $config_file not found. Run with --install first."
     exit 1
 fi
+# shellcheck source=/dev/null
 source "$config_file"  # Loads INTERFACE, IP, GATEWAY, DNS, IPTABLES_FILE, ROUTES_FILE
 
 touch "$log_file"  # Ensure log file exists
@@ -311,7 +317,7 @@ while true; do
     current_dns=$(get_current_dns "$INTERFACE")
 
     # Handle empty current_gw for logging
-    local log_gw="${current_gw:-none}"
+    log_gw="${current_gw:-none}"
 
     # Compare and revert if necessary
     if [ "$current_ip" != "$IP" ]; then
@@ -330,6 +336,7 @@ while true; do
     fi
 
     # Check and revert iptables if backed up
+    # shellcheck disable=SC2153  # IPTABLES_FILE loaded from config file
     if [ -f "$IPTABLES_FILE" ] && command -v iptables-save >/dev/null 2>&1; then
         current_ipt=$(iptables-save)
         saved_ipt=$(cat "$IPTABLES_FILE")
@@ -340,6 +347,7 @@ while true; do
     fi
 
     # Check and revert route table if backed up
+    # shellcheck disable=SC2153  # ROUTES_FILE loaded from config file
     if [ -f "$ROUTES_FILE" ] && command -v ip >/dev/null 2>&1; then
         current_routes=$(ip route show | sort)
         saved_routes=$(sort "$ROUTES_FILE")
@@ -348,6 +356,7 @@ while true; do
             ip route flush table main
             while IFS= read -r line; do
                 if [ -n "$line" ]; then
+                    # shellcheck disable=SC2086  # Word splitting intentional for route args
                     ip route add $line 2>> "$log_file" || echo "[$timestamp] Failed to add route: $line" >> "$log_file"
                 fi
             done < "$ROUTES_FILE"

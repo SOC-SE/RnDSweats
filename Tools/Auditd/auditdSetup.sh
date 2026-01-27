@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # ==============================================================================
 # CCDC Development - Wazuh-Compatible Cross-Distribution Auditd Installer
@@ -11,23 +12,24 @@
 # ==============================================================================
 
 # --- Configuration ---
-RULES_FILE="Auditd/audit.rules"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RULES_FILE="$SCRIPT_DIR/Auditd/audit.rules"
 DEST_RULES_FILE="/etc/audit/rules.d/99-custom.rules"
 # Rule to be removed for Wazuh compatibility
 INCOMPATIBLE_RULE="-a never,task"
 
 # --- Pre-flight Checks ---
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ This script must be run as root or with sudo. Please try again."
+  echo "This script must be run as root or with sudo. Please try again."
   exit 1
 fi
 if [ ! -f "$RULES_FILE" ]; then
-  echo "❌ Error: The rules file '$RULES_FILE' was not found in this directory."
+  echo "Error: The rules file '$RULES_FILE' was not found in this directory."
   exit 1
 fi
 
 # --- Main Execution ---
-echo "🚀 Starting robust, Wazuh-compatible auditd setup..."
+echo "Starting robust, Wazuh-compatible auditd setup..."
 
 # Step 1: Install auditd
 echo "----------------------------------------"
@@ -81,8 +83,7 @@ fi
 # Step 6: Explicitly Load Rules (CRITICAL FOR CENTOS 7)
 echo "----------------------------------------"
 echo "STEP 6: Forcing the kernel to load the new rules now..."
-augenrules --load
-if [ $? -ne 0 ]; then
+if ! augenrules --load; then
     echo "❌ FAILED to load audit rules. There is likely a syntax error in your '$RULES_FILE'."
     exit 1
 fi

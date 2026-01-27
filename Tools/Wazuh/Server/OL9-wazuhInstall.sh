@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e 
+set -euo pipefail
 
 # Wazuh Master Installation Script for Oracle Linux 9 (FINAL + OFFLINE FALLBACK)
 # Target Version: 4.14.1
@@ -8,8 +8,30 @@ set -e
 WAZUH_MAJOR="4.14"
 WAZUH_VERSION="4.14.1"
 INSTALL_DIR="/root/wazuh-install-temp"
-WAZUH_PASSWORD="Changeme1!"
 CURRENT_DIR=$(pwd) # Saved to find local files if downloads fail
+
+# Prompt for Wazuh password if not set via environment
+if [[ -z "${WAZUH_PASSWORD:-}" ]]; then
+    echo "Enter password for Wazuh admin user:"
+    while true; do
+        echo -n "Password: "
+        stty -echo
+        read -r pass1
+        stty echo
+        echo
+        echo -n "Confirm password: "
+        stty -echo
+        read -r pass2
+        stty echo
+        echo
+        if [[ "$pass1" == "$pass2" ]]; then
+            WAZUH_PASSWORD="$pass1"
+            break
+        else
+            echo "Passwords do not match. Please try again."
+        fi
+    done
+fi
 # ---------------------
 
 echo "--- [1/8] Cleaning & Prep ---"
@@ -22,8 +44,8 @@ rm -rf /etc/wazuh-indexer /etc/wazuh-manager /etc/wazuh-dashboard /etc/filebeat
 rm -rf /var/lib/wazuh-indexer /var/lib/wazuh-manager /var/lib/wazuh-dashboard /var/lib/filebeat
 rm -rf /usr/share/wazuh-indexer /usr/share/wazuh-manager /usr/share/wazuh-dashboard /usr/share/filebeat
 rm -rf /var/ossec 
-rm -rf $INSTALL_DIR
-mkdir -p $INSTALL_DIR
+rm -rf "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
 
 echo "Installing tools..."
 dnf install -y coreutils curl unzip wget libcap tar gnupg openssl lsof
@@ -99,7 +121,8 @@ systemctl start wazuh-indexer
 echo "Waiting for Indexer..."
 until curl -k -s https://127.0.0.1:9200 >/dev/null; do sleep 5; done
 
-export JAVA_HOME=$(ls -d /usr/share/wazuh-indexer/jdk* | head -n 1)
+JAVA_HOME=$(find /usr/share/wazuh-indexer -maxdepth 1 -type d -name "jdk*" | head -n 1)
+export JAVA_HOME
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
   -cd /etc/wazuh-indexer/opensearch-security/ -nhnv \
   -cacert /etc/wazuh-indexer/certs/root-ca.pem -cert /etc/wazuh-indexer/certs/admin.pem \
@@ -148,10 +171,10 @@ systemctl stop wazuh-manager
 
 # 2. Hunt for ANY process holding port 55000 (The Zombie Python)
 echo "Hunting for PID"
-PID=$(lsof -t -i:55000)
+PID=$(lsof -t -i:55000 2>/dev/null || true)
 if [ -n "$PID" ]; then
     echo "Found zombie API process (PID: $PID) on port 55000. Killing it..."
-    kill -9 $PID
+    kill -9 "$PID"
 else
     echo "Port 55000 is clean."
 fi

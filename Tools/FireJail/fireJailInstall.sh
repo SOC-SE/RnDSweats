@@ -9,7 +9,7 @@
 # ====================================================================================
 
 # --- Script Configuration ---
-set -e
+set -euo pipefail
 
 # --- Color Codes ---
 GREEN='\033[0;32m'
@@ -20,7 +20,7 @@ NC='\033[0m'
 
 log_message() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_step()    { echo -e "\n${CYAN}--- $1 ---"${NC}; }
+log_step()    { echo -e "\n${CYAN}--- $1 ---${NC}"; }
 
 # --- Root User Check ---
 if [ "$(id -u)" -ne 0 ]; then

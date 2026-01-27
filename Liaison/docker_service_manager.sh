@@ -108,6 +108,7 @@ setup_docker_service() {
     [[ -n $caps ]] && run_opts+=" $caps"
     run_opts+=" -d $image"
 
+    # shellcheck disable=SC2086  # Intentional word splitting for docker options
     docker run $run_opts || log_error "Failed to start container for $service_key"
     log_info "Started $service_key container."
 }
@@ -135,7 +136,7 @@ manage_service() {
         log_info "Already dockerized. Use docker commands to manage."
         return
     fi
-    read -p "Dockerize? (y/n): " dockerize
+    read -r -p "Dockerize? (y/n): " dockerize
     [[ $dockerize =~ ^[Yy]$ ]] && setup_docker_service "$service_key"
 }
 
@@ -147,16 +148,21 @@ show_menu() {
     echo "4. View Containers"
     echo "5. Stop Containers"
     echo "6. Exit"
-    read -p "Choice: " choice
+    read -r -p "Choice: " choice
     case $choice in
         1) install_docker ;;
         2) scan_services ;;
         3)
             scan_services
-            read -p "Service key: " svc
-            [[ -n ${SERVICES[$svc]:-} ]] && manage_service "$svc" || log_warn "Invalid key."
+            read -r -p "Service key: " svc
+            if [[ -n ${SERVICES[$svc]:-} ]]; then
+                manage_service "$svc"
+            else
+                log_warn "Invalid key."
+            fi
             ;;
         4) docker ps -a ;;
+        # shellcheck disable=SC2046  # Intentional word splitting for container IDs
         5) docker stop $(docker ps -q --filter "name=*-container") 2>/dev/null || true ;;
         6) exit 0 ;;
         *) log_warn "Invalid." ;;

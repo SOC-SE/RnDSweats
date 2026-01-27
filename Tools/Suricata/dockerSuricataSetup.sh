@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Exit immediately if a command exits with a non-zero status or on pipe failures.
-set -eo pipefail
+set -euo pipefail
 
 # --- Script Configuration ---
 CONFIG_ROOT="/etc/suricata"
@@ -26,7 +26,7 @@ check_splunk_forwarder() {
         echo "   These will need to be performed manually for Splunk if you wish to force the installation now."
         
         while true; do
-            read -p "Do you want to continue with the Suricata installation anyway? (y/n): " yn
+            read -r -p "Do you want to continue with the Suricata installation anyway? (y/n): " yn
             case $yn in
                 [Yy]* ) echo "Continuing installation..."; break;;
                 [Nn]* ) echo "Exiting script."; exit 0;;
@@ -79,7 +79,7 @@ check_dependencies() {
         sudo sh get-docker.sh
         rm get-docker.sh
         # Add current user to docker group (good practice)
-        sudo usermod -aG docker $USER || echo "   Could not add user to docker group. This is fine for this script."
+        sudo usermod -aG docker "$USER" || echo "   Could not add user to docker group. This is fine for this script."
         echo "   Docker installed."
     else
         echo "   Docker is already installed."
@@ -124,7 +124,11 @@ check_dependencies() {
 # 2. Prompt user to select a network interface
 select_interface() {
     echo "Please select the network interface you want Suricata to protect:"
-    interfaces=($(ls /sys/class/net | grep -v "lo"))
+    local interfaces=()
+    for iface in /sys/class/net/*; do
+        iface_name=$(basename "$iface")
+        [[ "$iface_name" != "lo" ]] && interfaces+=("$iface_name")
+    done
     select interface in "${interfaces[@]}"; do
         if [[ -n "$interface" ]]; then
             echo "You have selected: $interface"
@@ -202,8 +206,8 @@ EOF
 # 5. Set up iptables for IPS mode with a fail-safe
 setup_iptables() {
     echo "Configuring iptables to redirect traffic to Suricata..."
-    sudo iptables -I INPUT -i ${MONITORED_INTERFACE} -j NFQUEUE --queue-num 0 --queue-bypass
-    sudo iptables -I OUTPUT -o ${MONITORED_INTERFACE} -j NFQUEUE --queue-num 0 --queue-bypass
+    sudo iptables -I INPUT -i "${MONITORED_INTERFACE}" -j NFQUEUE --queue-num 0 --queue-bypass
+    sudo iptables -I OUTPUT -o "${MONITORED_INTERFACE}" -j NFQUEUE --queue-num 0 --queue-bypass
     echo "iptables rules added for interface ${MONITORED_INTERFACE}."
     echo "IMPORTANT: These rules are NOT persistent and will be lost on reboot."
 }

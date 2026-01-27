@@ -64,9 +64,18 @@
 
 set -euo pipefail
 
-# --- Colors ---
-RED=$(tput setaf 1); GREEN=$(tput setaf 2); YELLOW=$(tput setaf 3)
-BLUE=$(tput setaf 4); CYAN=$(tput setaf 6); MAGENTA=$(tput setaf 5); RESET=$(tput sgr0)
+# --- Colors (with fallback for non-terminal) ---
+if [[ -t 1 ]] && command -v tput &>/dev/null; then
+    RED=$(tput setaf 1 2>/dev/null || echo "")
+    GREEN=$(tput setaf 2 2>/dev/null || echo "")
+    YELLOW=$(tput setaf 3 2>/dev/null || echo "")
+    BLUE=$(tput setaf 4 2>/dev/null || echo "")
+    CYAN=$(tput setaf 6 2>/dev/null || echo "")
+    MAGENTA=$(tput setaf 5 2>/dev/null || echo "")
+    RESET=$(tput sgr0 2>/dev/null || echo "")
+else
+    RED=""; GREEN=""; YELLOW=""; BLUE=""; CYAN=""; MAGENTA=""; RESET=""
+fi
 
 # --- Paths ---
 BACKUP_DIR="/var/backups/mail_hardener"
@@ -94,7 +103,7 @@ trap 'error "An unexpected error occurred on line $LINENO. Check logs or rollbac
 ask_yes_no() {
   local question="$1" response
   while true; do
-    read -p "$(echo -e "${CYAN}[?]${RESET} $question (y/n): ")" response
+    read -r -p "$(echo -e "${CYAN}[?]${RESET} $question (y/n): ")" response
     case "$response" in
       [Yy]*) return 0 ;; [Nn]*) return 1 ;; *) warn "Please answer y or n." ;;
     esac
@@ -188,7 +197,8 @@ backup_configs() {
 
 # --- Rollback ---
 rollback_latest() {
-  local latest="$(ls -1t "$BACKUP_DIR"/mail_backup_*.tar.gz 2>/dev/null | head -n1 || true)"
+  local latest
+  latest="$(find "$BACKUP_DIR" -name "mail_backup_*.tar.gz" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
   if [[ -z "$latest" ]]; then
     error "No backups found in $BACKUP_DIR."
     exit 1
@@ -268,7 +278,8 @@ install_services() {
     sed -i "s|^\$config\['db_dsnw'\].*|\$config['db_dsnw'] = 'sqlite:////var/lib/roundcubemail/db/roundcube.db?mode=0640';|" "$ROUNDCUBE_CONFIG" || true
     sed -i "s|^\$config\['default_host'\].*|\$config['default_host'] = 'localhost';|" "$ROUNDCUBE_CONFIG" || true
     sed -i "s|^\$config\['smtp_server'\].*|\$config['smtp_server'] = 'localhost';|" "$ROUNDCUBE_CONFIG" || true
-    local des_key=$(openssl rand -base64 24)
+    local des_key
+    des_key=$(openssl rand -base64 24)
     sed -i "s|^\$config\['des_key'\].*|\$config['des_key'] = '$des_key';|" "$ROUNDCUBE_CONFIG" || true
   }
   

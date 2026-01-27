@@ -12,7 +12,7 @@
 # USAGE: ./gentooHarden.sh
 # =============================================================================
 
-set -u
+set -euo pipefail
 
 # --- 0. HELPER FUNCTIONS ---
 
@@ -22,12 +22,12 @@ prompt_password() {
     while true; do
         echo -n "Enter new password for $user_label: "
         stty -echo
-        read pass1
+        read -r pass1
         stty echo
         echo
         echo -n "Confirm new password for $user_label: "
         stty -echo
-        read pass2
+        read -r pass2
         stty echo
         echo
         
@@ -198,7 +198,7 @@ echo "[+] Phase 4: Shell Security"
 if ! grep -q "TMOUT=300" /etc/profile; then
     echo "readonly TMOUT=300" >> /etc/profile
     echo "readonly HISTFILE" >> /etc/profile
-    echo "chmod 600 /etc/profile" >> /etc/profile
+    chmod 600 /etc/profile
     echo "    > Global shell timeout enabled (300s)."
 fi
 

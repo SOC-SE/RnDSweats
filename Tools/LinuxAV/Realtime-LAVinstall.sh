@@ -20,7 +20,7 @@
 #
 
 # --- Script Configuration & Colors ---
-set -e # Exit immediately if a command exits with a non-zero status.
+set -euo pipefail # Exit on error, unset variable, or pipe failure
 
 # Colors for better output readability
 GREEN='\033[0;32m'
@@ -175,9 +175,10 @@ cd /tmp
 if [ -f "maldetect-current.tar.gz" ]; then
     rm -f maldetect-current.tar.gz
 fi
-if [ -d maldetect-* ]; then
-    rm -rf maldetect-*/
-fi
+# Clean up any existing maldetect directories
+for dir in maldetect-*/; do
+    [ -d "$dir" ] && rm -rf "$dir"
+done
 
 echo "Downloading the latest version of LMD..."
 wget -q http://www.rfxn.com/downloads/maldetect-current.tar.gz

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # ==========================================
 # FIREJAIL EMERGENCY ROLLBACK SCRIPT
 # ==========================================
@@ -20,6 +21,7 @@ if [ -z "$files" ]; then
     exit 0
 fi
 
+declare -a services_to_restart=()
 for file in $files; do
     # 1. Extract the directory name to guess the service name
     dir_path=$(dirname "$file")     # e.g., /etc/systemd/system/nginx.service.d

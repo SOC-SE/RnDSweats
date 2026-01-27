@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 #
 #   Script taken and adapted from https://github.com/cyberuci/LOCS/tree/main/linux/linux-toolbox
@@ -9,6 +10,11 @@
 #   Samuel Brucker 2025-2026
 #
 
+# Root check
+if [[ $EUID -ne 0 ]]; then
+    echo "Error: This script must be run as root."
+    exit 1
+fi
 
 # Define Colors
 BLUE='\033[0;34m'

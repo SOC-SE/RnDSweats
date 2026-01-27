@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+# Root check
+if [[ $EUID -ne 0 ]]; then
+    echo "Error: This script must be run as root."
+    exit 1
+fi
 
 # Get the current admin's session info so we don't accidentally kill ourselves
-ADMIN_USER=$(whoami)
 ADMIN_SESSION=$(tty | cut -d"/" -f3-)
 
 # Function to check sessions for a specific user
@@ -10,19 +16,20 @@ check_user_sessions() {
     
     # Find all sessions for this user
     # We filter out the ADMIN_SESSION to ensure we never kill the script's own terminal
-    local ALLSESS=$(w -h "$TARGET_USER" | grep "^$TARGET_USER" | grep -v "$ADMIN_SESSION" | tr -s " " | cut -d" " -f2)
+    local ALLSESS
+    ALLSESS=$(w -h "$TARGET_USER" | grep "^$TARGET_USER" | grep -v "$ADMIN_SESSION" | tr -s " " | cut -d" " -f2)
     
     # If sessions exist
-    if [[ ! -z "$ALLSESS" ]]; then
+    if [[ -n "$ALLSESS" ]]; then
         echo "------------------------------------------------------------------"
-        printf "\e[33mActive sessions for user: $TARGET_USER\e[0m\n"
+        printf "\e[33mActive sessions for user: %s\e[0m\n" "$TARGET_USER"
         
         # Display detailed session info
         w "$TARGET_USER" | grep "^$TARGET_USER" | grep -v "$ADMIN_SESSION" | column -t
         echo "------------------------------------------------------------------"
         
         # Interactive Prompt
-        read -p "Force close all sessions for $TARGET_USER? [Y]Yes/[N]No: " answer
+        read -r -p "Force close all sessions for $TARGET_USER? [Y]Yes/[N]No: " answer
         answer=$(echo "$answer" | tr '[:upper:]' '[:lower:]')
         
         if [[ "$answer" == "y" || "$answer" == "yes" ]]; then

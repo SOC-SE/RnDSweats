@@ -46,7 +46,8 @@ generate_id() {
 # --- Check if Path Already Monitored ---
 is_monitored() {
     local path="$1"
-    local id=$(generate_id "$path")
+    local id
+    id=$(generate_id "$path")
     [ -d "$SESSION_DIR/$id" ]
 }
 
@@ -56,9 +57,10 @@ list_monitors() {
     local count=0
     for dir in "$SESSION_DIR"/*; do
         if [ -d "$dir" ]; then
-            local session_id=$(basename "$dir")
-            local path=$(cat "$dir/path.txt" 2>/dev/null)
-            local pid=$(cat "$dir/pid.txt" 2>/dev/null)
+            local session_id path pid
+            session_id=$(basename "$dir")
+            path=$(cat "$dir/path.txt" 2>/dev/null)
+            pid=$(cat "$dir/pid.txt" 2>/dev/null)
             if [ -n "$path" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
                 echo "- ID: $session_id | Path: $path | PID: $pid"
                 count=$((count + 1))
@@ -75,7 +77,7 @@ list_monitors() {
 
 # --- Start New Monitor ---
 start_new_monitor() {
-    read -p "Enter the file/directory path to monitor: " MONITOR_PATH
+    read -r -p "Enter the file/directory path to monitor: " MONITOR_PATH
     if [ ! -e "$MONITOR_PATH" ]; then
         log_error "Path '$MONITOR_PATH' does not exist."
     fi
@@ -85,7 +87,8 @@ start_new_monitor() {
         return
     fi
 
-    local id=$(generate_id "$MONITOR_PATH")
+    local id
+    id=$(generate_id "$MONITOR_PATH")
     local session_dir="$SESSION_DIR/$id"
     mkdir -p "$session_dir"
     echo "$MONITOR_PATH" > "$session_dir/path.txt"
@@ -117,7 +120,7 @@ start_new_monitor() {
 # --- Stop Monitor ---
 stop_monitor() {
     list_monitors
-    read -p "Enter the ID of the session to stop (or 'cancel'): " session_id
+    read -r -p "Enter the ID of the session to stop (or 'cancel'): " session_id
     if [ "$session_id" = "cancel" ]; then
         return
     fi
@@ -125,7 +128,8 @@ stop_monitor() {
     if [ ! -d "$session_dir" ]; then
         log_error "Invalid session ID: $session_id"
     fi
-    local pid=$(cat "$session_dir/pid.txt" 2>/dev/null)
+    local pid
+    pid=$(cat "$session_dir/pid.txt" 2>/dev/null)
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         kill "$pid"
         log_info "Stopped monitoring for session $session_id (PID: $pid)"
@@ -138,7 +142,7 @@ stop_monitor() {
 # --- View Live Logs ---
 view_logs() {
     list_monitors
-    read -p "Enter the ID of the session to view logs (or 'cancel'): " session_id
+    read -r -p "Enter the ID of the session to view logs (or 'cancel'): " session_id
     if [ "$session_id" = "cancel" ]; then
         return
     fi
@@ -164,7 +168,7 @@ prompt_menu() {
         echo "3) Stop monitoring a path"
         echo "4) View live logs for a monitor"
         echo "5) Exit"
-        read -p "Enter your choice (1-5): " choice
+        read -r -p "Enter your choice (1-5): " choice
         case "$choice" in
             1) start_new_monitor ;;
             2) list_monitors ;;

@@ -3,8 +3,13 @@
 # --- Script Configuration ---
 set -e
 
+# Get script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 # --- Color Codes for Output ---
 GREEN='\033[0;32m'
+# shellcheck disable=SC2034  # YELLOW used for future warnings
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
@@ -47,7 +52,7 @@ if [ ! -f ./NPMfresh.sh ]; then
 fi
 
 # 3. Make sure all files are UNIX format EOF and can execute (make multi-PKM compatible later)
-read -p "Set all files to UNIX EOF (currently only apt compatible)? (y/n) " yn
+read -r -p "Set all files to UNIX EOF (currently only apt compatible)? (y/n) " yn
 case $yn in
 	[yY] ) 
 		sudo apt install dos2unix
@@ -61,7 +66,7 @@ esac
 
 # Run DNS replacement
 print_header "DNS Replacement"
-read -p "Proceed with installation of dnsmasq? (y/n) " yn
+read -r -p "Proceed with installation of dnsmasq? (y/n) " yn
 
 case $yn in
 	[yY] ) 
@@ -75,7 +80,7 @@ esac
 
 # Run NPM setup
 print_header "Nginx Proxy Manager Setup"
-read -p "Proceed with installation of Nginx Proxy Manager? (y/n) " yn
+read -r -p "Proceed with installation of Nginx Proxy Manager? (y/n) " yn
 
 case $yn in
 	[yY] ) 
@@ -88,7 +93,7 @@ esac
 
 # Run suricata setup
 print_header "Suricata Setup"
-read -p "Proceed with installation of Suricata? (y/n) " yn
+read -r -p "Proceed with installation of Suricata? (y/n) " yn
 
 case $yn in
 	[yY] ) 
