@@ -83,6 +83,7 @@ case $response in
 
   4) # Print Config
     cat /etc/haproxy/haproxy.cfg | awk "/#s/,0"
+    ;;
   *)
     log_warning "Invalid option selected."
     exit 1

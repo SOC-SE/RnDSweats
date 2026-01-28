@@ -79,8 +79,15 @@ Write-Host "SMB signing required" -ForegroundColor Green
 
 Write-Host "`n[9/12] DISABLING POWERSHELL V2" -ForegroundColor Yellow
 Write-Host "----------------------------------------"
-Disable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -NoRestart -ErrorAction SilentlyContinue
-Write-Host "PowerShell v2 disabled" -ForegroundColor Green
+$psV2Feature = Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -ErrorAction SilentlyContinue
+if ($psV2Feature -and $psV2Feature.State -eq 'Enabled') {
+    Disable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -NoRestart -ErrorAction SilentlyContinue
+    Write-Host "PowerShell v2 disabled" -ForegroundColor Green
+} elseif (-not $psV2Feature) {
+    Write-Host "PowerShell v2 feature not present on this system" -ForegroundColor Yellow
+} else {
+    Write-Host "PowerShell v2 already disabled" -ForegroundColor Green
+}
 
 Write-Host "`n[10/12] ENABLING POWERSHELL LOGGING" -ForegroundColor Yellow
 Write-Host "----------------------------------------"

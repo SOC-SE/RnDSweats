@@ -48,7 +48,7 @@ Write-Host "Configuring inputs.conf for monitoring..."
 # -----------------------------------------------------------------------------
 
 [WinEventLog://Application]
-disabled = 0!!!!!!Dsssssssssssssssssssssssssss
+disabled = 0
 index = main
 
 [WinEventLog://Security]

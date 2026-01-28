@@ -12,7 +12,7 @@
 #  exit 1
 #fi
 
-hostname = $(hostname -f)
+hostname=$(hostname -f)
 
 echo "$pwd"
 

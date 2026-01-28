@@ -82,16 +82,17 @@ Write-Host "`n[10/12] RECENTLY STARTED PROCESSES (Last 5 min)" -ForegroundColor 
 Write-Host "----------------------------------------"
 $5MinAgo = (Get-Date).AddMinutes(-5)
 Get-CimInstance Win32_Process | Where-Object {$_.CreationDate -gt $5MinAgo} |
-    Select-Object ProcessId, Name, CreationDate, @{N='User';E={$_.GetOwner().User}} |
+    Select-Object ProcessId, Name, CreationDate, @{N='User';E={(Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue).User}} |
     Format-Table -AutoSize
 
 Write-Host "`n[11/12] PROCESSES BY USER" -ForegroundColor Yellow
 Write-Host "----------------------------------------"
 Get-CimInstance Win32_Process | ForEach-Object {
+    $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
     [PSCustomObject]@{
         Name = $_.Name
         PID = $_.ProcessId
-        User = $_.GetOwner().User
+        User = $owner.User
     }
 } | Group-Object User | Select-Object Count, Name | Sort-Object Count -Descending | Format-Table -AutoSize
 

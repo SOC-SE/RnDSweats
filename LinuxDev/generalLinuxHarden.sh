@@ -117,11 +117,13 @@ SSH_CONF="/etc/ssh/sshd_config"
 # Backup original config
 cp $SSH_CONF "$SSH_CONF.bak_$(date +%s)"
 
-# 1. Wipe ALL SSH Authorized Keys (Removes Red Team Persistence)
-# We find every 'authorized_keys' file on the disk and delete it.
-# Since you are using passwords, this forces Red Team to know the password to get back in.
-echo "Wiping ALL authorized_keys files..."
-find / -name "authorized_keys" -type f -delete 2>/dev/null
+# 1. Wipe SSH Authorized Keys (Removes Red Team Persistence)
+# We find 'authorized_keys' files and delete them, but SKIP the vagrant user
+# to avoid breaking Vagrant/development environments.
+echo "Wiping authorized_keys files (preserving vagrant user for dev environments)..."
+find / -name "authorized_keys" -type f ! -path "/home/vagrant/*" ! -path "/root/.ssh/*" -delete 2>/dev/null || true
+# Note: To also wipe root's keys in production, remove the ! -path "/root/.ssh/*" exclusion
+# Warning: This will lock out any SSH key-based access except vagrant
 
 # 2. Secure sshd_config
 # We use sed to force these values, whether they are currently commented out or set to yes.

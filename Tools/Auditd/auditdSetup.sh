@@ -13,7 +13,7 @@ set -euo pipefail
 
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RULES_FILE="$SCRIPT_DIR/Auditd/audit.rules"
+RULES_FILE="$SCRIPT_DIR/audit.rules"
 DEST_RULES_FILE="/etc/audit/rules.d/99-custom.rules"
 # Rule to be removed for Wazuh compatibility
 INCOMPATIBLE_RULE="-a never,task"

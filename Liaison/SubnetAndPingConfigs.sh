@@ -1,3 +1,4 @@
+#!/bin/bash
 # ==============================================================================
 # File: SubnetAndPingConfigs.sh
 # Description: Provides tools for subnetting IPv4 and IPv6 networks, and configuring ping connectivity between two machines in a network environment.
@@ -11,15 +12,13 @@
 # Dependencies: ipcalc (IPv4 subnetting), sipcalc (IPv6 subnetting) - installed automatically if missing.
 # Usage: sudo ./SubnetAndPingConfigurator.sh
 #        Follow prompts to select mode (calculate, configure, remove, view).
-# Notes: 
+# Notes:
 # - Run as root.
 # - For two-machine setup: Run on Machine A to assign local IP, then on Machine B with complementary remote IP as local.
 # - Ping test uses 'ping' for IPv4 and 'ping6' for IPv6.
 # - Firewall rules added for ufw/firewalld if present; assumes ICMP is for ping.
 # - Subnet calculations are displayed; no files saved by default.
 # ==============================================================================
-
-#!/bin/bash
 
 # --- Banner ---
 echo "Subnet and Ping Configurator"

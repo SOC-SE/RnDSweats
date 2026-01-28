@@ -1,3 +1,4 @@
+#!/bin/bash
 # ==============================================================================
 # File: FileTransferServer4.sh
 # Description: Installs/uninstalls and configures FTP (vsftpd), SFTP (via OpenSSH), or TFTP (tftpd-hpa/tftp-server) servers.
@@ -11,7 +12,7 @@
 # Dependencies: None beyond standard package managers.
 # Usage: sudo ./FileTransferServer4.sh
 #        Follow on-screen prompts to select install/uninstall, then service.
-# Notes: 
+# Notes:
 # - Run as root.
 # - Expose services via firewall rules if needed (e.g., to public IPs).
 # - TFTP defaults to /srv/tftp or /var/lib/tftpboot; place files there.
@@ -19,8 +20,6 @@
 # - FTP on port 21; anonymous access disabled by default in vsftpd (but can be enabled with caution).
 # - Credentials saved in /etc/fts_credentials.conf (securely); use in client script.
 # ==============================================================================
-
-#!/bin/bash
 
 set -euo pipefail
 
