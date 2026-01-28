@@ -1,13 +1,18 @@
 #!/bin/bash
 #
 # AUTOMATED ROOTKIT DEFENSE & MONITORING (SILENT MODE)
-# 
+#
 # Actions:
 # 1. Installs rkhunter and chkrootkit (Distro Agnostic).
 # 2. Creates a custom logging directory for SIEM ingestion.
-# 3. Creates a scanner wrapper that runs both tools.
+# 3. Creates a scanner wrapper that runs both tools + LD_PRELOAD check.
 # 4. Schedules the scanner to run every 15 minutes.
 # 5. NO WALL MESSAGES - Silent logging only.
+#
+# LD_PRELOAD Detection:
+# - Checks /etc/ld.so.preload for malicious entries
+# - Uses chroot technique to bypass userspace rootkit hooks
+# - Scans process environments for LD_PRELOAD variables
 
 set -e
 
@@ -119,7 +124,56 @@ if [ -n "\$CHK_OUT" ]; then
     echo "" >> "\$SCAN_TEMP"
 fi
 
-# 3. Decision Logic
+# 3. LD_PRELOAD Rootkit Check (Chroot Technique)
+# This bypasses potential LD_PRELOAD hooks by using a minimal chroot environment
+
+# Direct check of ld.so.preload
+if [ -s /etc/ld.so.preload ]; then
+    THREAT_DETECTED=1
+    echo "[!] LD_PRELOAD ROOTKIT - /etc/ld.so.preload contains:" >> "\$SCAN_TEMP"
+    cat /etc/ld.so.preload >> "\$SCAN_TEMP"
+    echo "" >> "\$SCAN_TEMP"
+fi
+
+# Chroot-based verification (bypasses userspace rootkits)
+CHROOT_DIR="/tmp/.rkcheck_\$\$"
+if mkdir -p "\$CHROOT_DIR"/{bin,lib,lib64,etc} 2>/dev/null; then
+    # Copy minimal binaries and libraries
+    cp /bin/cat "\$CHROOT_DIR/bin/" 2>/dev/null
+
+    # Copy required libraries for cat
+    for lib in \$(ldd /bin/cat 2>/dev/null | grep -v dynamic | awk '{print \$3}' | grep -v "^\$"); do
+        [ -f "\$lib" ] && cp "\$lib" "\$CHROOT_DIR/lib/" 2>/dev/null
+    done
+    cp /lib64/ld-linux-x86-64.so.2 "\$CHROOT_DIR/lib64/" 2>/dev/null
+    cp /lib/ld-linux*.so* "\$CHROOT_DIR/lib/" 2>/dev/null
+
+    # Copy ld.so.preload for comparison
+    cp /etc/ld.so.preload "\$CHROOT_DIR/etc/" 2>/dev/null
+
+    # Check from inside chroot (bypasses LD_PRELOAD hooks)
+    CHROOT_RESULT=\$(chroot "\$CHROOT_DIR" /bin/cat /etc/ld.so.preload 2>/dev/null)
+    if [ -n "\$CHROOT_RESULT" ]; then
+        THREAT_DETECTED=1
+        echo "[!] LD_PRELOAD ROOTKIT (CHROOT VERIFIED):" >> "\$SCAN_TEMP"
+        echo "\$CHROOT_RESULT" >> "\$SCAN_TEMP"
+        echo "" >> "\$SCAN_TEMP"
+    fi
+
+    # Cleanup chroot environment
+    rm -rf "\$CHROOT_DIR" 2>/dev/null
+fi
+
+# Check LD_PRELOAD environment variable in running processes
+LD_ENV_CHECK=\$(grep -r "LD_PRELOAD" /proc/*/environ 2>/dev/null | grep -v "grep" | head -5)
+if [ -n "\$LD_ENV_CHECK" ]; then
+    THREAT_DETECTED=1
+    echo "[!] LD_PRELOAD IN PROCESS ENVIRONMENT:" >> "\$SCAN_TEMP"
+    echo "\$LD_ENV_CHECK" >> "\$SCAN_TEMP"
+    echo "" >> "\$SCAN_TEMP"
+fi
+
+# 4. Decision Logic
 if [ "\$THREAT_DETECTED" -eq 1 ]; then
     # Append findings to the main log for the SIEM
     cat "\$SCAN_TEMP" >> "\$LOG_TARGET"
