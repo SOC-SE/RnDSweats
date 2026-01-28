@@ -258,6 +258,20 @@ apply_rules() {
     iptables -A INPUT -p icmp -j ACCEPT
     iptables -A OUTPUT -p icmp -j ACCEPT
 
+    # 3b. ANTI-RECONNAISSANCE - Bad TCP Flag Combinations
+    # Drop packets with invalid flag combinations (used for OS fingerprinting/scanning)
+    iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP                    # NULL scan
+    iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP                     # XMAS scan
+    iptables -A INPUT -p tcp --tcp-flags ALL FIN,PSH,URG -j DROP            # XMAS variant
+    iptables -A INPUT -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j DROP    # Invalid combo
+    iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP            # SYN+RST
+    iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP            # SYN+FIN
+    iptables -A INPUT -p tcp --tcp-flags FIN,RST FIN,RST -j DROP            # FIN+RST
+
+    # Drop fragmented packets (often used to bypass firewalls)
+    iptables -A INPUT -f -j LOG --log-prefix "FW-FRAG: " --log-level 4
+    iptables -A INPUT -f -j DROP
+
     # 4. ORCHESTRATION WHITELIST
     if [ "$IS_K8S" = true ]; then
         iptables -A INPUT -i cni+ -j ACCEPT; iptables -A OUTPUT -o cni+ -j ACCEPT

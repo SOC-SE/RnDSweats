@@ -330,6 +330,35 @@ elif command -v rpm &>/dev/null; then
 fi
 
 # ==============================================================================
+# TRUSTED BINARY BACKUP
+# ==============================================================================
+log "Backing up trusted system binaries..."
+mkdir -p "$OUTPUT_DIR/trusted_binaries"
+
+# Critical binaries that are often trojanized
+CRITICAL_BINS=(
+    "cat" "ls" "ps" "netstat" "ss" "find" "grep" "awk" "sed"
+    "bash" "sh" "sudo" "su" "passwd" "login" "sshd"
+    "curl" "wget" "nc" "id" "whoami" "w" "who" "last"
+    "iptables" "ip" "ifconfig" "route" "lsof" "top"
+    "crontab" "systemctl" "journalctl" "chown" "chmod"
+)
+
+for bin in "${CRITICAL_BINS[@]}"; do
+    bin_path=$(command -v "$bin" 2>/dev/null)
+    if [[ -n "$bin_path" && -f "$bin_path" ]]; then
+        cp "$bin_path" "$OUTPUT_DIR/trusted_binaries/" 2>/dev/null
+        # Also store the hash for verification
+        sha256sum "$bin_path" >> "$OUTPUT_DIR/trusted_binaries/hashes.sha256" 2>/dev/null
+    fi
+done
+
+log "Backed up $(ls -1 "$OUTPUT_DIR/trusted_binaries" 2>/dev/null | grep -v hashes | wc -l) binaries"
+echo ""
+echo "To use trusted binaries if system is compromised:"
+echo "  export PATH=$OUTPUT_DIR/trusted_binaries:\$PATH"
+
+# ==============================================================================
 # CREATE MANIFEST
 # ==============================================================================
 log "Creating backup manifest..."
