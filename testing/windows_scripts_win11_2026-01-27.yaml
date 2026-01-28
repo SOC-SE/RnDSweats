@@ -1,0 +1,231 @@
+# Windows PowerShell Script Test Results
+# Target: Windows 11 (Vagrant VM: win11)
+# Test Date: 2026-01-27
+# Tester: Claude Opus 4.5 (Automated)
+
+environment:
+  vm_name: win11
+  os: Windows 11
+  vagrant_box: gusztavvargadr/windows-11
+  ip_address: 192.168.56.20
+  execution_policy: Bypass
+  communicator: WinRM
+  test_user: vagrant
+
+scripts_tested:
+  - script: networkAudit.ps1
+    path: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/networkAudit.ps1
+    target_os: Windows 11
+    test_date: 2026-01-27
+    result: PASS
+    execution_time: 32
+    resource_impact:
+      cpu_peak: "N/A"
+      ram_usage: "N/A"
+      disk_usage: "N/A"
+    errors:
+      - type: format_warning
+        severity: low
+        message: "out-lineoutput format conflict warning on firewall rules section"
+        impact: "Minor display issue, does not affect functionality"
+    functionality_verified:
+      - listening_ports: true
+      - established_connections: true
+      - connections_by_remote_ip: true
+      - suspicious_ports: true
+      - firewall_status: true
+      - firewall_rules: true
+      - network_adapters: true
+      - ip_configuration: true
+      - dns_servers: true
+      - arp_table: true
+      - routing_table: true
+      - hosts_file: true
+    notes: "Script runs successfully with minor formatting warnings on firewall rules output. All 12 checks complete."
+
+  - script: processHunter.ps1
+    path: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/processHunter.ps1
+    target_os: Windows 11
+    test_date: 2026-01-27
+    result: PARTIAL
+    execution_time: 18
+    resource_impact:
+      cpu_peak: "N/A"
+      ram_usage: "N/A"
+      disk_usage: "N/A"
+    errors:
+      - type: method_not_found
+        severity: medium
+        message: "Method 'GetOwner' not found on CimInstance at line 91"
+        impact: "Section 11 (Processes by User) shows errors instead of user data"
+        fix_suggestion: "Replace GetOwner() method with alternative approach for CIM objects: Invoke-CimMethod -MethodName GetOwner"
+    functionality_verified:
+      - high_cpu_processes: true
+      - high_memory_processes: true
+      - processes_with_network: true
+      - processes_from_temp: true
+      - unsigned_processes: true
+      - suspicious_named_processes: true
+      - powershell_processes: true
+      - cmd_processes: true
+      - processes_no_window: true
+      - recently_started: true
+      - processes_by_user: false  # GetOwner() method issue
+      - parent_child_relationships: true
+    notes: |
+      Script completes but section 11 (Processes by User) fails due to GetOwner()
+      method incompatibility with CimInstance objects. The script uses Get-CimInstance
+      Win32_Process and calls GetOwner() which is a WMI-style method not available
+      on CIM instances. Fix requires using Invoke-CimMethod -MethodName GetOwner.
+
+  - script: persistenceHunter.ps1
+    path: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/persistenceHunter.ps1
+    target_os: Windows 11
+    test_date: 2026-01-27
+    result: PASS
+    execution_time: 21
+    resource_impact:
+      cpu_peak: "N/A"
+      ram_usage: "N/A"
+      disk_usage: "N/A"
+    errors: []
+    functionality_verified:
+      - scheduled_tasks: true
+      - run_keys_hklm: true
+      - run_keys_hkcu: true
+      - startup_folder: true
+      - services_non_microsoft: true
+      - suspicious_services: true
+      - wmi_subscriptions: true
+      - bits_jobs: true
+      - unsigned_drivers: true
+      - com_hijacking: true
+      - powershell_profiles: true
+      - browser_extensions: true
+      - netsh_helper_dlls: true
+      - ifeo_debuggers: true
+      - recent_modified_executables: true
+    notes: |
+      Script runs successfully with all 15 checks completing without errors.
+      Detected legitimate persistence mechanisms including OneDrive, VBoxTray,
+      Microsoft Edge update tasks, and standard Windows scheduled tasks.
+      COM hijacking check found OneDrive CLSIDs (expected/benign).
+
+  - script: userAudit.ps1
+    path: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/userAudit.ps1
+    target_os: Windows 11
+    test_date: 2026-01-27
+    result: PASS
+    execution_time: 9
+    resource_impact:
+      cpu_peak: "N/A"
+      ram_usage: "N/A"
+      disk_usage: "N/A"
+    errors: []
+    functionality_verified:
+      - all_local_users: true
+      - local_administrators: true
+      - remote_desktop_users: true
+      - no_password_required: true
+      - never_expire_users: true
+      - disabled_accounts: true
+      - recently_created: true
+      - successful_logons: true
+      - failed_logons: true
+      - logged_on_sessions: true
+      - cached_logon_count: true
+      - all_local_groups: true
+    notes: |
+      Script runs successfully with all 12 checks completing without errors.
+      Correctly identified: vagrant user, testuser (created by provisioning),
+      and standard Windows accounts. Detected testuser has no password required.
+      Shows Administrator disabled (as expected on Windows 11).
+
+  - script: quickHarden.ps1
+    path: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/quickHarden.ps1
+    target_os: Windows 11
+    test_date: 2026-01-27
+    result: PARTIAL
+    execution_time: 15
+    resource_impact:
+      cpu_peak: "N/A"
+      ram_usage: "N/A"
+      disk_usage: "N/A"
+    errors:
+      - type: feature_not_found
+        severity: low
+        message: "Feature name MicrosoftWindowsPowerShellV2Root is unknown"
+        impact: "PowerShell v2 disable step fails (may already be disabled or not available)"
+        fix_suggestion: "Check for feature before attempting disable or use try/catch"
+    functionality_verified:
+      - firewall_enabled: true
+      - essential_services_allowed: true
+      - unnecessary_services_disabled: true
+      - account_lockout_configured: true
+      - guest_disabled: true
+      - audit_policy_configured: true
+      - smbv1_disabled: true
+      - smb_signing_enabled: true
+      - powershell_v2_disabled: false  # Feature not found
+      - powershell_logging_enabled: true
+      - rdp_secured: true
+      - admin_check: true
+    notes: |
+      Script runs with one non-critical error: PowerShell v2 feature not found.
+      This is expected on Windows 11 where PS v2 may not be installed by default.
+      All other 11 hardening steps completed successfully including:
+      - Firewall enabled with default inbound block
+      - RemoteRegistry, SSDPSRV, upnphost, WinHttpAutoProxySvc disabled
+      - Account lockout: 5 attempts, 30 min lockout
+      - SMBv1 disabled, SMB signing required
+      - RDP NLA and TLS required
+      Script lacks -WhatIf support for dry-run testing.
+
+summary:
+  total_scripts: 5
+  passed: 3
+  partial: 2
+  failed: 0
+  total_execution_time_seconds: 95
+
+issues_requiring_fixes:
+  - script: processHunter.ps1
+    issue: "GetOwner() method not compatible with CimInstance objects"
+    severity: medium
+    recommended_fix: |
+      Replace line 91-95:
+        $_.GetOwner().User
+      With:
+        (Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue).User
+
+  - script: quickHarden.ps1
+    issue: "PowerShell v2 feature may not exist on all Windows versions"
+    severity: low
+    recommended_fix: |
+      Add feature existence check before disable:
+        $feature = Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -ErrorAction SilentlyContinue
+        if ($feature -and $feature.State -eq 'Enabled') {
+            Disable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -NoRestart
+        }
+
+salt_integration:
+  networkAudit.ps1:
+    recommended: true
+    salt_module: cmd.script
+    notes: "Read-only audit, safe for fleet-wide deployment"
+  processHunter.ps1:
+    recommended: true
+    salt_module: cmd.script
+    notes: "Read-only hunting, safe for fleet-wide deployment after GetOwner fix"
+  persistenceHunter.ps1:
+    recommended: true
+    salt_module: cmd.script
+    notes: "Read-only hunting, safe for fleet-wide deployment"
+  userAudit.ps1:
+    recommended: true
+    salt_module: cmd.script
+    notes: "Read-only audit, safe for fleet-wide deployment"
+  quickHarden.ps1:
+    recommended: false
+    salt_module: cmd.script
+    notes: "Makes system changes - needs careful review before fleet deployment"

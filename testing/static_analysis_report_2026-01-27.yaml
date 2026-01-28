@@ -1,0 +1,542 @@
+# =============================================================================
+# Static Analysis Report for CCDC-Development Linux Shell Scripts
+# Generated: 2026-01-27
+# Tool: shellcheck -S warning + manual review
+# Scope: LinuxDev/, Tools/, SaltyBoxes/CustomScripts/, Liaison/, misc/, PaloAlto/
+# Excluded: Alpine/, AlpineDev/, Gentoo(fml)/, scripts with alpine/gentoo in name
+# =============================================================================
+
+summary:
+  total_scripts_analyzed: 75
+  scripts_with_shellcheck_errors: 6
+  scripts_with_shellcheck_warnings: 21
+  scripts_with_hardcoded_values: 8
+  scripts_missing_root_check: 12
+  scripts_missing_error_handling: 15
+  scripts_with_compatibility_issues: 5
+
+# =============================================================================
+# CRITICAL SEVERITY - Syntax errors that prevent script execution
+# =============================================================================
+critical:
+  - script: /home/sam/CCDC-Development/Tools/HAProxy/haproxyConfig.sh
+    shellcheck_errors:
+      - code: SC1073
+        line: 84
+        message: "Couldn't parse this case item"
+      - code: SC1072
+        line: 86
+        message: "Fix any mentioned problems and try again"
+      - code: SC1074
+        line: 86
+        message: "Did you forget the ;; after the previous case item?"
+    issue_description: "Missing ;; terminator in case statement between options 4 and *"
+    fix_required: "Add ;; after the cat command in case option 4)"
+
+  - script: /home/sam/CCDC-Development/Tools/VyOS/vyosEnumerate.sh
+    shellcheck_errors:
+      - code: SC1008
+        line: 1
+        message: "Unrecognized shebang: #!/bin/vbash"
+      - code: SC2145
+        line: 4
+        message: "Argument mixes string and array"
+    issue_description: "VyOS-specific vbash shebang not recognized; unreachable code after exit"
+    notes: "This is intentional for VyOS router - works in VyOS environment"
+
+  - script: /home/sam/CCDC-Development/Liaison/docker_service_manager.sh
+    shellcheck_errors:
+      - code: SC1073
+        line: 165
+        message: "Couldn't parse this case item"
+      - code: SC1124
+        line: 165
+        message: "ShellCheck directives only valid in front of complete commands"
+      - code: SC1072
+        line: 165
+        message: "Expected ) to open a new case item"
+      - code: SC1085
+        line: 165
+        message: "Did you forget to move the ;; after extending this case item?"
+    issue_description: "Malformed shellcheck disable directive inside case statement"
+
+  - script: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/wazuhLinuxInstall.sh
+    shellcheck_errors:
+      - code: SC2283
+        line: 15
+        message: "Remove spaces around = to assign"
+    shellcheck_warnings:
+      - code: SC2046
+        line: 15
+        message: "Quote this to prevent word splitting"
+      - code: SC2154
+        line: 17
+        message: "pwd is referenced but not assigned"
+      - code: SC2164
+        line: 19
+        message: "Use 'cd ... || exit' or 'cd ... || return' in case cd fails"
+      - code: SC2154
+        line: 31
+        message: "hostname is referenced but not assigned"
+    issue_description: "Variable assignment syntax error with spaces around ="
+    fix_required: "Change 'hostname = $(hostname -f)' to 'hostname=$(hostname -f)'"
+
+  - script: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/Realtime-LAVinstall.sh
+    shellcheck_errors:
+      - code: SC2144
+        line: 178
+        message: "-d doesn't work with globs. Use a for loop."
+    issue_description: "Using -d test with glob pattern which doesn't work"
+
+  - script: /home/sam/CCDC-Development/Liaison/File_Transfer_Server4.sh
+    shellcheck_errors:
+      - code: SC1128
+        line: 23
+        message: "The shebang must be on the first line"
+    issue_description: "Shebang is not on line 1 - file starts with comment block"
+
+  - script: /home/sam/CCDC-Development/Liaison/SubnetAndPingConfigs.sh
+    shellcheck_errors:
+      - code: SC1128
+        line: 22
+        message: "The shebang must be on the first line"
+    issue_description: "Shebang is not on line 1 - file starts with comment block"
+
+# =============================================================================
+# HIGH SEVERITY - Security issues and hardcoded credentials
+# =============================================================================
+high:
+  - script: /home/sam/CCDC-Development/LinuxDev/elkInstall.sh
+    hardcoded_values:
+      - type: credential
+        line: 108
+        value: "Changeme1!"
+        description: "Hardcoded Elasticsearch password"
+      - type: credential
+        line: 111
+        value: "Changeme1!"
+        description: "Hardcoded password variable"
+      - type: version
+        lines: [19, 20, 21, 38, 39, 40]
+        value: "8.13.2"
+        description: "Hardcoded ELK version - may become outdated"
+    shellcheck_warnings:
+      - code: SC2034
+        line: 17
+        message: "IS_RHEL appears unused"
+      - code: SC2091
+        line: 54
+        message: "Remove surrounding $() to avoid executing output"
+    security_concerns:
+      - "Default password in production code"
+      - "Kibana bound to 0.0.0.0 (all interfaces)"
+    missing_safety_features:
+      - "No set -euo pipefail"
+      - "No trap for cleanup"
+
+  - script: /home/sam/CCDC-Development/Tools/Wazuh/Server/wazuhInstallationTemp.sh
+    hardcoded_values:
+      - type: credential
+        line: 33
+        value: "Changeme1*"
+        description: "Hardcoded Wazuh admin password"
+    shellcheck_warnings:
+      - code: SC2164
+        line: 29
+        message: "Use 'cd ... || exit' in case cd fails"
+    missing_safety_features:
+      - "cd without error handling can cause operations in wrong directory"
+      - "No set -euo pipefail"
+
+  - script: /home/sam/CCDC-Development/Tools/Splunk/splunkForwarderLinuxGeneral.sh
+    hardcoded_values:
+      - type: ip_address
+        line: 26
+        value: "172.20.242.20"
+        description: "Default indexer IP - topology specific"
+      - type: version
+        lines: [18, 19]
+        value: "10.0.1"
+        description: "Splunk version and build hash"
+    notes: "Script allows override via CLI args which is good practice"
+
+  - script: /home/sam/CCDC-Development/misc/NGINX/streamAdd.sh
+    hardcoded_values:
+      - type: path
+        lines: [26, 27]
+        value: "/opt/nginx-proxy-manager/"
+        description: "Hardcoded NPM installation path"
+    shellcheck_warnings:
+      - code: SC2034
+        line: 13
+        message: "YELLOW appears unused"
+      - code: SC2164
+        line: 37
+        message: "Use 'cd ... || exit' in case cd fails"
+    missing_safety_features:
+      - "No root check"
+      - "No error handling for failed cd"
+
+# =============================================================================
+# MEDIUM SEVERITY - Code quality and potential bugs
+# =============================================================================
+medium:
+  - script: /home/sam/CCDC-Development/LinuxDev/security_scanner_setup.sh
+    shellcheck_warnings:
+      - code: SC2010
+        lines: [178, 183, 189, 362, 377]
+        count: 5
+        message: "Don't use ls | grep. Use a glob or a for loop"
+      - code: SC2046
+        line: 256
+        message: "Quote this to prevent word splitting"
+    issue_description: "ls | grep pattern is fragile with non-alphanumeric filenames"
+
+  - script: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/processHunter.sh
+    shellcheck_warnings:
+      - code: SC2010
+        lines: [34, 38]
+        count: 2
+        message: "Don't use ls | grep"
+    issue_description: "Using ls | grep for /proc filesystem enumeration"
+
+  - script: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/persistenceHunter.sh
+    shellcheck_warnings:
+      - code: SC2010
+        lines: [36, 59]
+        count: 2
+        message: "Don't use ls | grep"
+    issue_description: "Using ls | grep for filesystem enumeration"
+
+  - script: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/masterEnum.sh
+    shellcheck_warnings:
+      - code: SC2034
+        lines: [32, 33, 282]
+        messages:
+          - "GREEN appears unused"
+          - "YELLOW appears unused"
+          - "gid appears unused"
+    issue_description: "Unused variables defined but never referenced"
+
+  - script: /home/sam/CCDC-Development/Liaison/vpn_client_connect_2.sh
+    shellcheck_warnings:
+      - code: SC2155
+        lines: [215, 216]
+        count: 2
+        message: "Declare and assign separately to avoid masking return values"
+
+  - script: /home/sam/CCDC-Development/Liaison/Network_Scanner_Nmap.sh
+    shellcheck_warnings:
+      - code: SC2318
+        line: 68
+        message: "Assignment used again in this 'local', but won't have taken effect"
+
+  - script: /home/sam/CCDC-Development/Liaison/InstallPowerShell.sh
+    shellcheck_warnings:
+      - code: SC2155
+        lines: [82, 98, 107]
+        count: 3
+        message: "Declare and assign separately to avoid masking return values"
+
+  - script: /home/sam/CCDC-Development/Liaison/Network_Scanner_Tshark.sh
+    shellcheck_warnings:
+      - code: SC2155
+        count: 15
+        message: "Declare and assign separately to avoid masking return values"
+    issue_description: "Many instances of combined declare/assign"
+
+  - script: /home/sam/CCDC-Development/Liaison/Docker_install.sh
+    shellcheck_warnings:
+      - code: SC2034
+        lines: [100, 178]
+        messages:
+          - "QUERY_CMD appears unused"
+          - "distro_version appears unused"
+      - code: SC2155
+        count: 7
+        message: "Declare and assign separately"
+
+  - script: /home/sam/CCDC-Development/Liaison/Honeypot.sh
+    shellcheck_warnings:
+      - code: SC2034
+        line: 32
+        message: "EXPORT_DIR_FILE appears unused"
+      - code: SC2155
+        count: 10
+        message: "Declare and assign separately"
+
+  - script: /home/sam/CCDC-Development/Liaison/install_vpns_2.sh
+    shellcheck_warnings:
+      - code: SC2034
+        lines: [185, 186]
+        messages:
+          - "UPDATE_CMD appears unused"
+          - "UPGRADE_CMD appears unused"
+      - code: SC2155
+        count: 15
+        message: "Declare and assign separately"
+
+  - script: /home/sam/CCDC-Development/Liaison/file_transfer_client2.sh
+    shellcheck_warnings:
+      - code: SC2155
+        count: 14
+        message: "Declare and assign separately to avoid masking return values"
+
+  - script: /home/sam/CCDC-Development/Liaison/IDS.sh
+    shellcheck_warnings:
+      - code: SC2034
+        line: 79
+        message: "QUERY_CMD appears unused"
+      - code: SC2155
+        count: 4
+        message: "Declare and assign separately"
+
+  - script: /home/sam/CCDC-Development/Liaison/system_enumerator.sh
+    shellcheck_warnings:
+      - code: SC2034
+        line: 105
+        message: "UPDATE_CMD appears unused"
+      - code: SC2155
+        lines: [256, 322]
+        count: 2
+        message: "Declare and assign separately"
+      - code: SC2188
+        line: 296
+        message: "This redirection doesn't have a command"
+    issue_description: "Orphan redirection without a command"
+
+  - script: /home/sam/CCDC-Development/Liaison/PCAP_Analyzer_Tshark.sh
+    shellcheck_warnings:
+      - code: SC2034
+        line: 65
+        message: "LAST_STAMP appears unused"
+      - code: SC2155
+        line: 200
+        message: "Declare and assign separately"
+
+  - script: /home/sam/CCDC-Development/misc/NGINX/DNSentry.sh
+    shellcheck_warnings:
+      - code: SC2034
+        lines: [38, 50]
+        messages:
+          - "HOTNAME appears unused"
+          - "HOTNAME_REGEX appears unused"
+    issue_description: "Typo in variable name: HOTNAME should be HOSTNAME"
+
+# =============================================================================
+# LOW SEVERITY - Style issues and minor improvements
+# =============================================================================
+low:
+  - script: /home/sam/CCDC-Development/Tools/Wazuh/Server/wazuhInstallationTemp.sh
+    issues:
+      - "Uses emojis in output messages"
+      - "Relative path usage without validation"
+
+  - script: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/wazuhLinuxInstall.sh
+    issues:
+      - "Uses emojis in output messages"
+      - "Commented out root check"
+
+  - script: /home/sam/CCDC-Development/Tools/VyOS/vyosEnumerate.sh
+    issues:
+      - "Exit before final echo - unreachable code"
+      - "Output file in current directory without path handling"
+
+# =============================================================================
+# MISSING SAFETY FEATURES SUMMARY
+# =============================================================================
+missing_safety_features:
+  scripts_without_set_e:
+    count: 15
+    list:
+      - /home/sam/CCDC-Development/LinuxDev/elkInstall.sh
+      - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/processHunter.sh
+      - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/persistenceHunter.sh
+      - /home/sam/CCDC-Development/Tools/Wazuh/Server/wazuhInstallationTemp.sh
+      - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/wazuhLinuxInstall.sh
+      - /home/sam/CCDC-Development/Tools/VyOS/vyosEnumerate.sh
+      - /home/sam/CCDC-Development/misc/NGINX/oracleRules.sh
+      - /home/sam/CCDC-Development/misc/NGINX/replaceDNS.sh
+      - /home/sam/CCDC-Development/misc/NGINX/DNSentry.sh
+      - /home/sam/CCDC-Development/misc/NGINX/NPMfresh.sh
+      - /home/sam/CCDC-Development/misc/IntProc.sh
+      - /home/sam/CCDC-Development/misc/importantStuff/ImWayTooTired.sh
+      - /home/sam/CCDC-Development/misc/oracleFirewallRules.sh
+      - /home/sam/CCDC-Development/misc/oracleUpgrade.sh
+      - /home/sam/CCDC-Development/PaloAlto/paloSetup.sh
+
+  scripts_without_root_check:
+    count: 12
+    list:
+      - /home/sam/CCDC-Development/LinuxDev/elkInstall.sh
+      - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/processHunter.sh
+      - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/persistenceHunter.sh
+      - /home/sam/CCDC-Development/Tools/VyOS/vyosEnumerate.sh
+      - /home/sam/CCDC-Development/misc/NGINX/oracleRules.sh
+      - /home/sam/CCDC-Development/misc/NGINX/replaceDNS.sh
+      - /home/sam/CCDC-Development/misc/NGINX/NPMfresh.sh
+      - /home/sam/CCDC-Development/misc/NGINX/streamAdd.sh
+      - /home/sam/CCDC-Development/misc/IntProc.sh
+      - /home/sam/CCDC-Development/misc/oracleFirewallRules.sh
+      - /home/sam/CCDC-Development/misc/oracleUpgrade.sh
+      - /home/sam/CCDC-Development/PaloAlto/paloSetup.sh
+
+  scripts_with_unhandled_cd:
+    count: 4
+    list:
+      - script: /home/sam/CCDC-Development/Tools/Wazuh/Server/wazuhInstallationTemp.sh
+        line: 29
+      - script: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/wazuhLinuxInstall.sh
+        line: 19
+      - script: /home/sam/CCDC-Development/misc/NGINX/streamAdd.sh
+        line: 37
+      - script: /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/Realtime-LAVinstall.sh
+        line: 174
+
+# =============================================================================
+# COMPATIBILITY ANALYSIS
+# =============================================================================
+compatibility:
+  well_designed_multi_distro:
+    - script: /home/sam/CCDC-Development/LinuxDev/generalLinuxHarden.sh
+      supports: ["debian", "rhel"]
+      method: "OS detection via /etc/debian_version and /etc/redhat-release"
+
+    - script: /home/sam/CCDC-Development/LinuxDev/ssh_harden.sh
+      supports: ["debian", "rhel", "alpine", "arch"]
+      method: "Package manager detection (apt, dnf, yum, apk, pacman)"
+
+    - script: /home/sam/CCDC-Development/LinuxDev/security_scanner_setup.sh
+      supports: ["ubuntu", "debian", "fedora", "rhel", "centos", "rocky", "alma", "opensuse", "arch"]
+      method: "Comprehensive /etc/os-release parsing"
+
+    - script: /home/sam/CCDC-Development/Tools/Splunk/splunkForwarderLinuxGeneral.sh
+      supports: ["debian", "rhel"]
+      method: "Package manager detection"
+
+    - script: /home/sam/CCDC-Development/Liaison/system_enumerator.sh
+      supports: ["debian", "rhel"]
+      method: "Package manager detection"
+
+  potential_compatibility_issues:
+    - script: /home/sam/CCDC-Development/LinuxDev/elkInstall.sh
+      issue: "Uses yum/apt detection but doesn't handle dnf explicitly"
+      affected_distros: ["Fedora", "RHEL 8+"]
+
+    - script: /home/sam/CCDC-Development/Tools/VyOS/vyosEnumerate.sh
+      issue: "VyOS-specific - uses vbash and vyatta functions"
+      note: "Intentionally VyOS-only"
+
+    - script: /home/sam/CCDC-Development/misc/oracleFirewallRules.sh
+      issue: "Oracle Linux specific - may not work on other distros"
+
+    - script: /home/sam/CCDC-Development/misc/oracleUpgrade.sh
+      issue: "Oracle Linux specific dnf commands"
+
+# =============================================================================
+# SCRIPTS WITH NO ISSUES (CLEAN)
+# =============================================================================
+clean_scripts:
+  - /home/sam/CCDC-Development/LinuxDev/opencart_hardener.sh
+  - /home/sam/CCDC-Development/LinuxDev/harden_web.sh
+  - /home/sam/CCDC-Development/LinuxDev/smbHarden.sh
+  - /home/sam/CCDC-Development/LinuxDev/mail_hardener_fedora.sh
+  - /home/sam/CCDC-Development/LinuxDev/firewallGenerator.sh
+  - /home/sam/CCDC-Development/LinuxDev/masterEnum.sh
+  - /home/sam/CCDC-Development/LinuxDev/mail_hardener.sh
+  - /home/sam/CCDC-Development/LinuxDev/fail2ban_script.sh
+  - /home/sam/CCDC-Development/LinuxDev/apache_waf_proxy.sh
+  - /home/sam/CCDC-Development/LinuxDev/normalizeTools.sh
+  - /home/sam/CCDC-Development/LinuxDev/ssh_harden.sh
+  - /home/sam/CCDC-Development/LinuxDev/generalLinuxHarden.sh
+  - /home/sam/CCDC-Development/LinuxDev/ttyDestroyer.sh
+  - /home/sam/CCDC-Development/LinuxDev/elkAgent.sh
+  - /home/sam/CCDC-Development/LinuxDev/ansibleInstall.sh
+  - /home/sam/CCDC-Development/LinuxDev/dnsServerInstall.sh
+  - /home/sam/CCDC-Development/Tools/Splunk/splunkForwarderLinuxGeneral.sh
+  - /home/sam/CCDC-Development/Tools/Splunk/hardenSplunkLight.sh
+  - /home/sam/CCDC-Development/Tools/Splunk/SplunkServerInstall.sh
+  - /home/sam/CCDC-Development/Tools/Splunk/masterHardenSplunk.sh
+  - /home/sam/CCDC-Development/Tools/Auditd/auditdSetup.sh
+  - /home/sam/CCDC-Development/Tools/Wazuh/activeResponses/yara.sh
+  - /home/sam/CCDC-Development/Tools/Wazuh/Server/OL9-wazuhInstall.sh
+  - /home/sam/CCDC-Development/Tools/Wazuh/Configs/setGroupConfigs.sh
+  - /home/sam/CCDC-Development/Tools/Wazuh/WazuhLinuxAgentSetup.sh
+  - /home/sam/CCDC-Development/Tools/Wazuh/fortressInstall.sh
+  - /home/sam/CCDC-Development/Tools/Wazuh/linuxSetup.sh
+  - /home/sam/CCDC-Development/Tools/FireJail/fireJailInstall.sh
+  - /home/sam/CCDC-Development/Tools/FireJail/undoFireJail.sh
+  - /home/sam/CCDC-Development/Tools/FireJail/fireJailProfileBuilder.sh
+  - /home/sam/CCDC-Development/Tools/FireJail/fireJailScanner.sh
+  - /home/sam/CCDC-Development/Tools/Yara/yaraConfigure.sh
+  - /home/sam/CCDC-Development/Tools/Suricata/dockerSuricataSetup.sh
+  - /home/sam/CCDC-Development/Tools/Suricata/masterConfig.sh
+  - /home/sam/CCDC-Development/Tools/Suricata/suricataSetup.sh
+  - /home/sam/CCDC-Development/Tools/MySQL/mysqlbackup.sh
+  - /home/sam/CCDC-Development/Tools/MySQL/mysqlrestore.sh
+  - /home/sam/CCDC-Development/Tools/MySQL/mysqlenum.sh
+  - /home/sam/CCDC-Development/Tools/LinuxAV/Cron-LAVinstall.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/splunkForwarderLinuxGeneral.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/dockerInstall.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/oracleUpgrade.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/generalUpgrade.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/logAnalysis.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/serviceAudit.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/rootkitDetectionInstall.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/networkAudit.sh
+  - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/quickHarden.sh
+  - /home/sam/CCDC-Development/Liaison/FIM.sh
+  - /home/sam/CCDC-Development/misc/NGINX/oracleRules.sh
+  - /home/sam/CCDC-Development/misc/NGINX/replaceDNS.sh
+  - /home/sam/CCDC-Development/misc/NGINX/NPMfresh.sh
+  - /home/sam/CCDC-Development/misc/IntProc.sh
+  - /home/sam/CCDC-Development/misc/importantStuff/ImWayTooTired.sh
+  - /home/sam/CCDC-Development/misc/oracleFirewallRules.sh
+  - /home/sam/CCDC-Development/misc/oracleUpgrade.sh
+  - /home/sam/CCDC-Development/PaloAlto/paloSetup.sh
+
+# =============================================================================
+# RECOMMENDATIONS
+# =============================================================================
+recommendations:
+  immediate_fixes:
+    - description: "Fix syntax errors in critical scripts"
+      scripts:
+        - /home/sam/CCDC-Development/Tools/HAProxy/haproxyConfig.sh
+        - /home/sam/CCDC-Development/Liaison/docker_service_manager.sh
+        - /home/sam/CCDC-Development/SaltyBoxes/CustomScripts/wazuhLinuxInstall.sh
+
+    - description: "Move shebang to line 1"
+      scripts:
+        - /home/sam/CCDC-Development/Liaison/File_Transfer_Server4.sh
+        - /home/sam/CCDC-Development/Liaison/SubnetAndPingConfigs.sh
+
+  security_improvements:
+    - description: "Remove hardcoded passwords and use environment variables or prompts"
+      scripts:
+        - /home/sam/CCDC-Development/LinuxDev/elkInstall.sh
+        - /home/sam/CCDC-Development/Tools/Wazuh/Server/wazuhInstallationTemp.sh
+
+    - description: "Add root privilege checks to administrative scripts"
+      count: 12
+
+  code_quality:
+    - description: "Add 'set -euo pipefail' for error handling"
+      count: 15
+
+    - description: "Handle cd failures with '|| exit 1'"
+      count: 4
+
+    - description: "Replace 'ls | grep' with globs or find"
+      count: 9
+
+    - description: "Separate local variable declarations from assignments"
+      affected_scripts: 15
+
+  documentation:
+    - description: "Add usage documentation headers to scripts missing them"
+    - description: "Document expected OS compatibility in script headers"
+
+# =============================================================================
+# END OF REPORT
+# =============================================================================

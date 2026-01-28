@@ -2341,6 +2341,59 @@ main() {
         get_ssh_config
         echo -e "\n\n"
 
+        # --- 10. GTFOBINS AUDIT ---
+        echo "=================================================================="
+        echo "10. GTFOBINS - EXPLOITABLE BINARIES"
+        echo "=================================================================="
+        echo ""
+
+        # HIGH risk - direct shell/code execution
+        GTFO_HIGH="nc ncat netcat socat python python2 python3 perl ruby lua php node gdb strace ltrace expect rlwrap script telnet ftp"
+        # MEDIUM risk - file operations or limited shell
+        GTFO_MEDIUM="vim vi nano ed emacs find awk gawk tar zip unzip rsync scp sftp wget curl dd env xargs"
+        # LOW risk - require specific conditions
+        GTFO_LOW="less more man watch tee time timeout nice busybox ash dash csh tcsh ksh zsh"
+
+        echo "HIGH RISK (Shell Escape / Code Execution):"
+        for bin in $GTFO_HIGH; do
+            bin_path=$(command -v "$bin" 2>/dev/null)
+            if [[ -n "$bin_path" ]]; then
+                # Check if SUID
+                if [[ -u "$bin_path" ]]; then
+                    echo "  [!!] $bin -> $bin_path (SUID SET!)"
+                else
+                    echo "  [!]  $bin -> $bin_path"
+                fi
+            fi
+        done
+        echo ""
+
+        echo "MEDIUM RISK (File Operations / Limited Shell):"
+        for bin in $GTFO_MEDIUM; do
+            bin_path=$(command -v "$bin" 2>/dev/null)
+            if [[ -n "$bin_path" ]]; then
+                if [[ -u "$bin_path" ]]; then
+                    echo "  [!!] $bin -> $bin_path (SUID SET!)"
+                else
+                    echo "  [*]  $bin -> $bin_path"
+                fi
+            fi
+        done
+        echo ""
+
+        echo "LOW RISK (Specific Conditions Required):"
+        for bin in $GTFO_LOW; do
+            bin_path=$(command -v "$bin" 2>/dev/null)
+            if [[ -n "$bin_path" ]]; then
+                if [[ -u "$bin_path" ]]; then
+                    echo "  [!!] $bin -> $bin_path (SUID SET!)"
+                else
+                    echo "  [-]  $bin -> $bin_path"
+                fi
+            fi
+        done
+        echo -e "\n\n"
+
         # --- FOOTER ---
         echo "=================================================================="
         echo "AUDIT COMPLETE"
@@ -2354,7 +2407,26 @@ main() {
     mv "$LOG_FILE" "$FINAL_LOG"
 
     echo "Master Security Audit Completed. Review logs at: $FINAL_LOG"
+
+    # Run system baseline if --baseline flag was passed
+    if [[ "${RUN_BASELINE:-0}" == "1" ]]; then
+        BASELINE_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/systemBaseline.sh"
+        if [[ -f "$BASELINE_SCRIPT" ]]; then
+            echo "Running system baseline snapshot..."
+            bash "$BASELINE_SCRIPT" 2>&1
+        else
+            echo "[WARN] systemBaseline.sh not found at $BASELINE_SCRIPT"
+        fi
+    fi
 }
+
+# Parse --baseline flag
+RUN_BASELINE=0
+for arg in "$@"; do
+    if [[ "$arg" == "--baseline" ]]; then
+        RUN_BASELINE=1
+    fi
+done
 
 # CALL THE MAIN FUNCTION
 main "$@"

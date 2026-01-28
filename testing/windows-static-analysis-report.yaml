@@ -1,0 +1,273 @@
+# ==============================================================================
+# PowerShell Static Analysis Report
+# Generated: 2026-01-27
+# Repository: /home/sam/CCDC-Development
+# Method: Manual code review (pwsh not available on host)
+# ==============================================================================
+
+summary:
+  total_scripts_analyzed: 13
+  scripts_by_directory:
+    "Windows Branch/DEV/Scripts": 4
+    "Windows Branch/COMP/Scripts/GPO": 1
+    "Tools/Splunk": 1
+    "Tools/Wazuh": 1
+    "SaltyBoxes/CustomScripts": 6
+
+  findings_count:
+    critical: 4
+    high: 2
+    medium: 3
+    low: 4
+
+# ==============================================================================
+# CRITICAL SEVERITY - Security issues requiring immediate attention
+# ==============================================================================
+critical:
+
+  - script_path: "/home/sam/CCDC-Development/Windows Branch/DEV/Scripts/startScript1.2AD.ps1"
+    syntax_validation: "Manual review - potential typo on line 126 (eventvmr.msc should be eventvwr.msc)"
+    hardcoded_values:
+      - type: "URL"
+        value: "https://codeload.github.com/SOC-SE/RnDSweats/zip/refs/heads/Development"
+      - type: "Domain"
+        value: "yourdomain.local"
+    security_concerns:
+      - severity: "CRITICAL"
+        issue: "Creates backdoor admin account 'Bob Backdoor' with Domain Admins membership"
+        details: "Lines 69-95 create user 'bob' described as 'Nothing to see here blue team' and adds to Domain Admins and Administrators groups"
+        recommendation: "REMOVE this code or clearly document as red team training artifact"
+      - severity: "HIGH"
+        issue: "Password handling via Read-Host may be logged"
+    missing_safety_features:
+      - "No ErrorActionPreference set"
+      - "No try/catch error handling"
+      - "No admin privilege check"
+    compatibility: "Requires ActiveDirectory module (AD Server only)"
+
+  - script_path: "/home/sam/CCDC-Development/Windows Branch/DEV/Scripts/startscript1.0.ps1"
+    syntax_validation: "No syntax errors detected"
+    security_concerns:
+      - severity: "CRITICAL"
+        issue: "Attempts to create backdoor admin account 'bob' with description 'Nothing to see here blue team'"
+        details: "Lines 90-102 define $params but never pass to New-LocalUser - code bug prevents execution but intent is concerning"
+      - severity: "HIGH"
+        issue: "Downloads and executes external code without verification"
+    missing_safety_features:
+      - "No ErrorActionPreference set"
+      - "No try/catch error handling"
+      - "No admin privilege check"
+      - "No download validation"
+
+  - script_path: "/home/sam/CCDC-Development/Windows Branch/DEV/Scripts/startscript1.1.ps1"
+    syntax_validation: "No syntax errors detected"
+    security_concerns:
+      - severity: "CRITICAL"
+        issue: "Same backdoor account issue as startscript1.0.ps1"
+      - severity: "HIGH"
+        issue: "Downloads without integrity verification"
+    missing_safety_features:
+      - "No ErrorActionPreference set"
+      - "No try/catch error handling"
+      - "No admin privilege check"
+
+  - script_path: "/home/sam/CCDC-Development/Windows Branch/DEV/Scripts/startscript1.2.ps1"
+    syntax_validation: "Potential issue with unquoted path containing spaces"
+    security_concerns:
+      - severity: "CRITICAL"
+        issue: "Same backdoor account pattern"
+      - severity: "HIGH"
+        issue: "Sysmon path with spaces not quoted - command will fail"
+        line: 150
+    missing_safety_features:
+      - "No ErrorActionPreference set"
+      - "No try/catch error handling"
+      - "No admin privilege check"
+
+# ==============================================================================
+# HIGH SEVERITY - Significant issues
+# ==============================================================================
+high:
+
+  - script_path: "/home/sam/CCDC-Development/Tools/Splunk/windowSplunkForwarderGeneral.ps1"
+    syntax_validation: "SYNTAX ERROR - corrupted data on line 51"
+    hardcoded_values:
+      - type: "IP Address"
+        value: "172.20.242.20"
+        note: "Default INDEXER_IP - parameterized but hardcoded default"
+      - type: "Version"
+        value: "10.0.1"
+      - type: "Build Hash"
+        value: "c486717c322b"
+    security_concerns:
+      - severity: "HIGH"
+        issue: "Contains corrupted data in inputs.conf template"
+        line: 51
+        details: "Line contains 'disabled = 0!!!!!!Dsssssssssssssssssssssssssss' - file corruption"
+      - severity: "MEDIUM"
+        issue: "Downloads executable without hash verification"
+    missing_safety_features:
+      - "No ErrorActionPreference set"
+      - "No try/catch error handling"
+      - "No admin privilege check"
+
+  - script_path: "/home/sam/CCDC-Development/Windows Branch/COMP/Scripts/GPO/GPO_Import1.0.ps1"
+    syntax_validation: "No syntax errors"
+    hardcoded_values:
+      - type: "GPO Name"
+        value: "COMPGPO"
+      - type: "Path"
+        value: "C:\\Github\\RnDSweats-Development\\Windows Branch/COMP/Scripts/GPO"
+        note: "Mixed forward/back slashes may cause issues"
+    security_concerns:
+      - severity: "HIGH"
+        issue: "Imports GPO from potentially untrusted location without verification"
+      - severity: "MEDIUM"
+        issue: "Path uses mixed slashes which may fail"
+    missing_safety_features:
+      - "No ErrorActionPreference set"
+      - "No validation that GPO backup exists"
+
+# ==============================================================================
+# MEDIUM SEVERITY - Moderate issues
+# ==============================================================================
+medium:
+
+  - script_path: "/home/sam/CCDC-Development/Tools/Wazuh/WazuhWindowsAgentSetup.ps1"
+    syntax_validation: "No syntax errors detected"
+    hardcoded_values:
+      - type: "IP Address"
+        value: "172.20.242.20"
+        note: "Default value if param/env not set"
+      - type: "Agent Group"
+        value: "windows-default"
+      - type: "Wazuh Version"
+        value: "4.9.0-1"
+    security_concerns:
+      - severity: "MEDIUM"
+        issue: "Downloads installer without hash verification"
+    positive_notes:
+      - "Uses #Requires -RunAsAdministrator"
+      - "Has ErrorActionPreference = Stop"
+      - "Uses Set-StrictMode"
+      - "Comprehensive logging"
+      - "Proper try/catch handling"
+      - "TLS 1.2 enforcement"
+    assessment: "BEST EXAMPLE - use as template for other scripts"
+
+  - script_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/windowsSplunkForwarderGeneral.ps1"
+    syntax_validation: "No syntax errors detected"
+    hardcoded_values:
+      - type: "IP Address"
+        value: "172.20.242.20"
+      - type: "Version"
+        value: "10.0.1"
+    security_concerns:
+      - severity: "MEDIUM"
+        issue: "Downloads without hash verification"
+    positive_notes:
+      - "Has admin privilege check"
+      - "Has retry logic for downloads"
+      - "Has logging function"
+      - "TLS 1.2 enforcement"
+
+  - script_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/quickHarden.ps1"
+    syntax_validation: "No syntax errors detected"
+    hardcoded_values:
+      - type: "Ports"
+        value: "5985, 5986, 4505, 4506"
+        note: "Salt/WinRM ports - appropriate"
+    security_concerns:
+      - severity: "MEDIUM"
+        issue: "Opens WinRM ports without authentication verification"
+    positive_notes:
+      - "Uses #Requires -RunAsAdministrator"
+      - "Good security hardening practices"
+
+# ==============================================================================
+# LOW SEVERITY - Minor issues
+# ==============================================================================
+low:
+
+  - script_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/networkAudit.ps1"
+    syntax_validation: "No syntax errors"
+    assessment: "Read-only audit script - well structured"
+
+  - script_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/processHunter.ps1"
+    syntax_validation: "No syntax errors"
+    assessment: "Read-only threat hunting script - good coverage"
+
+  - script_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/userAudit.ps1"
+    syntax_validation: "Minor issue - uses deprecated Get-WmiObject"
+    assessment: "Read-only user audit script"
+
+  - script_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/persistenceHunter.ps1"
+    syntax_validation: "No syntax errors"
+    assessment: "Read-only persistence detection - comprehensive"
+    positive_notes:
+      - "Good MITRE ATT&CK coverage"
+      - "Checks 15 persistence mechanisms"
+
+# ==============================================================================
+# Common Issues Summary
+# ==============================================================================
+common_issues:
+  - issue: "Backdoor account creation in startscript*.ps1 files"
+    affected_scripts: 4
+    recommendation: "Remove backdoor creation code or clearly document as red team training"
+
+  - issue: "Missing ErrorActionPreference"
+    affected_scripts: 9
+    recommendation: "Add $ErrorActionPreference = 'Stop' for production scripts"
+
+  - issue: "Missing admin privilege check"
+    affected_scripts: 6
+    recommendation: "Add #Requires -RunAsAdministrator or Test-Administrator function"
+
+  - issue: "Hardcoded IP addresses"
+    affected_scripts: 4
+    recommendation: "Use parameters with sensible defaults"
+
+  - issue: "No download integrity verification"
+    affected_scripts: 5
+    recommendation: "Add hash verification for downloaded files"
+
+  - issue: "Paths with spaces not quoted"
+    affected_scripts: 3
+    recommendation: "Always quote paths that may contain spaces"
+
+# ==============================================================================
+# Recommendations
+# ==============================================================================
+recommendations:
+  immediate_action:
+    - "Review and remove/document backdoor account creation in startscript*.ps1 files"
+    - "Fix corrupted inputs.conf content in Tools/Splunk/windowSplunkForwarderGeneral.ps1 line 51"
+    - "Fix unquoted path with spaces in startscript1.2.ps1 line 150"
+
+  short_term:
+    - "Add admin privilege checks to all scripts that require elevation"
+    - "Add ErrorActionPreference = 'Stop' to all production scripts"
+    - "Add try/catch error handling for critical operations"
+    - "Parameterize hardcoded IP addresses and paths"
+
+  long_term:
+    - "Implement download integrity verification (hash checking)"
+    - "Replace deprecated Get-WmiObject with Get-CimInstance"
+    - "Create script template following WazuhWindowsAgentSetup.ps1 patterns"
+    - "Add Pester tests for critical scripts"
+
+# ==============================================================================
+# Best Practice Reference
+# ==============================================================================
+best_practice_example:
+  script: "/home/sam/CCDC-Development/Tools/Wazuh/WazuhWindowsAgentSetup.ps1"
+  features:
+    - "#Requires -RunAsAdministrator"
+    - "$ErrorActionPreference = 'Stop'"
+    - "Set-StrictMode -Version Latest"
+    - "Comprehensive logging with timestamps"
+    - "Proper try/catch/finally blocks"
+    - "TLS 1.2 enforcement"
+    - "Admin privilege validation"
+    - "Clean exit codes"

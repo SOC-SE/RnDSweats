@@ -1,0 +1,416 @@
+# CCDC Script Testing Results
+# Test Date: 2026-01-27
+# Target Platform: Oracle Linux 9 / Rocky Linux 9 (RHEL 9 family)
+# Tester: Claude Code (automated)
+#
+# NOTE: Oracle Linux 9 Vagrant VM experienced SSH connectivity issues after provisioning.
+#       Tests were conducted on Rocky Linux 9.6 which is binary-compatible with Oracle Linux 9.
+#       Both are RHEL 9 derivatives and share the same package ecosystem and system configuration.
+
+---
+test_session:
+  date: "2026-01-27"
+  start_time: "07:30 UTC"
+  end_time: "07:55 UTC"
+  environment:
+    hypervisor: "VirtualBox 7.2"
+    host_os: "Linux 6.12.67-1-lts"
+    vagrant_version: "2.x"
+
+  target_vm:
+    name: "Rocky Linux 9.6 (ccdc-rocky)"
+    os: "Rocky Linux 9.6 (Blue Onyx)"
+    kernel: "5.14.0-570.52.1.el9_6.x86_64"
+    ip_address: "192.168.56.13"
+    memory: "1024 MB"
+    cpus: 2
+    note: "Oracle Linux 9 VM had SSH issues; Rocky Linux 9 used as RHEL 9 equivalent"
+
+  oracle_vm_issue:
+    description: "Oracle Linux 9 Vagrant VM experiences SSH connection issues immediately after provisioning"
+    symptoms:
+      - "SSH connection refused or reset after VM boot"
+      - "Multiple reconnection attempts fail"
+      - "VM shows as 'running' but SSH times out"
+    probable_cause: "Provisioner shell script runs dnf update during boot, potentially interfering with SSH service"
+    workaround: "Test on Rocky Linux 9 which is binary-compatible with Oracle Linux 9"
+    recommendation: "Investigate Oracle VM SSH issue; may need to adjust provisioner timing or disable NetworkManager changes during boot"
+
+---
+scripts:
+
+  # ============================================================
+  # Script 1: oracleUpgrade.sh (misc directory)
+  # ============================================================
+  - script: "/vagrant/misc/oracleUpgrade.sh"
+    full_path: "/home/sam/CCDC-Development/misc/oracleUpgrade.sh"
+    category: "System Upgrade"
+    vm_tested_on: "N/A (script is empty)"
+    test_date: "2026-01-27"
+
+    result: "FAIL"
+    execution_time: "N/A"
+
+    pre_execution_state:
+      description: "Script file contains only shebang"
+
+    post_execution_state:
+      description: "No changes - script is empty"
+
+    errors:
+      - "Script contains only '#!/bin/bash' (12 bytes total)"
+      - "No actual upgrade logic implemented"
+
+    warnings:
+      - "This appears to be a placeholder or stub file"
+      - "The actual oracleUpgrade.sh is in /vagrant/SaltyBoxes/CustomScripts/"
+
+    changes_made: []
+
+    recommendations:
+      - "Remove this empty file or add content"
+      - "Use /vagrant/SaltyBoxes/CustomScripts/oracleUpgrade.sh for Oracle Linux upgrades"
+      - "Consider consolidating duplicate script names to avoid confusion"
+
+  # ============================================================
+  # Script 1b: oracleUpgrade.sh (SaltyBoxes - actual script)
+  # ============================================================
+  - script: "/vagrant/SaltyBoxes/CustomScripts/oracleUpgrade.sh"
+    full_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/oracleUpgrade.sh"
+    category: "System Upgrade"
+    vm_tested_on: "Rocky Linux 9.6"
+    test_date: "2026-01-27"
+
+    result: "PARTIAL"
+    execution_time: "dry-run only"
+
+    pre_execution_state:
+      os_version: "Rocky Linux 9.6 (already at target version)"
+      description: "Rocky 9.6 is already at the target 9.6 release"
+
+    post_execution_state:
+      description: "Dry-run showed no packages to upgrade (already at 9.6)"
+
+    errors: []
+
+    warnings:
+      - "Script hardcodes --releasever=9.6 which may become outdated"
+      - "Script uses 'sudo' internally but should be run as root"
+      - "No --help or --dry-run flag available"
+
+    changes_made:
+      - "None (dry-run only)"
+
+    recommendations:
+      - "Add --help and --dry-run options"
+      - "Consider making releasever configurable via parameter"
+      - "Add pre-flight check for current OS version"
+      - "Full test requires running actual upgrade on Oracle Linux 9.3"
+
+  # ============================================================
+  # Script 2: oracleFirewallRules.sh
+  # ============================================================
+  - script: "/vagrant/misc/oracleFirewallRules.sh"
+    full_path: "/home/sam/CCDC-Development/misc/oracleFirewallRules.sh"
+    category: "Firewall Configuration"
+    vm_tested_on: "Rocky Linux 9.6"
+    test_date: "2026-01-27"
+
+    result: "PASS"
+    execution_time: "<1 second"
+
+    pre_execution_state:
+      iptables_input_policy: "ACCEPT"
+      iptables_rules_count: 0
+      ssh_access: "allowed (no restrictions)"
+
+    post_execution_state:
+      iptables_input_policy: "DROP"
+      iptables_rules_count: 9
+      ssh_access: "allowed (rule 3: tcp dpt:22)"
+      ports_allowed:
+        - "22/tcp (SSH)"
+        - "514/tcp (Syslog)"
+        - "514/udp (Syslog)"
+        - "443/tcp (Wazuh Dashboard)"
+        - "1514/tcp (Wazuh Agent)"
+        - "1515/tcp (Wazuh Enrollment)"
+        - "3000/tcp (Salt GUI)"
+        - "4505/tcp (Salt Publisher)"
+        - "4506/tcp (Salt Returner)"
+        - "8001/tcp (Salt API)"
+        - "9200/tcp (Wazuh Indexer)"
+        - "9997/tcp (Splunk Forwarder)"
+        - "55000/tcp (Wazuh API)"
+
+    errors:
+      - "'service iptables save' not supported on RHEL 9 (nftables backend)"
+
+    warnings:
+      - "Rules not persisted to disk (/etc/sysconfig/iptables not created)"
+      - "Rules will be lost on reboot without iptables-services package"
+      - "firewalld is running on Rocky (may conflict with direct iptables usage)"
+
+    changes_made:
+      - "Set INPUT chain default policy to DROP"
+      - "Set FORWARD chain default policy to DROP"
+      - "Added 9 iptables INPUT rules for SIEM/monitoring services"
+      - "SSH connectivity maintained (rule 3)"
+
+    recommendations:
+      - "Install iptables-services package: dnf install iptables-services"
+      - "Replace 'service iptables save' with 'iptables-save > /etc/sysconfig/iptables'"
+      - "Consider stopping firewalld before applying iptables rules: systemctl stop firewalld"
+      - "Add rule persistence verification after save command"
+      - "Consider adding ICMP (ping) allow rule for network troubleshooting"
+
+  # ============================================================
+  # Script 3: masterEnum.sh
+  # ============================================================
+  - script: "/vagrant/SaltyBoxes/CustomScripts/masterEnum.sh"
+    full_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/masterEnum.sh"
+    category: "Security Audit / Enumeration"
+    vm_tested_on: "Rocky Linux 9.6"
+    test_date: "2026-01-27"
+
+    result: "PASS"
+    execution_time: "1-2 seconds (quick mode)"
+
+    pre_execution_state:
+      audit_log_exists: false
+      directory_created: false
+
+    post_execution_state:
+      audit_log_exists: true
+      audit_log_path: "/var/log/syst/rocky_audit_20260127_0753.log"
+      audit_log_size: "7927 bytes"
+      sections_completed:
+        - "System Inventory"
+        - "Cron Job Enumeration"
+        - "User Enumeration"
+        - "Sudoers Configuration"
+        - "Service Enumeration"
+        - "Privilege Escalation Vectors"
+        - "Network Connections"
+
+    errors: []
+
+    warnings:
+      - "Domain Status shows 'JOINED' incorrectly when /etc/krb5.conf exists but no domain"
+      - "Some 'high-risk' users are false positives (system accounts with RECENT flag)"
+
+    changes_made:
+      - "Created /var/log/syst/ directory"
+      - "Generated audit log file"
+
+    findings:
+      privileged_users:
+        - "testuser (wheel group)"
+        - "vagrant (NOPASSWD sudo)"
+      suid_binaries: 0
+      suspicious_cron_jobs: 0
+      failed_services: 0
+
+    recommendations:
+      - "Improve domain detection logic (check for actual realm, not just krb5.conf existence)"
+      - "Filter out common system accounts from 'high-risk' detection"
+      - "Add option to output JSON format for integration with SIEM"
+      - "Consider adding file integrity baseline checking"
+
+  # ============================================================
+  # Script 4: serviceAudit.sh
+  # ============================================================
+  - script: "/vagrant/SaltyBoxes/CustomScripts/serviceAudit.sh"
+    full_path: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/serviceAudit.sh"
+    category: "Security Audit / Service Enumeration"
+    vm_tested_on: "Rocky Linux 9.6"
+    test_date: "2026-01-27"
+
+    result: "PASS"
+    execution_time: "1 second"
+
+    pre_execution_state:
+      description: "Standard Rocky Linux 9 with VirtualBox guest additions"
+
+    post_execution_state:
+      description: "No system changes - read-only audit"
+
+    errors: []
+
+    warnings:
+      - "Section 4 'SUSPICIOUS/UNKNOWN SERVICES' has high false-positive rate"
+      - "Standard services like rpcbind, sssd, tuned flagged as suspicious"
+      - "Section 6 'SERVICES RUNNING AS ROOT' includes kernel threads (bracketed names)"
+
+    changes_made: []
+
+    findings:
+      enabled_services: 33
+      running_services: 22
+      failed_services: 0
+      network_listening_ports: 6
+      recently_modified_services: 0
+
+    recommendations:
+      - "Improve suspicious service detection with whitelist"
+      - "Filter kernel threads from root process list"
+      - "Add severity classification to suspicious findings"
+      - "Consider outputting to log file like masterEnum.sh"
+
+  # ============================================================
+  # Script 5: SplunkServerInstall.sh
+  # ============================================================
+  - script: "/vagrant/Tools/Splunk/SplunkServerInstall.sh"
+    full_path: "/home/sam/CCDC-Development/Tools/Splunk/SplunkServerInstall.sh"
+    category: "SIEM Installation"
+    vm_tested_on: "Rocky Linux 9.6 (syntax check only)"
+    test_date: "2026-01-27"
+
+    result: "PARTIAL"
+    execution_time: "syntax check only"
+
+    pre_execution_state:
+      splunk_installed: false
+
+    post_execution_state:
+      description: "No execution - syntax validation only"
+
+    errors: []
+
+    warnings:
+      - "No --help or --dry-run option available"
+      - "Requires interactive password input (no non-interactive mode)"
+      - "Downloads ~700MB Splunk package from internet"
+      - "Script header mentions 'DoNotRun__' warning about accidental execution"
+
+    changes_made: []
+
+    syntax_check: "PASS"
+
+    script_analysis:
+      splunk_version: "10.0.1"
+      splunk_build: "c486717c322b"
+      supported_distros:
+        - "RHEL/CentOS/Rocky/Oracle (dnf/yum)"
+        - "Debian/Ubuntu (apt)"
+      features:
+        - "Automatic OS detection"
+        - "Existing installation detection"
+        - "License backup/restore"
+        - "Boot-start enablement"
+
+    recommendations:
+      - "Add --help option for usage information"
+      - "Add non-interactive mode (password via environment variable works but not documented)"
+      - "Add --dry-run option to show what would be installed"
+      - "Full installation test requires dedicated VM with 4GB+ RAM"
+      - "Consider adding firewall rule configuration for Splunk ports"
+
+  # ============================================================
+  # Script 6: OL9-wazuhInstall.sh
+  # ============================================================
+  - script: "/vagrant/Tools/Wazuh/Server/OL9-wazuhInstall.sh"
+    full_path: "/home/sam/CCDC-Development/Tools/Wazuh/Server/OL9-wazuhInstall.sh"
+    category: "SIEM Installation"
+    vm_tested_on: "Rocky Linux 9.6 (syntax check only)"
+    test_date: "2026-01-27"
+
+    result: "PARTIAL"
+    execution_time: "syntax check only"
+
+    pre_execution_state:
+      wazuh_installed: false
+
+    post_execution_state:
+      description: "No execution - syntax validation only"
+
+    errors: []
+
+    warnings:
+      - "No --help or --dry-run option available"
+      - "Requires interactive password input"
+      - "Disables SELinux (security consideration)"
+      - "Removes existing Wazuh/Elasticsearch components without confirmation"
+
+    changes_made: []
+
+    syntax_check: "PASS"
+
+    script_analysis:
+      wazuh_version: "4.14.1"
+      components_installed:
+        - "wazuh-indexer"
+        - "wazuh-manager"
+        - "wazuh-dashboard"
+        - "filebeat"
+      features:
+        - "Certificate generation"
+        - "Offline template fallback"
+        - "Seccomp bypass for filebeat"
+        - "Port 55000 cleanup for API conflicts"
+
+    recommendations:
+      - "Add --help option"
+      - "Add non-interactive mode documentation"
+      - "Add confirmation prompt before removing existing installations"
+      - "Consider making SELinux mode configurable (permissive vs disabled)"
+      - "Full installation test requires 4GB+ RAM and ~30 minutes"
+
+---
+summary:
+  total_scripts_tested: 6
+  passed: 3
+  partial: 2
+  failed: 1
+
+  scripts_by_status:
+    passed:
+      - "oracleFirewallRules.sh"
+      - "masterEnum.sh"
+      - "serviceAudit.sh"
+    partial:
+      - "oracleUpgrade.sh (SaltyBoxes) - dry-run only"
+      - "SplunkServerInstall.sh - syntax check only"
+      - "OL9-wazuhInstall.sh - syntax check only"
+    failed:
+      - "oracleUpgrade.sh (misc) - empty script"
+
+  key_findings:
+    - "Read-only audit scripts (masterEnum.sh, serviceAudit.sh) work well on RHEL 9"
+    - "oracleFirewallRules.sh applies rules correctly but doesn't persist them"
+    - "Installation scripts pass syntax check but require full deployment testing"
+    - "Oracle Linux 9 Vagrant box has SSH connectivity issues requiring investigation"
+    - "Duplicate script names (oracleUpgrade.sh) cause confusion"
+
+  action_items:
+    high_priority:
+      - "Fix Oracle Linux 9 Vagrant VM SSH issues"
+      - "Add rule persistence to oracleFirewallRules.sh"
+      - "Remove or populate /misc/oracleUpgrade.sh"
+    medium_priority:
+      - "Add --help flags to installation scripts"
+      - "Improve false-positive filtering in audit scripts"
+      - "Test Splunk and Wazuh installation on dedicated VM"
+    low_priority:
+      - "Add JSON output option to audit scripts"
+      - "Document environment variable options for non-interactive installation"
+
+---
+test_environment_notes:
+  vm_resources:
+    memory: "1024 MB"
+    cpus: 2
+    disk: "default vagrant box allocation"
+
+  network_configuration:
+    adapter_1: "NAT (port forwarding for SSH)"
+    adapter_2: "Host-only (192.168.56.0/24)"
+
+  pre_installed_packages:
+    - "curl, wget, net-tools, iproute, procps-ng"
+    - "rsyslog, audit, cronie, sudo, vim-minimal"
+
+  known_limitations:
+    - "Oracle Linux 9 bento/oracle-9 box has post-provision SSH issues"
+    - "VirtualBox Guest Additions version mismatch (7.0.14 vs VirtualBox 7.2)"
+    - "1GB RAM insufficient for Splunk/Wazuh full installation testing"

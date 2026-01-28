@@ -1,0 +1,292 @@
+# CCDC Script Testing Results - Fedora 42
+# Test Date: 2026-01-27
+# VM: Fedora 42 (Server Edition) - bento/fedora-42
+# Tester: Automated Testing via vagrant ssh
+
+---
+test_environment:
+  vm_name: fedora
+  os: "Fedora Linux 42 (Server Edition)"
+  ip_address: "192.168.56.11"
+  test_date: "2026-01-27"
+  vagrant_box: "bento/fedora-42"
+  initial_state:
+    firewall: "firewalld (FedoraServer zone)"
+    running_services: 27
+    users_with_shell: ["root", "vagrant"]
+
+tests:
+  # ============================================================================
+  # TEST 1: serviceAudit.sh
+  # ============================================================================
+  - script: "/vagrant/SaltyBoxes/CustomScripts/serviceAudit.sh"
+    script_path_local: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/serviceAudit.sh"
+    vm_tested_on: "fedora"
+    test_date: "2026-01-27"
+    result: PASS
+    execution_time_seconds: 1.193
+    execution_mode: "sudo"
+    read_only: true
+    errors: []
+    warnings: []
+    output_summary: |
+      Successfully enumerated:
+      - All enabled services (39 services)
+      - Currently running services (27 services)
+      - Failed services (2: serial-getty@ttyS0.service, vboxadd.service)
+      - Suspicious/unknown services (20 services flagged for review)
+      - Services listening on network (9 listeners including SSH, systemd-resolve)
+      - Services running as root
+      - Socket activated services
+    changes_made:
+      - None (read-only audit script)
+    resource_impact:
+      cpu_usage: "minimal"
+      memory_usage: "minimal"
+      disk_writes: "none"
+    recommendations:
+      - Script works correctly on Fedora 42
+      - Good for pre-competition baseline capture
+      - Consider adding JSON output option for automated parsing
+
+  # ============================================================================
+  # TEST 2: masterEnum.sh
+  # ============================================================================
+  - script: "/vagrant/SaltyBoxes/CustomScripts/masterEnum.sh"
+    script_path_local: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/masterEnum.sh"
+    vm_tested_on: "fedora"
+    test_date: "2026-01-27"
+    result: PASS
+    execution_time_seconds: 4.233
+    execution_mode: "sudo"
+    read_only: true
+    errors: []
+    warnings: []
+    output_summary: |
+      Comprehensive security audit completed:
+      - System inventory (CPU: AMD Ryzen 7, 2 cores, ~1GB RAM)
+      - Open ports enumeration (SSH:22, systemd-resolve:53/5355, cockpit:9090)
+      - Human users detection (root, vagrant)
+      - Sudoers configuration analysis (3 high-risk rules found including NOPASSWD)
+      - Active services (27 running)
+      - SUID/capabilities analysis (3 high-risk capabilities found)
+      - Log output saved to /var/log/syst/fedora_audit_20260127_0731.log
+    changes_made:
+      - Created /var/log/syst/ directory
+      - Created audit log file (8.7KB)
+    resource_impact:
+      cpu_usage: "0.410s user, 3.382s sys"
+      memory_usage: "minimal"
+      disk_writes: "~9KB log file"
+    recommendations:
+      - Excellent comprehensive enumeration tool
+      - Works well on Fedora 42
+      - Log location configurable - good for centralized collection
+      - Consider adding --json output flag for SIEM ingestion
+
+  # ============================================================================
+  # TEST 3: persistenceHunter.sh
+  # ============================================================================
+  - script: "/vagrant/SaltyBoxes/CustomScripts/persistenceHunter.sh"
+    script_path_local: "/home/sam/CCDC-Development/SaltyBoxes/CustomScripts/persistenceHunter.sh"
+    vm_tested_on: "fedora"
+    test_date: "2026-01-27"
+    result: PASS
+    execution_time_seconds: 1.495
+    execution_mode: "sudo"
+    read_only: true
+    errors: []
+    warnings: []
+    output_summary: |
+      Persistence mechanism enumeration completed:
+      - Cron jobs (system cron dirs, user crontabs)
+      - Systemd user services (8 dbus service links)
+      - Suspicious systemd services (26 enabled services flagged)
+      - Init.d scripts (none found - systemd environment)
+      - RC.local (not present)
+      - Authorized_keys for all users (1 found for vagrant)
+      - SUID/SGID binaries (7 unusual items found)
+      - World-writable files in system dirs (none)
+      - Hidden files in /tmp, /var/tmp
+      - Loaded kernel modules (41 modules)
+      - Shell profile backdoors check
+    changes_made:
+      - None (read-only threat hunting script)
+    resource_impact:
+      cpu_usage: "0.143s user, 0.882s sys"
+      memory_usage: "minimal"
+      disk_writes: "none"
+    recommendations:
+      - Fast and effective persistence hunting
+      - Works correctly on Fedora 42
+      - Consider adding timestamp to output
+      - Add optional baseline comparison mode
+
+  # ============================================================================
+  # TEST 4: splunkForwarderLinuxGeneral.sh --help
+  # ============================================================================
+  - script: "/vagrant/Tools/Splunk/splunkForwarderLinuxGeneral.sh"
+    script_path_local: "/home/sam/CCDC-Development/Tools/Splunk/splunkForwarderLinuxGeneral.sh"
+    vm_tested_on: "fedora"
+    test_date: "2026-01-27"
+    result: PARTIAL
+    execution_time_seconds: 0.028
+    execution_mode: "sudo with --help flag"
+    read_only: false
+    errors:
+      - "Script does not support --help flag"
+      - "Immediately enters interactive password prompt mode"
+      - "stty error when stdin is not a TTY"
+    warnings:
+      - "No help/usage documentation accessible via CLI"
+    output_summary: |
+      Script usage: ./splunkForwarderLinuxGeneral.sh [indexer_ip] [username] [password]
+      Defaults:
+      - INDEXER_IP: 172.20.242.20
+      - ADMIN_USERNAME: admin
+      - Splunk version: 10.0.1
+    changes_made:
+      - None (exited on password prompt failure)
+    resource_impact:
+      cpu_usage: "minimal"
+      memory_usage: "minimal"
+      disk_writes: "none"
+    recommendations:
+      - Add --help/-h flag support to display usage information
+      - Add non-interactive mode for automation
+      - Fix TTY detection for password prompt (use read with fallback)
+      - Consider --dry-run option for testing
+      - Add version compatibility check
+
+  # ============================================================================
+  # TEST 5: firewallGenerator.sh
+  # ============================================================================
+  - script: "/vagrant/LinuxDev/firewallGenerator.sh"
+    script_path_local: "/home/sam/CCDC-Development/LinuxDev/firewallGenerator.sh"
+    vm_tested_on: "fedora"
+    test_date: "2026-01-27"
+    result: PASS
+    execution_time_seconds: 26.312
+    execution_mode: "sudo --help, then sudo --ssh"
+    read_only: false
+    errors: []
+    warnings:
+      - "60-second failsafe timer requires confirmation in interactive mode"
+      - "Disables and masks firewalld on RHEL-family systems"
+    output_summary: |
+      --help mode:
+      - Installed iptables-services package (57.6KB downloaded)
+      - Disabled and masked firewalld
+      - Enabled iptables.service
+      - Displayed usage information
+
+      Post-execution firewall state (from --ssh test):
+      - INPUT policy: DROP
+      - OUTPUT policy: DROP
+      - FORWARD policy: DROP
+      - SSH (port 22) allowed
+      - ICMP allowed
+      - Loopback allowed
+      - ESTABLISHED/RELATED allowed
+      - Logging enabled for dropped packets
+    changes_made:
+      - Installed iptables-services package
+      - Disabled firewalld.service
+      - Masked firewalld.service
+      - Enabled iptables.service
+      - Applied strict DROP policy with SSH allowed
+      - Configured rsyslog to log dropped packets to /var/log/syst/firewall.log
+    resource_impact:
+      cpu_usage: "7.331s user, 1.568s sys"
+      memory_usage: "moderate (package installation)"
+      disk_writes: "114KB for packages, firewall.log created"
+      network_usage: "~58KB package download"
+    recommendations:
+      - Works correctly on Fedora 42
+      - Failsafe timer is a good safety feature
+      - Consider adding --no-confirm or --yes flag for automation
+      - Document that firewalld will be disabled on RHEL-family
+      - Add --dry-run to preview rules without applying
+
+  # ============================================================================
+  # TEST 6: mail_hardener_fedora.sh --test
+  # ============================================================================
+  - script: "/vagrant/LinuxDev/mail_hardener_fedora.sh"
+    script_path_local: "/home/sam/CCDC-Development/LinuxDev/mail_hardener_fedora.sh"
+    vm_tested_on: "fedora"
+    test_date: "2026-01-27"
+    result: IN_PROGRESS
+    execution_time_seconds: ">300 (still running)"
+    execution_mode: "sudo --test with piped 'yes y' input"
+    read_only: false
+    errors:
+      - "Confirmation loop gets stuck when stdin is empty (infinite loop bug)"
+      - "read -r -p does not work properly with non-TTY stdin"
+    warnings:
+      - "Long execution time due to system package updates"
+      - "Requires TTY for interactive confirmations"
+    output_summary: |
+      Script started successfully with piped input.
+      Currently running dnf update (large package update in progress).
+      Will install: Postfix, Dovecot, Roundcube, Apache, and dependencies.
+
+      Hardening features:
+      - Postfix: TLS enforcement, HELO required, relay restrictions
+      - Dovecot: TLSv1.2 minimum, encrypted auth only
+      - Roundcube: X-Frame-Options, session security, rate limiting
+      - Apache: Security headers, restricted directory access
+    changes_made:
+      - System packages being updated (in progress)
+      - Mail services installation (pending)
+    resource_impact:
+      cpu_usage: "15.4% during dnf update"
+      memory_usage: "~150MB for dnf process"
+      disk_writes: "significant (package updates)"
+      network_usage: "~100MB+ package downloads"
+    recommendations:
+      - FIX BUG: Add timeout and default to ask_yes_no() function
+      - Add --yes/-y flag for non-interactive mode
+      - Consider separating package installation from hardening
+      - Add --skip-update flag to skip system updates
+      - Long execution time acceptable for initial setup
+
+---
+# Summary Statistics
+summary:
+  total_scripts_tested: 6
+  passed: 4
+  failed: 0
+  partial: 1
+  in_progress: 1
+
+  read_only_scripts:
+    - serviceAudit.sh (PASS)
+    - masterEnum.sh (PASS)
+    - persistenceHunter.sh (PASS)
+
+  hardening_scripts:
+    - firewallGenerator.sh (PASS)
+    - mail_hardener_fedora.sh (IN_PROGRESS)
+
+  utility_scripts:
+    - splunkForwarderLinuxGeneral.sh (PARTIAL - needs --help flag)
+
+  system_changes_after_testing:
+    firewall: "iptables with strict DROP policy (firewalld disabled)"
+    new_directories: ["/var/log/syst/"]
+    new_files:
+      - "/var/log/syst/fedora_audit_20260127_0731.log"
+      - "/var/log/syst/firewall.log"
+    installed_packages:
+      - iptables-services
+      - iptables-utils
+
+  critical_findings:
+    - mail_hardener_fedora.sh has infinite loop bug when stdin is not TTY
+    - splunkForwarderLinuxGeneral.sh lacks --help support
+    - firewallGenerator.sh replaces firewalld with iptables on Fedora
+
+  salt_integration_candidates:
+    - serviceAudit.sh: "Excellent for fleet-wide baseline capture"
+    - masterEnum.sh: "Good for centralized security auditing"
+    - persistenceHunter.sh: "Ideal for scheduled threat hunting across fleet"

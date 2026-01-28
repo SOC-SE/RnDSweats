@@ -147,8 +147,10 @@ verify_dpkg() {
 
     # dpkg --verify returns:
     # ??5?????? c /path/to/file
-    # Where 5 means MD5 checksum mismatch
-    results=$(dpkg --verify $packages 2>/dev/null | grep -E "^..5" || true)
+    # Where 5 means MD5 checksum mismatch, 'c' means config file
+    # Filter OUT config files (marked with 'c') — those are expected to change
+    # Only alert on actual binary/library modifications
+    results=$(dpkg --verify $packages 2>/dev/null | grep -E "^..5" | grep -v " c /" || true)
     echo "$results"
 }
 
@@ -217,6 +219,22 @@ BINARIES_FOUND=0
 log "Locating critical binaries..."
 echo ""
 
+# Fallback package mappings for binaries that don't resolve via package manager
+declare -A FALLBACK_PACKAGES_DPKG=(
+    ["netstat"]="net-tools"
+    ["ss"]="iproute2"
+    ["awk"]="gawk mawk"
+    ["ip"]="iproute2"
+    ["lsof"]="lsof"
+)
+declare -A FALLBACK_PACKAGES_RPM=(
+    ["netstat"]="net-tools"
+    ["ss"]="iproute"
+    ["awk"]="gawk"
+    ["ip"]="iproute"
+    ["lsof"]="lsof"
+)
+
 for binary in "${CRITICAL_BINARIES[@]}"; do
     binary_path=$(command -v "$binary" 2>/dev/null)
 
@@ -230,12 +248,23 @@ for binary in "${CRITICAL_BINARIES[@]}"; do
             pkg=$(get_package_rpm "$binary_path")
         fi
 
-        if [[ -n "$pkg" ]]; then
-            # Avoid duplicates
-            if [[ ! " $PACKAGES_TO_CHECK " =~ " $pkg " ]]; then
-                PACKAGES_TO_CHECK="$PACKAGES_TO_CHECK $pkg"
-                debug "  Package: $pkg"
+        # Try fallback mapping if package manager can't resolve
+        if [[ -z "$pkg" ]]; then
+            if [[ "$PKG_MANAGER" == "dpkg" ]]; then
+                pkg="${FALLBACK_PACKAGES_DPKG[$binary]:-}"
+            else
+                pkg="${FALLBACK_PACKAGES_RPM[$binary]:-}"
             fi
+            [[ -n "$pkg" ]] && debug "  Using fallback package: $pkg"
+        fi
+
+        if [[ -n "$pkg" ]]; then
+            for p in $pkg; do
+                if [[ ! " $PACKAGES_TO_CHECK " =~ " $p " ]]; then
+                    PACKAGES_TO_CHECK="$PACKAGES_TO_CHECK $p"
+                    debug "  Package: $p"
+                fi
+            done
         else
             warn "Cannot determine package for: $binary_path"
         fi

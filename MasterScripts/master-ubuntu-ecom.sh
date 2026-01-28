@@ -11,8 +11,8 @@
 # Workflow:
 #   1. Initial enumeration (masterEnum.sh)
 #   2. General Linux hardening (generalLinuxHarden.sh)
-#   3. Web server hardening (harden_web.sh)
-#   4. OpenCart hardening (opencart_hardener.sh)
+#   3. Web server hardening (harden_ecom.sh)
+#   4. OpenCart hardening (harden_ecom.sh)
 #   5. Firewall configuration (service-specific rules)
 #   6. System backups (systemBackups.sh)
 #   7. Post-hardening enumeration (masterEnum.sh)
@@ -103,7 +103,7 @@ run_script "$LINUXDEV/generalLinuxHarden.sh" "General Linux Hardening"
 # ============================================================================
 # PHASE 3: WEB SERVER HARDENING
 # ============================================================================
-phase "PHASE 3: WEB SERVER HARDENING"
+phase "PHASE 3: E-COMMERCE HARDENING"
 
 # Determine web server type
 if systemctl is-active --quiet apache2 2>/dev/null; then
@@ -117,23 +117,10 @@ else
     WEB_SERVER="unknown"
 fi
 
-run_script "$LINUXDEV/harden_web.sh" "Web Server Hardening"
+run_script "$LINUXDEV/harden_ecom.sh" "E-Commerce Hardening (Apache/NGINX + OpenCart + PHP + DB)"
 
 # ============================================================================
-# PHASE 4: OPENCART HARDENING
-# ============================================================================
-phase "PHASE 4: OPENCART HARDENING"
-
-# Check for OpenCart installation
-if [[ -d "/var/www/html/opencart" ]] || [[ -d "/var/www/opencart" ]] || [[ -f "/var/www/html/index.php" ]]; then
-    run_script "$LINUXDEV/opencart_hardener.sh" "OpenCart Hardening"
-else
-    warn "OpenCart installation not detected at standard paths"
-    log "If OpenCart is installed elsewhere, run opencart_hardener.sh manually"
-fi
-
-# ============================================================================
-# PHASE 5: FIREWALL CONFIGURATION
+# PHASE 4: FIREWALL CONFIGURATION
 # ============================================================================
 phase "PHASE 5: FIREWALL CONFIGURATION"
 log "Configuring firewall for e-commerce services..."

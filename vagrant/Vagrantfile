@@ -1,0 +1,371 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+#
+# CCDC-Development Test Environment
+#
+# Multi-OS environment for testing CCDC hardening/monitoring/hunting scripts.
+# Based on 2026 MWCCDC Qualifier topology.
+#
+# Target Systems:
+#   - Ubuntu 24.04 LTS (Debian family)
+#   - Fedora 42 (RHEL family)
+#   - Oracle Linux 9 (RHEL family)
+#   - Rocky Linux 9 (RHEL family)
+#   - Debian 12 (Debian family)
+#   - Windows Server 2019 (Windows Server)
+#   - Windows Server 2022 (Windows Server)
+#   - Windows 11 (Windows Workstation)
+#   - VyOS Router (Network appliance)
+#
+# Usage:
+#   vagrant up                    # Start all autostart VMs
+#   vagrant up --no-parallel      # Start all autostart VMs sequentially
+#   vagrant up ubuntu             # Start specific VM
+#   vagrant up vyos               # Start VyOS router
+#   vagrant ssh ubuntu            # SSH into Ubuntu
+#   vagrant rdp win11             # RDP into Windows (requires vagrant-rdp plugin)
+#   vagrant destroy -f            # Destroy all VMs
+#
+# Quick start (common Linux):
+#   vagrant up ubuntu fedora oracle rocky
+#
+# Windows testing:
+#   vagrant up win11 winserver2019 winserver2022
+#
+# Full environment:
+#   vagrant up --no-parallel
+#
+# Network: 192.168.56.0/24 (VirtualBox host-only)
+#   - VyOS Router: 192.168.56.1
+#   - Linux VMs: 192.168.56.10-19
+#   - Windows VMs: 192.168.56.20-29
+#
+
+# Network configuration
+NETWORK_PREFIX = "192.168.56"
+
+# Linux VM definitions
+LINUX_VMS = {
+  "ubuntu" => {
+    box: "bento/ubuntu-24.04",
+    ip: "#{NETWORK_PREFIX}.10",
+    family: "debian",
+    display: "Ubuntu 24.04 LTS",
+    memory: "1024",
+    autostart: true
+  },
+  "fedora" => {
+    box: "bento/fedora-42",        # May need adjustment based on availability
+    ip: "#{NETWORK_PREFIX}.11",
+    family: "redhat",
+    display: "Fedora 42",
+    memory: "1024",
+    autostart: true
+  },
+  "oracle" => {
+    box: "bento/oracle-9",
+    ip: "#{NETWORK_PREFIX}.12",
+    family: "redhat",
+    display: "Oracle Linux 9",
+    memory: "1024",
+    autostart: true
+  },
+  "rocky" => {
+    box: "bento/rockylinux-9",
+    ip: "#{NETWORK_PREFIX}.13",
+    family: "redhat",
+    display: "Rocky Linux 9",
+    memory: "1024",
+    autostart: true
+  },
+  "debian" => {
+    box: "bento/debian-12",
+    ip: "#{NETWORK_PREFIX}.14",
+    family: "debian",
+    display: "Debian 12",
+    memory: "1024",
+    autostart: true
+  },
+}
+
+# Windows VM definitions
+WINDOWS_VMS = {
+  "win11" => {
+    box: "gusztavvargadr/windows-11",
+    ip: "#{NETWORK_PREFIX}.20",
+    display: "Windows 11",
+    memory: "4096",
+    autostart: false
+  },
+  "winserver2019" => {
+    box: "gusztavvargadr/windows-server-2019-standard",
+    ip: "#{NETWORK_PREFIX}.21",
+    display: "Windows Server 2019",
+    memory: "4096",
+    autostart: false
+  },
+  "winserver2022" => {
+    box: "gusztavvargadr/windows-server-2022-standard",
+    ip: "#{NETWORK_PREFIX}.22",
+    display: "Windows Server 2022",
+    memory: "4096",
+    autostart: false
+  },
+}
+
+# Network appliance definitions
+NETWORK_VMS = {
+  "vyos" => {
+    box: "vyos/current",
+    ip: "#{NETWORK_PREFIX}.1",
+    display: "VyOS Router",
+    memory: "512",
+    autostart: false
+  },
+}
+
+Vagrant.configure("2") do |config|
+
+  # Common settings for all VMs
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = "1024"
+    vb.cpus = 2
+    vb.linked_clone = true
+  end
+
+  # ============================================================
+  # VyOS Router (Network Appliance)
+  # ============================================================
+  NETWORK_VMS.each do |name, cfg|
+    config.vm.define name, autostart: cfg[:autostart] do |router|
+      router.vm.box = cfg[:box]
+      router.vm.hostname = name
+
+      # VyOS uses ssh, not WinRM
+      router.vm.communicator = "ssh"
+      router.ssh.username = "vyos"
+      router.ssh.password = "vyos"
+
+      router.vm.network "private_network", ip: cfg[:ip]
+
+      router.vm.provider "virtualbox" do |vb|
+        vb.memory = cfg[:memory]
+        vb.cpus = 1
+        vb.name = "ccdc-#{name}"
+      end
+
+      # Basic VyOS provisioning
+      router.vm.provision "shell", inline: <<-SHELL
+        # VyOS configuration commands run in operational mode
+        # For configuration mode commands, use 'configure' wrapper
+        echo "=========================================="
+        echo "VyOS Router Ready"
+        echo "IP: #{cfg[:ip]}"
+        echo "Default credentials: vyos/vyos"
+        echo "=========================================="
+      SHELL
+    end
+  end
+
+  # ============================================================
+  # Linux VMs
+  # ============================================================
+  LINUX_VMS.each do |name, cfg|
+    config.vm.define name, autostart: cfg[:autostart] do |linux|
+      linux.vm.box = cfg[:box]
+      linux.vm.hostname = name
+
+      linux.vm.boot_timeout = 600
+      linux.vm.network "private_network", ip: cfg[:ip]
+
+      # Sync scripts directory for testing
+      linux.vm.synced_folder "../", "/vagrant", type: "rsync",
+        rsync__exclude: [".git/", ".vagrant/", "node_modules/"]
+
+      linux.vm.provider "virtualbox" do |vb|
+        vb.memory = cfg[:memory]
+        vb.cpus = 2
+        vb.name = "ccdc-#{name}"
+      end
+
+      # Provision based on OS family
+      if cfg[:family] == "debian"
+        linux.vm.provision "shell", inline: <<-SHELL
+          set -e
+          echo "=========================================="
+          echo "Configuring #{cfg[:display]}"
+          echo "=========================================="
+
+          # Update package lists
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+
+          # Install common tools for testing
+          apt-get install -y -qq curl wget net-tools iproute2 procps \\
+            rsyslog auditd cron sudo vim-tiny 2>/dev/null || true
+
+          # Ensure auditd is running
+          systemctl enable --now auditd 2>/dev/null || true
+
+          # Create test user (simulates real environment)
+          if ! id "testuser" &>/dev/null; then
+            useradd -m -s /bin/bash testuser
+            echo "testuser:Changeme1!" | chpasswd
+            usermod -aG sudo testuser 2>/dev/null || true
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "#{cfg[:display]} Ready!"
+          echo "IP: #{cfg[:ip]}"
+          echo "Scripts: /vagrant/"
+          echo "Test user: testuser / Changeme1!"
+          echo "=========================================="
+        SHELL
+      else
+        # RedHat family (Rocky, Fedora, Oracle)
+        linux.vm.provision "shell", inline: <<-SHELL
+          set -e
+          echo "=========================================="
+          echo "Configuring #{cfg[:display]}"
+          echo "=========================================="
+
+          # Install common tools for testing
+          dnf install -y -q curl wget net-tools iproute procps-ng \\
+            rsyslog audit cronie sudo vim-minimal 2>/dev/null || \\
+          yum install -y -q curl wget net-tools iproute procps \\
+            rsyslog audit cronie sudo vim-minimal 2>/dev/null || true
+
+          # Ensure auditd is running
+          systemctl enable --now auditd 2>/dev/null || true
+
+          # Create test user (simulates real environment)
+          if ! id "testuser" &>/dev/null; then
+            useradd -m -s /bin/bash testuser
+            echo "testuser:Changeme1!" | chpasswd
+            usermod -aG wheel testuser 2>/dev/null || true
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "#{cfg[:display]} Ready!"
+          echo "IP: #{cfg[:ip]}"
+          echo "Scripts: /vagrant/"
+          echo "Test user: testuser / Changeme1!"
+          echo "=========================================="
+        SHELL
+      end
+    end
+  end
+
+  # ============================================================
+  # Windows VMs
+  # ============================================================
+  WINDOWS_VMS.each do |name, cfg|
+    config.vm.define name, autostart: cfg[:autostart] do |win|
+      win.vm.box = cfg[:box]
+      win.vm.hostname = name.gsub(/[^a-zA-Z0-9]/, "")  # Windows hostname restrictions
+
+      # Windows-specific settings
+      win.vm.communicator = "winrm"
+      win.winrm.username = "vagrant"
+      win.winrm.password = "vagrant"
+      win.winrm.timeout = 1800
+      win.winrm.retry_limit = 30
+      win.vm.boot_timeout = 1800
+      win.vm.guest = :windows
+
+      win.vm.network "private_network", ip: cfg[:ip]
+
+      win.vm.provider "virtualbox" do |vb|
+        vb.memory = cfg[:memory]
+        vb.cpus = 2
+        vb.name = "ccdc-#{name}"
+        vb.gui = false  # Set to true to see Windows desktop
+        vb.customize ["modifyvm", :id, "--clipboard", "bidirectional"]
+        vb.customize ["modifyvm", :id, "--draganddrop", "bidirectional"]
+      end
+
+      # Windows provisioning
+      win.vm.provision "shell", privileged: true, inline: <<-SHELL
+        Write-Host "=========================================="
+        Write-Host "Configuring #{cfg[:display]}"
+        Write-Host "=========================================="
+
+        # Enable script execution
+        Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope LocalMachine -Force
+
+        # Create test user
+        $testUser = "testuser"
+        $testPass = ConvertTo-SecureString "Changeme1!" -AsPlainText -Force
+        $existingUser = Get-LocalUser -Name $testUser -ErrorAction SilentlyContinue
+        if (-not $existingUser) {
+            New-LocalUser -Name $testUser -Password $testPass -FullName "Test User" -Description "CCDC Test Account"
+            Add-LocalGroupMember -Group "Administrators" -Member $testUser -ErrorAction SilentlyContinue
+        }
+
+        # Enable Windows Firewall logging
+        Set-NetFirewallProfile -Profile Domain,Public,Private -LogAllowed True -LogBlocked True -LogFileName "%SystemRoot%\\System32\\LogFiles\\Firewall\\pfirewall.log"
+
+        # Enable PowerShell script block logging
+        $regPath = "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging"
+        if (-not (Test-Path $regPath)) {
+            New-Item -Path $regPath -Force | Out-Null
+        }
+        Set-ItemProperty -Path $regPath -Name "EnableScriptBlockLogging" -Value 1
+
+        Write-Host ""
+        Write-Host "=========================================="
+        Write-Host "#{cfg[:display]} Ready!"
+        Write-Host "IP: #{cfg[:ip]}"
+        Write-Host "Test user: testuser / Changeme1!"
+        Write-Host "=========================================="
+      SHELL
+    end
+  end
+
+  # ============================================================
+  # PLACEHOLDER: Palo Alto (Not directly supported on VirtualBox)
+  # ============================================================
+  # Palo Alto VM-Series requires:
+  #   - VMware ESXi, Workstation, or Fusion
+  #   - Hyper-V (with disk conversion workaround)
+  #   - KVM/QEMU
+  #
+  # VirtualBox is NOT officially supported by Palo Alto.
+  #
+  # Workaround (not recommended for testing):
+  #   1. Create VM on Hyper-V with official Palo Alto image
+  #   2. Convert VHDX to VDI: VBoxManage clonehd input.vhdx output.vdi --format VDI
+  #   3. Create VirtualBox VM manually with converted disk
+  #
+  # For CCDC training, consider:
+  #   - Using GNS3/EVE-NG with proper licensing
+  #   - Using cloud-based Palo Alto lab environment
+  #   - Focusing on CLI/API scripting against documented interfaces
+  #
+  # config.vm.define "paloalto", autostart: false do |pa|
+  #   pa.vm.box = "NOT_AVAILABLE"
+  #   # Manual configuration required
+  # end
+
+  # ============================================================
+  # PLACEHOLDER: Cisco FTD (Not supported on VirtualBox)
+  # ============================================================
+  # Cisco FTDv requires:
+  #   - VMware ESXi 6.0+ or vSphere
+  #   - KVM with specific CPU/memory requirements
+  #
+  # VirtualBox and Hyper-V are NOT supported for FTDv.
+  #
+  # For CCDC training, consider:
+  #   - Using Cisco VIRL/CML for lab environments
+  #   - Using GNS3/EVE-NG with proper images
+  #   - Focusing on FMC API scripting against documentation
+  #
+  # config.vm.define "ftd", autostart: false do |ftd|
+  #   ftd.vm.box = "NOT_AVAILABLE"
+  #   # Manual configuration required
+  # end
+
+end

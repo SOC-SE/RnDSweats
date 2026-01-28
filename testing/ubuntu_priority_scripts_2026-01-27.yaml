@@ -1,0 +1,364 @@
+# Priority Linux Scripts Test Results - Ubuntu 24.04
+# Test Date: 2026-01-27
+# Tester: Claude AI Agent
+# VM: Ubuntu 24.04.3 LTS (bento/ubuntu-24.04)
+# IP: 192.168.56.10
+
+---
+test_environment:
+  os: Ubuntu 24.04.3 LTS
+  kernel: 6.8.0-86-generic
+  hostname: ubuntu
+  vagrant_box: bento/ubuntu-24.04
+  test_date: "2026-01-27"
+  test_order: "Read-only scripts first, then hardening scripts"
+
+baseline_state:
+  services_running:
+    - ssh.service
+    - auditd.service
+    - cron.service
+    - systemd-networkd.service
+    - rsyslog.service
+  firewall: "ufw inactive, iptables ACCEPT policy"
+  users:
+    privileged:
+      - vagrant (sudo group)
+      - testuser (sudo group)
+    total_human_users: 3  # root, vagrant, testuser
+
+---
+scripts_tested:
+
+  - script_name: masterEnum.sh
+    script_path: /vagrant/SaltyBoxes/CustomScripts/masterEnum.sh
+    target_os: Ubuntu 24.04
+    test_date: "2026-01-27"
+    test_command: "sudo bash /vagrant/SaltyBoxes/CustomScripts/masterEnum.sh --quick"
+    result: PASS
+    execution_time_seconds: 2.780
+    resource_impact:
+      cpu_peak: "low"
+      ram_usage: "minimal"
+      disk_usage: "creates log file in /var/log/syst/"
+    output_location: /var/log/syst/ubuntu_audit_YYYYMMDD_HHMM.log
+    features_tested:
+      - System inventory (hostname, IPs, OS, hardware)
+      - Open ports enumeration
+      - Docker containers check
+      - Human users enumeration
+      - Admin users detection
+      - Domain join status
+      - Key service processes
+      - Cron job enumeration (suspicious and all)
+      - User enumeration (high-risk, privileged)
+      - Sudoers configuration analysis
+      - Service enumeration (active, failed, recent)
+      - Privilege escalation vectors (SUID, capabilities)
+      - Network connections
+    findings:
+      - "Correctly identified 2 privileged users (vagrant, testuser)"
+      - "Detected 13 users flagged as high-risk due to [RECENT] home directories"
+      - "Found NOPASSWD sudo rule for vagrant (expected for Vagrant)"
+      - "No exploitable SUID binaries found"
+      - "No suspicious cron jobs detected"
+    errors: none
+    warnings: none
+    changes_made: "Read-only - creates log file only"
+    recommendations:
+      - "Script is production-ready"
+      - "Quick mode (-q) is ideal for time-critical situations"
+      - "Consider adding --output option for custom log paths"
+
+  - script_name: persistenceHunter.sh
+    script_path: /vagrant/SaltyBoxes/CustomScripts/persistenceHunter.sh
+    target_os: Ubuntu 24.04
+    test_date: "2026-01-27"
+    test_command: "sudo bash /vagrant/SaltyBoxes/CustomScripts/persistenceHunter.sh"
+    result: PASS
+    execution_time_seconds: 1.523
+    resource_impact:
+      cpu_peak: "low"
+      ram_usage: "minimal"
+      disk_usage: "none (stdout only)"
+    features_tested:
+      - Cron jobs (all users)
+      - Cron directories
+      - Systemd user services
+      - Suspicious systemd services
+      - Init.d scripts
+      - RC.local
+      - Authorized SSH keys
+      - SUID/SGID binaries
+      - World-writable files in system dirs
+      - Hidden files in /tmp and /var/tmp
+      - Kernel modules
+      - Shell profile backdoors
+    findings:
+      - "No user crontabs found (clean system)"
+      - "Standard systemd services detected"
+      - "No suspicious init.d scripts"
+      - "No rc.local backdoors"
+      - "No unauthorized authorized_keys"
+      - "No unusual SUID binaries"
+      - "No shell profile backdoors detected"
+    errors: none
+    warnings: none
+    changes_made: "Read-only - no changes"
+    recommendations:
+      - "Script is production-ready"
+      - "Fast execution makes it ideal for quick security checks"
+      - "Consider adding JSON output option for automation"
+
+  - script_name: processHunter.sh
+    script_path: /vagrant/SaltyBoxes/CustomScripts/processHunter.sh
+    target_os: Ubuntu 24.04
+    test_date: "2026-01-27"
+    test_command: "sudo bash /vagrant/SaltyBoxes/CustomScripts/processHunter.sh"
+    result: PASS
+    execution_time_seconds: 0.111
+    resource_impact:
+      cpu_peak: "minimal"
+      ram_usage: "minimal"
+      disk_usage: "none (stdout only)"
+    features_tested:
+      - Processes running as root
+      - Processes with no TTY (potential backdoors)
+      - High CPU processes
+      - High memory processes
+      - Suspicious process names
+      - Processes from /tmp or /dev/shm
+      - Processes with deleted executables
+      - Process tree analysis
+      - Recently started processes
+      - Network-listening processes
+    findings:
+      - "No suspicious process names (nc, cryptominer, etc.)"
+      - "No processes spawned from /tmp or /dev/shm"
+      - "No processes with deleted executables"
+      - "Standard system processes only"
+      - "Network listeners: sshd, systemd-networkd, systemd-resolved"
+    errors: none
+    warnings: none
+    changes_made: "Read-only - no changes"
+    recommendations:
+      - "Script is production-ready"
+      - "Extremely fast execution (0.1s) - ideal for frequent monitoring"
+      - "Consider adding watch mode for continuous monitoring"
+
+  - script_name: auditdSetup.sh
+    script_path: /vagrant/Tools/Auditd/auditdSetup.sh
+    target_os: Ubuntu 24.04
+    test_date: "2026-01-27"
+    test_command: "Manual execution with path workaround"
+    result: PARTIAL
+    execution_time_seconds: 4.821
+    resource_impact:
+      cpu_peak: "moderate during rule loading"
+      ram_usage: "minimal"
+      disk_usage: "~30KB rules file"
+    features_tested:
+      - Auditd package installation
+      - Auditd service enablement
+      - Custom rules deployment
+      - Wazuh compatibility sanitization
+      - SELinux context restoration
+      - Rule loading
+      - Service restart and verification
+    findings:
+      - "Auditd installed and running successfully"
+      - "Many rules loaded successfully"
+      - "Some rules failed due to missing users (chrony, ntp) - expected on minimal system"
+      - "Some rules failed due to non-existent file paths - expected"
+    errors:
+      - "BUG: Path issue in line 16 - RULES_FILE uses '$SCRIPT_DIR/Auditd/audit.rules' but should be '$SCRIPT_DIR/audit.rules'"
+      - "Rule loading errors for non-existent users/paths (expected behavior)"
+    warnings:
+      - "Unknown user: chrony (user not present on system)"
+      - "Unknown user: ntp (user not present on system)"
+      - "Various 'No such file or directory' for monitored paths"
+    changes_made:
+      - "Installed audispd-plugins package"
+      - "Deployed /etc/audit/rules.d/99-custom.rules"
+      - "Loaded audit rules into kernel"
+      - "Restarted auditd service"
+    recommendations:
+      - "FIX REQUIRED: Line 16 should be: RULES_FILE=\"$SCRIPT_DIR/audit.rules\""
+      - "Consider adding error handling for missing users/paths"
+      - "Consider making audit.rules distribution-aware"
+      - "Add --strict mode that fails on any rule error"
+
+  - script_name: ssh_harden.sh
+    script_path: /vagrant/LinuxDev/ssh_harden.sh
+    target_os: Ubuntu 24.04
+    test_date: "2026-01-27"
+    test_command: "sudo bash /vagrant/LinuxDev/ssh_harden.sh --harden-only"
+    result: PASS
+    execution_time_seconds: 0.089
+    resource_impact:
+      cpu_peak: "minimal"
+      ram_usage: "minimal"
+      disk_usage: "minimal (config file only)"
+    features_tested:
+      - System detection (package manager, init system)
+      - SSH configuration backup
+      - Hardened config generation
+      - SFTP path detection and correction
+      - Configuration validation (sshd -t)
+      - Service restart
+      - Status reporting
+    hardening_applied:
+      - PermitRootLogin no
+      - MaxAuthTries 3
+      - MaxSessions 10
+      - PermitEmptyPasswords no
+      - X11Forwarding no
+      - AllowAgentForwarding no
+      - AllowTcpForwarding no
+      - PermitTunnel no
+      - GatewayPorts no
+      - LoginGraceTime 60
+      - ClientAliveInterval 300
+      - ClientAliveCountMax 2
+      - LogLevel VERBOSE
+      - StrictModes yes
+      - HostbasedAuthentication no
+      - Strong ciphers/MACs/KEX algorithms
+    findings:
+      - "SSH hardening completed successfully"
+      - "Configuration validated before restart"
+      - "Service restarted without issues"
+      - "SSH still accessible after hardening"
+      - "Original config backed up"
+    errors: none
+    warnings: none
+    changes_made:
+      - "Replaced /etc/ssh/sshd_config with hardened version"
+      - "Created backup at /etc/ssh/sshd_config.bak.TIMESTAMP"
+      - "Restarted SSH service"
+    recommendations:
+      - "Script is production-ready"
+      - "Consider adding --dry-run option"
+      - "Add post-hardening connectivity test"
+      - "Document that --allow-root uses prohibit-password (key-only)"
+
+  - script_name: generalLinuxHarden.sh
+    script_path: /vagrant/LinuxDev/generalLinuxHarden.sh
+    target_os: Ubuntu 24.04
+    test_date: "2026-01-27"
+    test_command: "Interactive execution with expect"
+    result: PARTIAL
+    execution_time_seconds: "~30 seconds (includes password prompts)"
+    resource_impact:
+      cpu_peak: "moderate"
+      ram_usage: "moderate"
+      disk_usage: "moderate (logs)"
+    features_tested:
+      - OS detection
+      - Password management (root, bbob, sysadmin)
+      - SSH hardening
+      - Authorized keys removal
+      - SSH configuration changes
+      - System banners
+      - Cron restriction
+      - Compiler permission restriction
+      - SUID binary mitigation
+      - Sysctl hardening
+      - Integration with masterEnum.sh and normalizeTools.sh
+    critical_issue:
+      description: "AUTHORIZED_KEYS DELETION BREAKS VAGRANT SSH ACCESS"
+      impact: "Line 124 deletes ALL authorized_keys files, breaking Vagrant's SSH key authentication"
+      affected_line: "find / -name 'authorized_keys' -type f -delete 2>/dev/null"
+      result: "VM becomes inaccessible via vagrant ssh after script execution"
+    findings:
+      - "Script requires interactive password input (not automation-friendly)"
+      - "Deletes all authorized_keys - breaks key-based SSH access"
+      - "Creates emergency admin user 'bbob'"
+      - "Locks service accounts (sync, games, lp)"
+      - "Nukes all cron jobs (may break scheduled tasks)"
+      - "Restricts compilers (gcc, g++, make, cc, clang)"
+      - "Removes SUID from dangerous binaries"
+      - "Applies sysctl network hardening"
+      - "Depends on masterEnum.sh and normalizeTools.sh in same directory"
+    errors:
+      - "Authorized keys deletion breaks Vagrant access"
+      - "Depends on scripts in current directory (masterEnum.sh, normalizeTools.sh)"
+    warnings:
+      - "Interactive prompts make automation difficult"
+      - "Aggressive cron clearing may break legitimate scheduled tasks"
+      - "Compiler restriction may break development workflows"
+    changes_made:
+      - "Changed root password"
+      - "Created/updated bbob emergency admin"
+      - "Deleted ALL authorized_keys files"
+      - "Hardened sshd_config"
+      - "Set banners (/etc/issue, /etc/motd)"
+      - "Restricted cron to root only"
+      - "chmod 000 on compilers"
+      - "Removed SUID from dangerous binaries"
+      - "Applied sysctl network hardening"
+    recommendations:
+      - "CRITICAL: Add --preserve-keys or --vagrant-safe option to skip authorized_keys deletion"
+      - "Add --non-interactive mode with password file input"
+      - "Add --skip-cron option to preserve cron jobs"
+      - "Use absolute paths for dependent scripts"
+      - "Add --dry-run mode"
+      - "Consider splitting into smaller, composable scripts"
+
+---
+summary:
+  total_scripts_tested: 6
+  passed: 4
+  partial: 2
+  failed: 0
+
+  production_ready:
+    - masterEnum.sh
+    - persistenceHunter.sh
+    - processHunter.sh
+    - ssh_harden.sh
+
+  needs_fixes:
+    - auditdSetup.sh: "Path bug in RULES_FILE variable"
+    - generalLinuxHarden.sh: "Authorized_keys deletion, script dependencies, interactive-only"
+
+  salt_gui_candidates:
+    - masterEnum.sh: "Good for fleet-wide security audits"
+    - persistenceHunter.sh: "Good for periodic persistence checks"
+    - processHunter.sh: "Good for continuous monitoring"
+    - ssh_harden.sh: "Good for standardized SSH hardening"
+
+  execution_time_ranking:
+    - processHunter.sh: 0.111s
+    - ssh_harden.sh: 0.089s (harden-only mode)
+    - persistenceHunter.sh: 1.523s
+    - masterEnum.sh: 2.780s (quick mode)
+    - auditdSetup.sh: 4.821s
+    - generalLinuxHarden.sh: "~30s (interactive)"
+
+---
+bugs_found:
+  - script: auditdSetup.sh
+    line: 16
+    current: 'RULES_FILE="$SCRIPT_DIR/Auditd/audit.rules"'
+    should_be: 'RULES_FILE="$SCRIPT_DIR/audit.rules"'
+    severity: HIGH
+    impact: "Script fails to find rules file when run from correct directory"
+
+  - script: generalLinuxHarden.sh
+    line: 124
+    current: 'find / -name "authorized_keys" -type f -delete 2>/dev/null'
+    issue: "Deletes Vagrant SSH keys, breaking VM access"
+    severity: CRITICAL
+    impact: "Cannot access VM after script runs"
+    suggested_fix: "Add exclusion for /home/vagrant/.ssh/authorized_keys or add --preserve-keys flag"
+
+  - script: generalLinuxHarden.sh
+    lines: "215-216"
+    current: |
+      bash masterEnum.sh >> "$LOG_FILE" 2>&1
+      bash normalizeTools.sh >> "$LOG_FILE"
+    issue: "Uses relative paths, requires scripts in current directory"
+    severity: MEDIUM
+    impact: "Script fails if not run from LinuxDev directory"
+    suggested_fix: "Use $SCRIPT_DIR variable or absolute paths"
