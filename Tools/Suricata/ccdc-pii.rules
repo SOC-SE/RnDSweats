@@ -1,0 +1,282 @@
+# ==============================================================================
+# CCDC Custom Suricata Rules - PII and Data Exfiltration Detection
+#
+# Description: Detect potential PII (Personally Identifiable Information)
+#              exfiltration and sensitive data leakage in network traffic.
+#
+# Author: CCDC Team
+# Date: 2025-2026
+# Version: 1.0
+#
+# Usage:
+#   1. Copy to /etc/suricata/rules/ccdc-pii.rules
+#   2. Add to suricata.yaml under rule-files:
+#        - ccdc-pii.rules
+#   3. Run: suricata-update
+#   4. Restart: systemctl restart suricata
+#
+# Note: These rules may generate false positives in normal traffic.
+#       Tune thresholds based on your environment.
+# ==============================================================================
+
+# ==============================================================================
+# PII DETECTION RULES
+# ==============================================================================
+
+# Social Security Numbers (SSN) - US format: XXX-XX-XXXX
+alert tcp any any -> any any (msg:"CCDC PII - Social Security Number detected"; \
+    pcre:"/[0-9]{3}-[0-9]{2}-[0-9]{4}/"; \
+    classtype:policy-violation; \
+    sid:9000001; rev:1;)
+
+alert http any any -> any any (msg:"CCDC PII - SSN in HTTP traffic"; \
+    content:"Content-Type"; http_header; \
+    pcre:"/[0-9]{3}-[0-9]{2}-[0-9]{4}/P"; \
+    classtype:policy-violation; \
+    sid:9000002; rev:1;)
+
+# Credit Card Numbers - Major card formats
+# Visa: 4XXX-XXXX-XXXX-XXXX
+# Mastercard: 5XXX-XXXX-XXXX-XXXX
+# Amex: 3XXX-XXXXXX-XXXXX
+alert tcp any any -> any any (msg:"CCDC PII - Credit Card Number detected"; \
+    pcre:"/(?:\d{4}[-\s]?){3}\d{4}|(?:\d{4}\s?){3}\d{4}/"; \
+    classtype:policy-violation; \
+    sid:9000003; rev:1;)
+
+alert http any any -> any any (msg:"CCDC PII - Credit Card in HTTP POST"; \
+    content:"POST"; http_method; \
+    pcre:"/(?:\d{4}[-\s]?){3}\d{4}/P"; \
+    classtype:policy-violation; \
+    sid:9000004; rev:1;)
+
+# Email Addresses
+alert tcp any any -> any any (msg:"CCDC PII - Email Address bulk transfer"; \
+    pcre:"/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}/"; \
+    threshold:type both, track by_src, count 10, seconds 60; \
+    classtype:policy-violation; \
+    sid:9000005; rev:1;)
+
+# Phone Numbers - US format: (XXX) XXX-XXXX or XXX-XXX-XXXX
+alert tcp any any -> any any (msg:"CCDC PII - Phone Number bulk transfer"; \
+    pcre:"/(\([0-9]{3}\)\s*|[0-9]{3}[-.\s])[0-9]{3}[-.\s]?[0-9]{4}/"; \
+    threshold:type both, track by_src, count 10, seconds 60; \
+    classtype:policy-violation; \
+    sid:9000006; rev:1;)
+
+# ==============================================================================
+# CREDENTIAL DETECTION RULES
+# ==============================================================================
+
+# Password patterns in clear text
+alert tcp any any -> any any (msg:"CCDC CRED - Password field in cleartext"; \
+    content:"password"; nocase; \
+    content:"="; distance:0; within:20; \
+    classtype:policy-violation; \
+    sid:9000010; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC CRED - passwd field in cleartext"; \
+    content:"passwd"; nocase; \
+    content:"="; distance:0; within:20; \
+    classtype:policy-violation; \
+    sid:9000011; rev:1;)
+
+# API Keys and Tokens
+alert tcp any any -> any any (msg:"CCDC CRED - API Key pattern detected"; \
+    pcre:"/api[_-]?key[\"'\s:=]+[a-zA-Z0-9]{20,}/i"; \
+    classtype:policy-violation; \
+    sid:9000012; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC CRED - Bearer Token detected"; \
+    content:"Bearer "; \
+    pcre:"/Bearer\s+[a-zA-Z0-9_-]{20,}/"; \
+    classtype:policy-violation; \
+    sid:9000013; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC CRED - AWS Access Key detected"; \
+    content:"AKIA"; \
+    pcre:"/AKIA[0-9A-Z]{16}/"; \
+    classtype:policy-violation; \
+    sid:9000014; rev:1;)
+
+# Private Key detection
+alert tcp any any -> any any (msg:"CCDC CRED - RSA Private Key detected"; \
+    content:"-----BEGIN RSA PRIVATE KEY-----"; \
+    classtype:policy-violation; \
+    sid:9000015; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC CRED - OpenSSH Private Key detected"; \
+    content:"-----BEGIN OPENSSH PRIVATE KEY-----"; \
+    classtype:policy-violation; \
+    sid:9000016; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC CRED - PGP Private Key detected"; \
+    content:"-----BEGIN PGP PRIVATE KEY BLOCK-----"; \
+    classtype:policy-violation; \
+    sid:9000017; rev:1;)
+
+# ==============================================================================
+# SENSITIVE FILE EXFILTRATION
+# ==============================================================================
+
+# /etc/passwd exfiltration
+alert tcp any any -> any any (msg:"CCDC EXFIL - /etc/passwd content detected"; \
+    content:"root:"; \
+    content:"/bin/"; distance:0; within:100; \
+    classtype:policy-violation; \
+    sid:9000020; rev:1;)
+
+# /etc/shadow exfiltration
+alert tcp any any -> any any (msg:"CCDC EXFIL - /etc/shadow content detected"; \
+    content:"root:$"; \
+    pcre:"/root:\$[0-9a-z]\$/i"; \
+    classtype:policy-violation; \
+    sid:9000021; rev:1;)
+
+# Windows SAM/SYSTEM registry exfiltration
+alert tcp any any -> any any (msg:"CCDC EXFIL - Windows SAM hive detected"; \
+    content:"regf"; offset:0; depth:4; \
+    content:"SAM"; \
+    classtype:policy-violation; \
+    sid:9000022; rev:1;)
+
+# Database dump patterns
+alert tcp any any -> any any (msg:"CCDC EXFIL - SQL dump detected"; \
+    content:"INSERT INTO"; nocase; \
+    content:"VALUES"; distance:0; within:100; nocase; \
+    threshold:type both, track by_src, count 20, seconds 60; \
+    classtype:policy-violation; \
+    sid:9000023; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC EXFIL - MySQL dump header"; \
+    content:"-- MySQL dump"; \
+    classtype:policy-violation; \
+    sid:9000024; rev:1;)
+
+# ==============================================================================
+# REVERSE SHELL AND C2 DETECTION
+# ==============================================================================
+
+# Bash reverse shell patterns
+alert tcp any any -> any any (msg:"CCDC C2 - Bash reverse shell pattern"; \
+    content:"/dev/tcp/"; \
+    classtype:trojan-activity; \
+    sid:9000030; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC C2 - Bash -i interactive shell"; \
+    content:"bash -i"; \
+    classtype:trojan-activity; \
+    sid:9000031; rev:1;)
+
+# Python reverse shell
+alert tcp any any -> any any (msg:"CCDC C2 - Python pty spawn"; \
+    content:"python"; \
+    content:"pty.spawn"; distance:0; within:50; \
+    classtype:trojan-activity; \
+    sid:9000032; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC C2 - Python socket reverse shell"; \
+    content:"socket"; \
+    content:"subprocess"; distance:0; within:100; \
+    content:"PIPE"; distance:0; within:100; \
+    classtype:trojan-activity; \
+    sid:9000033; rev:1;)
+
+# Perl reverse shell
+alert tcp any any -> any any (msg:"CCDC C2 - Perl socket reverse shell"; \
+    content:"perl"; \
+    content:"Socket"; distance:0; within:50; \
+    content:"exec"; distance:0; within:100; \
+    classtype:trojan-activity; \
+    sid:9000034; rev:1;)
+
+# Netcat shells
+alert tcp any any -> any any (msg:"CCDC C2 - Netcat shell execution"; \
+    content:"nc "; \
+    content:"-e"; distance:0; within:20; \
+    classtype:trojan-activity; \
+    sid:9000035; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC C2 - Netcat with /bin/sh"; \
+    content:"nc"; \
+    content:"/bin/sh"; distance:0; within:50; \
+    classtype:trojan-activity; \
+    sid:9000036; rev:1;)
+
+# ==============================================================================
+# SUSPICIOUS HTTP PATTERNS
+# ==============================================================================
+
+# Webshell patterns
+alert http any any -> any any (msg:"CCDC WEBSHELL - PHP eval pattern"; \
+    content:"eval("; http_uri; \
+    classtype:web-application-attack; \
+    sid:9000040; rev:1;)
+
+alert http any any -> any any (msg:"CCDC WEBSHELL - PHP base64 decode"; \
+    content:"base64_decode("; http_uri; \
+    classtype:web-application-attack; \
+    sid:9000041; rev:1;)
+
+alert http any any -> any any (msg:"CCDC WEBSHELL - PHP system command"; \
+    content:"system("; http_uri; \
+    classtype:web-application-attack; \
+    sid:9000042; rev:1;)
+
+alert http any any -> any any (msg:"CCDC WEBSHELL - PHP passthru command"; \
+    content:"passthru("; http_uri; \
+    classtype:web-application-attack; \
+    sid:9000043; rev:1;)
+
+alert http any any -> any any (msg:"CCDC WEBSHELL - PHP shell_exec command"; \
+    content:"shell_exec("; http_uri; \
+    classtype:web-application-attack; \
+    sid:9000044; rev:1;)
+
+# Command injection attempts
+alert http any any -> any any (msg:"CCDC INJECTION - Command separator in URI"; \
+    pcre:"/[;&|`]+(cat|ls|id|whoami|pwd|uname)/Ui"; \
+    classtype:web-application-attack; \
+    sid:9000045; rev:1;)
+
+alert http any any -> any any (msg:"CCDC INJECTION - /etc/passwd in URI"; \
+    content:"/etc/passwd"; http_uri; \
+    classtype:web-application-attack; \
+    sid:9000046; rev:1;)
+
+# ==============================================================================
+# CRYPTOCURRENCY MINING DETECTION
+# ==============================================================================
+
+alert tcp any any -> any any (msg:"CCDC MINER - Stratum mining protocol"; \
+    content:"mining.subscribe"; \
+    classtype:policy-violation; \
+    sid:9000050; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC MINER - XMRig identifier"; \
+    content:"XMRig"; \
+    classtype:policy-violation; \
+    sid:9000051; rev:1;)
+
+alert tcp any any -> any any (msg:"CCDC MINER - Mining pool connection"; \
+    content:"stratum+tcp://"; \
+    classtype:policy-violation; \
+    sid:9000052; rev:1;)
+
+# ==============================================================================
+# DNS EXFILTRATION
+# ==============================================================================
+
+# Long DNS queries (potential data exfil)
+alert dns any any -> any any (msg:"CCDC EXFIL - Suspiciously long DNS query"; \
+    dns.query; \
+    pcre:"/^[a-z0-9]{50,}\./i"; \
+    classtype:policy-violation; \
+    sid:9000060; rev:1;)
+
+# TXT record abuse
+alert dns any any -> any any (msg:"CCDC EXFIL - DNS TXT record with encoded data"; \
+    dns.query; content:"|00 10|"; \
+    threshold:type both, track by_src, count 10, seconds 60; \
+    classtype:policy-violation; \
+    sid:9000061; rev:1;)
