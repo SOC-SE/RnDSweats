@@ -31,7 +31,7 @@ else
 fi
 
 # --- CONFIGURATION ---
-LOG_DIR="/var/log/hardening"
+LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/harden_$(date +%F).log"
 mkdir -p $LOG_DIR
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -194,22 +194,70 @@ for bin in $DANGEROUS_BINS; do
 done
 
 echo "Setting Kernel parameters (Sysctl)..."
-# Use a dedicated hardening sysctl file to avoid duplicates
+# Comprehensive kernel hardening via sysctl
 SYSCTL_HARDEN="/etc/sysctl.d/99-ccdc-hardening.conf"
+
+# Backup existing file if present
+[[ -f "$SYSCTL_HARDEN" ]] && cp "$SYSCTL_HARDEN" "${SYSCTL_HARDEN}.backup"
+
 cat > "$SYSCTL_HARDEN" << 'SYSCTL_EOF'
-# CCDC Hardening - Network Security
-# Prevent IP Spoofing
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
-# Disable IP Source Routing
-net.ipv4.conf.all.accept_source_route = 0
-# Enable SYN Cookies (Syn Flood protection)
+# ==============================================================================
+# CCDC Kernel Hardening - Sysctl Configuration
+# ==============================================================================
+
+# --- NETWORK SECURITY - IPv4 ---
+net.ipv4.ip_forward = 0
 net.ipv4.tcp_syncookies = 1
-# Disable ICMP Redirects (MITM mitigation)
 net.ipv4.conf.all.accept_redirects = 0
 net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.default.log_martians = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+net.ipv4.tcp_max_syn_backlog = 4096
+net.ipv4.tcp_fin_timeout = 30
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_keepalive_intvl = 15
+
+# --- IPv6 - DISABLE (competition is IPv4-only) ---
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+
+# --- KERNEL SECURITY ---
+kernel.randomize_va_space = 2
+kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+kernel.sysrq = 0
+kernel.yama.ptrace_scope = 1
+kernel.perf_event_paranoid = 3
+kernel.unprivileged_bpf_disabled = 1
+
+# --- FILESYSTEM SECURITY ---
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+fs.protected_fifos = 2
+fs.protected_regular = 2
+fs.suid_dumpable = 0
+
+# --- MEMORY SECURITY ---
+vm.mmap_min_addr = 65536
+vm.mmap_rnd_bits = 32
+vm.mmap_rnd_compat_bits = 16
 SYSCTL_EOF
-sysctl -p "$SYSCTL_HARDEN"
+
+# Apply settings (some may fail on certain kernels, that's OK)
+sysctl -p "$SYSCTL_HARDEN" >/dev/null 2>&1 || sysctl -p "$SYSCTL_HARDEN" 2>&1 | grep -v "^sysctl:" || true
+echo "Kernel hardening applied: $SYSCTL_HARDEN"
 
 
 

@@ -49,7 +49,7 @@ set -euo pipefail
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
 readonly BACKUP_DIR="/var/backups/ccdc/waf_proxy"
-readonly LOG_FILE="/var/log/ccdc/waf_proxy.log"
+readonly LOG_FILE="/var/log/syst/waf_proxy.log"
 readonly CORAZA_SPOA_VERSION="v0.7.0"
 readonly CORAZA_SPOA_DIR="/opt/coraza-spoa"
 readonly CORAZA_CONF_DIR="/etc/coraza-spoa"

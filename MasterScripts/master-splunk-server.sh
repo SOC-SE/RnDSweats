@@ -34,7 +34,7 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 LINUXDEV="$REPO_DIR/LinuxDev"
 TOOLS="$REPO_DIR/Tools"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOG_DIR="/var/log/ccdc"
+LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/master-splunk-server_$TIMESTAMP.log"
 
 # Colors
@@ -132,10 +132,42 @@ fi
 phase "PHASE 3: MINIMAL GENERAL HARDENING (Splunk-Safe)"
 log "Applying minimal hardening to avoid breaking Splunk..."
 
-# Kernel hardening (safe for Splunk)
-if [[ -f "$LINUXDEV/sysctl_harden.sh" ]]; then
-    run_script "$LINUXDEV/sysctl_harden.sh" "Kernel Hardening"
-fi
+# Kernel hardening via sysctl (safe for Splunk)
+log "Applying kernel sysctl hardening..."
+SYSCTL_HARDEN="/etc/sysctl.d/99-ccdc-hardening.conf"
+[[ -f "$SYSCTL_HARDEN" ]] && cp "$SYSCTL_HARDEN" "${SYSCTL_HARDEN}.backup"
+cat > "$SYSCTL_HARDEN" << 'SYSCTL_EOF'
+# CCDC Kernel Hardening
+net.ipv4.ip_forward = 0
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+# IPv6 - DISABLE (competition is IPv4-only)
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+kernel.randomize_va_space = 2
+kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+kernel.sysrq = 0
+kernel.yama.ptrace_scope = 1
+kernel.perf_event_paranoid = 3
+kernel.unprivileged_bpf_disabled = 1
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+fs.suid_dumpable = 0
+vm.mmap_min_addr = 65536
+SYSCTL_EOF
+sysctl -p "$SYSCTL_HARDEN" >/dev/null 2>&1 || true
+log "Kernel hardening applied"
 
 # SSH hardening (always safe)
 if [[ -f "$LINUXDEV/ssh_harden.sh" ]]; then
@@ -143,9 +175,9 @@ if [[ -f "$LINUXDEV/ssh_harden.sh" ]]; then
 fi
 
 # PAM audit (non-destructive)
-if [[ -f "$LINUXDEV/pamAudit.sh" ]]; then
+if [[ -f "$LINUXDEV/pamManager.sh" ]]; then
     log "Running PAM audit (read-only)..."
-    bash "$LINUXDEV/pamAudit.sh" --audit-only 2>&1 | tee -a "$LOG_FILE" || true
+    bash "$LINUXDEV/pamManager.sh" audit -q 2>&1 | tee -a "$LOG_FILE" || true
 fi
 
 # NOTE: We skip generalLinuxHarden.sh as it may be too aggressive for Splunk
@@ -243,9 +275,16 @@ if [[ -d "$SPLUNK_HOME" ]]; then
 fi
 
 # ============================================================================
-# PHASE 6: POST-HARDENING ENUMERATION
+# PHASE 6: SYSTEM BASELINE
 # ============================================================================
-phase "PHASE 6: POST-HARDENING ENUMERATION"
+phase "PHASE 6: SYSTEM BASELINE"
+log "Creating post-hardening system baseline..."
+run_script "$LINUXDEV/systemBaseline.sh" "System Baseline"
+
+# ============================================================================
+# PHASE 7: POST-HARDENING ENUMERATION
+# ============================================================================
+phase "PHASE 7: POST-HARDENING ENUMERATION"
 
 if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
     bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_post_$TIMESTAMP.log"

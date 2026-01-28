@@ -31,7 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 LINUXDEV="$REPO_DIR/LinuxDev"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOG_DIR="/var/log/ccdc"
+LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/master-ubuntu-ecom_$TIMESTAMP.log"
 
 # Colors
@@ -180,9 +180,16 @@ phase "PHASE 6: SYSTEM BACKUPS"
 run_script "$LINUXDEV/systemBackups.sh" "System Backups"
 
 # ============================================================================
-# PHASE 7: POST-HARDENING ENUMERATION
+# PHASE 7: SYSTEM BASELINE
 # ============================================================================
-phase "PHASE 7: POST-HARDENING ENUMERATION"
+phase "PHASE 7: SYSTEM BASELINE"
+log "Creating post-hardening system baseline..."
+run_script "$LINUXDEV/systemBaseline.sh" "System Baseline"
+
+# ============================================================================
+# PHASE 8: POST-HARDENING ENUMERATION
+# ============================================================================
+phase "PHASE 8: POST-HARDENING ENUMERATION"
 log "Capturing post-hardening system state..."
 
 if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then

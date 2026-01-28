@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 LINUXDEV="$REPO_DIR/LinuxDev"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOG_DIR="/var/log/ccdc"
+LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/master-ubuntu-wkst_$TIMESTAMP.log"
 
 # Colors
@@ -137,9 +137,16 @@ phase "PHASE 4: SYSTEM BACKUPS"
 run_script "$LINUXDEV/systemBackups.sh" "System Backups"
 
 # ============================================================================
-# PHASE 5: POST-HARDENING ENUMERATION
+# PHASE 5: SYSTEM BASELINE
 # ============================================================================
-phase "PHASE 5: POST-HARDENING ENUMERATION"
+phase "PHASE 5: SYSTEM BASELINE"
+log "Creating post-hardening system baseline..."
+run_script "$LINUXDEV/systemBaseline.sh" "System Baseline"
+
+# ============================================================================
+# PHASE 6: POST-HARDENING ENUMERATION
+# ============================================================================
+phase "PHASE 6: POST-HARDENING ENUMERATION"
 if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
     bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_post_$TIMESTAMP.log"
 fi

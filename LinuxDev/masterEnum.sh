@@ -2394,6 +2394,79 @@ main() {
         done
         echo -e "\n\n"
 
+        # --- BINARY INTEGRITY VERIFICATION ---
+        echo "=================================================================="
+        echo "BINARY INTEGRITY VERIFICATION"
+        echo "=================================================================="
+        echo ""
+
+        CRITICAL_BINS_CHECK=(
+            "sudo" "passwd" "su" "login" "sshd" "ssh"
+            "ps" "ls" "netstat" "ss" "top" "bash" "sh"
+            "cron" "crond" "systemctl" "journalctl"
+            "useradd" "userdel" "usermod" "cat" "grep" "find" "awk" "sed" "curl" "wget"
+        )
+
+        declare -A BV_FALLBACK_DPKG=(
+            ["netstat"]="net-tools" ["ss"]="iproute2" ["awk"]="gawk mawk" ["ip"]="iproute2"
+        )
+        declare -A BV_FALLBACK_RPM=(
+            ["netstat"]="net-tools" ["ss"]="iproute" ["awk"]="gawk" ["ip"]="iproute"
+        )
+
+        BV_PKG_MGR="unknown"
+        command -v dpkg &>/dev/null && BV_PKG_MGR="dpkg"
+        command -v rpm &>/dev/null && [[ "$BV_PKG_MGR" == "unknown" ]] && BV_PKG_MGR="rpm"
+
+        if [[ "$BV_PKG_MGR" != "unknown" ]]; then
+            BV_PACKAGES=""
+            for bin in "${CRITICAL_BINS_CHECK[@]}"; do
+                bin_path=$(command -v "$bin" 2>/dev/null)
+                if [[ -n "$bin_path" ]]; then
+                    pkg=""
+                    if [[ "$BV_PKG_MGR" == "dpkg" ]]; then
+                        pkg=$(dpkg -S "$bin_path" 2>/dev/null | cut -d: -f1 | head -1)
+                        [[ -z "$pkg" ]] && pkg="${BV_FALLBACK_DPKG[$bin]:-}"
+                    else
+                        pkg=$(rpm -qf "$bin_path" 2>/dev/null)
+                        [[ -z "$pkg" ]] && pkg="${BV_FALLBACK_RPM[$bin]:-}"
+                    fi
+                    for p in $pkg; do
+                        [[ ! " $BV_PACKAGES " =~ " $p " ]] && BV_PACKAGES="$BV_PACKAGES $p"
+                    done
+                fi
+            done
+
+            # Add PAM packages
+            if [[ "$BV_PKG_MGR" == "dpkg" ]]; then
+                BV_PACKAGES="$BV_PACKAGES libpam-modules libpam-runtime"
+            else
+                BV_PACKAGES="$BV_PACKAGES pam"
+            fi
+            BV_PACKAGES=$(echo "$BV_PACKAGES" | xargs)
+
+            # Verify
+            bv_results=""
+            if [[ "$BV_PKG_MGR" == "dpkg" ]]; then
+                bv_results=$(dpkg --verify $BV_PACKAGES 2>/dev/null | grep -E "^..5" | grep -v " c /" || true)
+            else
+                bv_results=$(rpm -V $BV_PACKAGES 2>/dev/null | grep -E "^..5|^S" || true)
+            fi
+
+            if [[ -n "$bv_results" ]]; then
+                echo "[ALERT] MODIFIED BINARIES DETECTED:"
+                echo "$bv_results"
+                echo ""
+                echo "Run binaryVerify.sh for detailed analysis and --fix option"
+            else
+                echo "[OK] All critical binaries verified ($BV_PKG_MGR)"
+                echo "Packages checked: $BV_PACKAGES"
+            fi
+        else
+            echo "[SKIP] No supported package manager found (dpkg or rpm required)"
+        fi
+        echo -e "\n\n"
+
         # --- FOOTER ---
         echo "=================================================================="
         echo "AUDIT COMPLETE"
