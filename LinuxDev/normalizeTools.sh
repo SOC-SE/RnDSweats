@@ -138,3 +138,47 @@ if getent group docker > /dev/null; then
 fi
 
 echo -e "${BLUE}Docker installation stage done.${NC}"
+
+# ---------------------------------------------------------
+# Ansible
+# ---------------------------------------------------------
+echo -e "${BLUE}Installing Ansible:${NC}"
+
+if command_exists ansible; then
+    echo -e "${BLUE}Ansible is already installed. Skipping installation.${NC}"
+else
+    if command_exists apt-get; then
+        echo -e "${BLUE}Installing Ansible via apt...${NC}"
+        apt-get install -y software-properties-common
+        add-apt-repository --yes --update ppa:ansible/ansible 2>/dev/null || true
+        apt-get update -y
+        apt-get install -y ansible
+    fi
+
+    if command_exists dnf; then
+        echo -e "${BLUE}Installing Ansible via dnf...${NC}"
+        dnf install -y ansible-core ansible
+    fi
+
+    if command_exists yum; then
+        echo -e "${BLUE}Installing Ansible via yum...${NC}"
+        yum install -y epel-release
+        yum install -y ansible
+    fi
+
+    if command_exists pacman; then
+        echo -e "${BLUE}Installing Ansible via pacman...${NC}"
+        pacman -S --noconfirm ansible
+    fi
+
+    if command_exists apk; then
+        echo -e "${BLUE}Installing Ansible via apk...${NC}"
+        apk add ansible
+    fi
+fi
+
+echo -e "${BLUE}Ansible installation stage done.${NC}"
+
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}All tools installed successfully!${NC}"
+echo -e "${BLUE}========================================${NC}"
