@@ -159,13 +159,12 @@ else
 
     if command_exists dnf; then
         echo -e "${BLUE}Installing Ansible via dnf...${NC}"
-        dnf install -y ansible-core ansible
-    fi
-
-    if command_exists yum; then
+        dnf install -y epel-release || true
+        dnf install -y ansible-core
+    elif command_exists yum; then
         echo -e "${BLUE}Installing Ansible via yum...${NC}"
         yum install -y epel-release
-        yum install -y ansible
+        yum install -y ansible-core
     fi
 
     if command_exists pacman; then
