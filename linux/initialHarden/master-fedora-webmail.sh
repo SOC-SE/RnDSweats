@@ -98,6 +98,11 @@ fi
 phase "PHASE 2: GENERAL LINUX HARDENING"
 run_script "$LINUXDEV/generalLinuxHarden.sh" "General Linux Hardening"
 
+# SSH removal
+log "Removing SSH server..."
+dnf remove -y openssh-server 2>/dev/null || yum remove -y openssh-server 2>/dev/null || true
+find / -name "authorized_keys" -type f -delete 2>/dev/null || true
+
 # ============================================================================
 # PHASE 3: MAIL SERVER HARDENING
 # ============================================================================

@@ -267,28 +267,24 @@ gather_filesystem_info() {
     local output_dir="$1"
 
     {
-        echo "=== Disk Usage ==="
-        df -h
-
-        echo ""
         echo "=== Mounts ==="
         mount | grep -v "^cgroup" | grep -v "^systemd" | grep -v "^tmpfs"
 
         echo ""
         echo "=== fstab ==="
-        cat /etc/fstab | grep -v "^#" | grep -v "^$"
+        grep -v "^#" /etc/fstab 2>/dev/null | grep -v "^$"
 
         echo ""
         echo "=== SUID/SGID Binaries ==="
-        find / -type f \( -perm -4000 -o -perm -2000 \) 2>/dev/null | sort
+        find / -xdev -type f \( -perm -4000 -o -perm -2000 \) 2>/dev/null | sort
 
         echo ""
         echo "=== World-Writable Directories ==="
-        find / -type d -perm -002 2>/dev/null | grep -vE "^/(proc|sys|dev|run)" | sort
+        find / -xdev -type d -perm -002 2>/dev/null | grep -vE "^/(proc|sys|dev|run)" | sort
 
         echo ""
         echo "=== /etc file checksums ==="
-        find /etc -type f -name "*.conf" -exec sha256sum {} \; 2>/dev/null | sort
+        find /etc -type f -name "*.conf" -print0 2>/dev/null | xargs -0 sha256sum 2>/dev/null | sort
 
     } > "$output_dir/filesystem_info.txt"
 }

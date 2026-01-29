@@ -102,19 +102,24 @@ passwd -l sync 2>/dev/null
 passwd -l games 2>/dev/null
 passwd -l lp 2>/dev/null
 
+
+#
+#  COMMENTED OUT BECAUSE WE MAY HAVE SSH AS A SCORED SERVICE IN THE FUTURE
+#
+
 # --- 2. SSH REMOVAL ---
-echo "[+] Phase 2: SSH Removal & Key Sanitization"
+#echo "[+] Phase 2: SSH Removal & Key Sanitization"
 
 # 1. Wipe SSH Authorized Keys (Removes Red Team Persistence)
-echo "Wiping authorized_keys files..."
-find / -name "authorized_keys" -type f -delete 2>/dev/null || true
+#echo "Wiping authorized_keys files..."
+#find / -name "authorized_keys" -type f -delete 2>/dev/null || true
 
 # 2. Stop and disable SSH service
-echo "Stopping and disabling SSH..."
-systemctl stop sshd 2>/dev/null || systemctl stop ssh 2>/dev/null || true
-systemctl disable sshd 2>/dev/null || systemctl disable ssh 2>/dev/null || true
+#echo "Stopping and disabling SSH..."
+#systemctl stop sshd 2>/dev/null || systemctl stop ssh 2>/dev/null || true
+#systemctl disable sshd 2>/dev/null || systemctl disable ssh 2>/dev/null || true
 
-echo "SSH has been disabled. Use console access only."
+#echo "SSH has been disabled. Use console access only."
 
 # --- 3. SYSTEM HARDENING ---
 echo "[+] Phase 3: System Hardening"
@@ -130,8 +135,12 @@ echo "root" > /etc/at.allow
 # Clear all existing user cron tables
 rm -rf /var/spool/cron/*
 rm -rf /var/spool/cron/crontabs/*
-# Clear system-wide crontab content but keep file
-echo "" > /etc/crontab
+# Strip job lines from system crontab but keep variable definitions (SHELL, PATH, MAILTO, etc.)
+if [[ -f /etc/crontab ]]; then
+    grep -E '^\s*(#|SHELL=|PATH=|MAILTO=|HOME=|LOGNAME=|$)' /etc/crontab > /tmp/crontab_clean || true
+    mv /tmp/crontab_clean /etc/crontab
+    chmod 644 /etc/crontab
+fi
 
 echo "Restricting Permissions on Critical Compilers (Anti-Compile)..."
 # Stops Red Team from compiling local privilege escalation exploits on the box
@@ -221,8 +230,9 @@ echo "Kernel hardening applied: $SYSCTL_HARDEN"
 
 
 echo "Running enumeration and tool normalization scripts"
-bash masterEnum.sh >> "$LOG_FILE" 2>&1
-bash normalizeTools.sh >> "$LOG_FILE"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR/masterEnum.sh" >> "$LOG_FILE" 2>&1
+bash "$SCRIPT_DIR/../../postHardenTools/normalizeTools.sh" >> "$LOG_FILE" 2>&1
 echo "Scripts completed. Check $LOG_FILE for more details."
 
 

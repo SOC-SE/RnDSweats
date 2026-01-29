@@ -538,19 +538,20 @@ get_cron() {
     sort_cron_jobs() {
         local -n jobs_array=$1
         local temp_file=$(mktemp)
-        
+        local sep=$'\x1f'  # Unit separator to avoid conflicts with | in entries
+
         # Create sortable entries
         for job_entry in "${jobs_array[@]}"; do
             IFS='|' read -r user schedule command flags <<< "$job_entry"
-            echo "${user}|${schedule}|${job_entry}" >> "$temp_file"
+            echo "${user}${sep}${schedule}${sep}${job_entry}" >> "$temp_file"
         done
-        
+
         # Sort by user, then by schedule
         jobs_array=()
-        while IFS='|' read -r user schedule original_entry; do
+        while IFS="$sep" read -r user schedule original_entry; do
             jobs_array+=("$original_entry")
-        done < <(sort -t'|' -k1,1 -k2,2 "$temp_file")
-        
+        done < <(sort -t"$sep" -k1,1 -k2,2 "$temp_file")
+
         rm "$temp_file"
     }
 
@@ -805,26 +806,27 @@ get_users(){
         else
             # Sort flag details by flag type, then by username
             local temp_file=$(mktemp)
+            local sep=$'\x1f'
             for detail_entry in "${flag_details[@]}"; do
                 IFS='|' read -r flag username uid reason <<< "$detail_entry"
                 case "$flag" in
-                    "[SUSPICIOUS]") echo "1|${flag}|${username}|${uid}|${reason}" >> "$temp_file" ;;
-                    "[RECENT]")     echo "2|${flag}|${username}|${uid}|${reason}" >> "$temp_file" ;;
-                    *)              echo "9|${flag}|${username}|${uid}|${reason}" >> "$temp_file" ;;
+                    "[SUSPICIOUS]") echo "1${sep}${detail_entry}" >> "$temp_file" ;;
+                    "[RECENT]")     echo "2${sep}${detail_entry}" >> "$temp_file" ;;
+                    *)              echo "9${sep}${detail_entry}" >> "$temp_file" ;;
                 esac
             done
-            
+
             local -a sorted_details
-            while IFS='|' read -r priority flag username uid reason; do
-                sorted_details+=("$flag|$username|$uid|$reason")
-            done < <(sort -t'|' -k1,1n -k4,4n "$temp_file")
-            
+            while IFS="$sep" read -r priority original_entry; do
+                sorted_details+=("$original_entry")
+            done < <(sort -t"$sep" -k1,1n "$temp_file")
+
             for detail_entry in "${sorted_details[@]}"; do
                 IFS='|' read -r flag username uid reason <<< "$detail_entry"
                 printf "%-${FLAG_DETAIL_FLAG_WIDTH}s %-${FLAG_DETAIL_USERNAME_WIDTH}s %-${FLAG_DETAIL_UID_WIDTH}s %-${FLAG_DETAIL_REASON_WIDTH}s\n" \
                     "$flag" "$username" "$uid" "$reason"
             done
-            
+
             rm "$temp_file"
         fi
     }
@@ -833,19 +835,20 @@ get_users(){
     sort_users_by_uid() {
         local -n users_array=$1
         local temp_file=$(mktemp)
-        
+        local sep=$'\x1f'
+
         # Create sortable entries
         for user_entry in "${users_array[@]}"; do
             IFS='|' read -r username uid rest <<< "$user_entry"
-            echo "${uid}|${user_entry}" >> "$temp_file"
+            echo "${uid}${sep}${user_entry}" >> "$temp_file"
         done
-        
+
         # Sort by UID (numerical), then extract original entries
         users_array=()
-        while IFS='|' read -r uid original_entry; do
+        while IFS="$sep" read -r uid original_entry; do
             users_array+=("$original_entry")
-        done < <(sort -t'|' -k1,1n "$temp_file")
-        
+        done < <(sort -t"$sep" -k1,1n "$temp_file")
+
         rm "$temp_file"
     }
 
@@ -1027,15 +1030,17 @@ get_sudoers(){
             log "Processing $sudoers_file"
             
             while read -r line; do
-                # Skip comments, empty lines, and variable assignments
+                # Skip comments, empty lines, Defaults, and alias definitions
                 [[ "$line" =~ ^[[:space:]]*# ]] && continue
                 [[ -z "$line" ]] && continue
-                [[ "$line" =~ ^[[:space:]]*[A-Za-z_]+ ]] && continue
                 [[ "$line" =~ ^[[:space:]]*Defaults ]] && continue
                 [[ "$line" =~ ^[[:space:]]*Cmnd_Alias ]] && continue
                 [[ "$line" =~ ^[[:space:]]*User_Alias ]] && continue
                 [[ "$line" =~ ^[[:space:]]*Host_Alias ]] && continue
                 [[ "$line" =~ ^[[:space:]]*Runas_Alias ]] && continue
+                # Skip @include directives
+                [[ "$line" =~ ^[[:space:]]*@include ]] && continue
+                [[ "$line" =~ ^[[:space:]]*#include ]] && continue
                 
                 # Parse sudoers rule: user/group host=(runas) commands
                 # Format: user host=(runas_user:runas_group) commands
@@ -1184,19 +1189,20 @@ get_sudoers(){
     sort_sudoers_rules() {
         local -n rules_array=$1
         local temp_file=$(mktemp)
-        
+        local sep=$'\x1f'
+
         # Create sortable entries
         for rule_entry in "${rules_array[@]}"; do
             IFS='|' read -r entity rest <<< "$rule_entry"
-            echo "${entity}|${rule_entry}" >> "$temp_file"
+            echo "${entity}${sep}${rule_entry}" >> "$temp_file"
         done
-        
+
         # Sort by entity name
         rules_array=()
-        while IFS='|' read -r entity original_entry; do
+        while IFS="$sep" read -r entity original_entry; do
             rules_array+=("$original_entry")
-        done < <(sort -t'|' -k1,1 "$temp_file")
-        
+        done < <(sort -t"$sep" -k1,1 "$temp_file")
+
         rm "$temp_file"
     }
 
@@ -1384,20 +1390,21 @@ get_services(){
     sort_active_services() {
         local -n services_array=$1
         local temp_file=$(mktemp)
-        
+        local sep=$'\x1f'
+
         # Create sortable entries with priority prefix
         for service_entry in "${services_array[@]}"; do
             IFS='|' read -r name status state <<< "$service_entry"
             priority=$(get_state_priority "$state")
-            echo "${priority}|${name}|${service_entry}" >> "$temp_file"
+            echo "${priority}${sep}${name}${sep}${service_entry}" >> "$temp_file"
         done
-        
+
         # Sort by priority then by name, then extract original entries
         services_array=()
-        while IFS='|' read -r priority name original_entry; do
+        while IFS="$sep" read -r priority name original_entry; do
             services_array+=("$original_entry")
-        done < <(sort -t'|' -k1,1n -k2,2 "$temp_file")
-        
+        done < <(sort -t"$sep" -k1,1n -k2,2 "$temp_file")
+
         rm "$temp_file"
     }
 
@@ -1405,19 +1412,20 @@ get_services(){
     sort_services_alphabetically() {
         local -n services_array=$1
         local temp_file=$(mktemp)
-        
+        local sep=$'\x1f'
+
         # Create sortable entries
         for service_entry in "${services_array[@]}"; do
             IFS='|' read -r name status state <<< "$service_entry"
-            echo "${name}|${service_entry}" >> "$temp_file"
+            echo "${name}${sep}${service_entry}" >> "$temp_file"
         done
-        
+
         # Sort by name, then extract original entries
         services_array=()
-        while IFS='|' read -r name original_entry; do
+        while IFS="$sep" read -r name original_entry; do
             services_array+=("$original_entry")
-        done < <(sort -t'|' -k1,1 "$temp_file")
-        
+        done < <(sort -t"$sep" -k1,1 "$temp_file")
+
         rm "$temp_file"
     }
 
@@ -2219,19 +2227,20 @@ get_privesc(){
     sort_privesc_findings() {
         local -n findings_array=$1
         local temp_file=$(mktemp)
-        
+        local sep=$'\x1f'
+
         # Create sortable entries
         for finding_entry in "${findings_array[@]}"; do
             IFS='|' read -r binary rest <<< "$finding_entry"
-            echo "${binary}|${finding_entry}" >> "$temp_file"
+            echo "${binary}${sep}${finding_entry}" >> "$temp_file"
         done
-        
+
         # Sort by binary path
         findings_array=()
-        while IFS='|' read -r binary original_entry; do
+        while IFS="$sep" read -r binary original_entry; do
             findings_array+=("$original_entry")
-        done < <(sort -t'|' -k1,1 "$temp_file")
-        
+        done < <(sort -t"$sep" -k1,1 "$temp_file")
+
         rm "$temp_file"
     }
 
@@ -2341,59 +2350,6 @@ main() {
         get_ssh_config
         echo -e "\n\n"
 
-        # --- 10. GTFOBINS AUDIT ---
-        echo "=================================================================="
-        echo "10. GTFOBINS - EXPLOITABLE BINARIES"
-        echo "=================================================================="
-        echo ""
-
-        # HIGH risk - direct shell/code execution
-        GTFO_HIGH="nc ncat netcat socat python python2 python3 perl ruby lua php node gdb strace ltrace expect rlwrap script telnet ftp"
-        # MEDIUM risk - file operations or limited shell
-        GTFO_MEDIUM="vim vi nano ed emacs find awk gawk tar zip unzip rsync scp sftp wget curl dd env xargs"
-        # LOW risk - require specific conditions
-        GTFO_LOW="less more man watch tee time timeout nice busybox ash dash csh tcsh ksh zsh"
-
-        echo "HIGH RISK (Shell Escape / Code Execution):"
-        for bin in $GTFO_HIGH; do
-            bin_path=$(command -v "$bin" 2>/dev/null)
-            if [[ -n "$bin_path" ]]; then
-                # Check if SUID
-                if [[ -u "$bin_path" ]]; then
-                    echo "  [!!] $bin -> $bin_path (SUID SET!)"
-                else
-                    echo "  [!]  $bin -> $bin_path"
-                fi
-            fi
-        done
-        echo ""
-
-        echo "MEDIUM RISK (File Operations / Limited Shell):"
-        for bin in $GTFO_MEDIUM; do
-            bin_path=$(command -v "$bin" 2>/dev/null)
-            if [[ -n "$bin_path" ]]; then
-                if [[ -u "$bin_path" ]]; then
-                    echo "  [!!] $bin -> $bin_path (SUID SET!)"
-                else
-                    echo "  [*]  $bin -> $bin_path"
-                fi
-            fi
-        done
-        echo ""
-
-        echo "LOW RISK (Specific Conditions Required):"
-        for bin in $GTFO_LOW; do
-            bin_path=$(command -v "$bin" 2>/dev/null)
-            if [[ -n "$bin_path" ]]; then
-                if [[ -u "$bin_path" ]]; then
-                    echo "  [!!] $bin -> $bin_path (SUID SET!)"
-                else
-                    echo "  [-]  $bin -> $bin_path"
-                fi
-            fi
-        done
-        echo -e "\n\n"
-
         # --- BINARY INTEGRITY VERIFICATION ---
         echo "=================================================================="
         echo "BINARY INTEGRITY VERIFICATION"
@@ -2457,7 +2413,7 @@ main() {
                 echo "[ALERT] MODIFIED BINARIES DETECTED:"
                 echo "$bv_results"
                 echo ""
-                echo "Run binaryVerify.sh for detailed analysis and --fix option"
+                echo "Run linux/postHardenTools/binaryVerify.sh for detailed analysis and --fix option"
             else
                 echo "[OK] All critical binaries verified ($BV_PKG_MGR)"
                 echo "Packages checked: $BV_PACKAGES"
