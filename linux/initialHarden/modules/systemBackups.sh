@@ -3,7 +3,7 @@
 # Script Name: systemBackups.sh
 # Description: Quick backup of critical system files for disaster recovery
 #              and forensic comparison. Run FIRST on any new system access.
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #

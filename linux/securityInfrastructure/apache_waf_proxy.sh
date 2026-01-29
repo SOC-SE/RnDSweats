@@ -37,7 +37,7 @@
 #   --apache-port N   Set Apache backend port (default: 8080)
 #   -h, --help        Show this help message
 #
-# Author: CCDC Toolkit
+# Author: Security Toolkit
 # License: MIT
 #===============================================================================
 
@@ -48,7 +48,7 @@ set -euo pipefail
 #-------------------------------------------------------------------------------
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly BACKUP_DIR="/var/backups/ccdc/waf_proxy"
+readonly BACKUP_DIR="/var/backups/security/waf_proxy"
 readonly LOG_FILE="/var/log/syst/waf_proxy.log"
 readonly CORAZA_SPOA_VERSION="v0.7.0"
 readonly CORAZA_SPOA_DIR="/opt/coraza-spoa"
@@ -525,7 +525,7 @@ configure_coraza_spoa() {
 
     # Create main Coraza configuration
     cat > "$CORAZA_CONF_DIR/coraza.conf" << EOF
-# Coraza WAF Configuration for CCDC
+# Coraza WAF Configuration 
 # Generated: $(date)
 # WAF Engine: Coraza (https://coraza.io)
 
@@ -668,7 +668,7 @@ EOF
     # Create main HAProxy configuration
     cat > /etc/haproxy/haproxy.cfg << EOF
 #===============================================================================
-# HAProxy Configuration - CCDC WAF Reverse Proxy with Coraza
+# HAProxy Configuration WAF Reverse Proxy with Coraza
 # Generated: $(date)
 # WAF: Coraza SPOA (https://coraza.io)
 #===============================================================================

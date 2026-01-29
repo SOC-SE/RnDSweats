@@ -4,7 +4,7 @@
 # Description: Master hardening script for Ubuntu E-commerce Server
 #              Runs enumeration, hardening, backups, and post-hardening enum
 # Target: Ubuntu 24.04 - E-commerce Server (OpenCart, HTTP/HTTPS)
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #
@@ -29,7 +29,7 @@ set -uo pipefail
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-LINUXDEV="$REPO_DIR/LinuxDev"
+LINUXDEV="$SCRIPT_DIR/modules"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/master-ubuntu-ecom_$TIMESTAMP.log"
@@ -152,7 +152,7 @@ iptables -A OUTPUT -o lo -j ACCEPT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# ICMP (all - required by CCDC rules)
+# ICMP (all - required by competition rules)
 iptables -A INPUT -p icmp -j ACCEPT
 iptables -A OUTPUT -p icmp -j ACCEPT
 
@@ -163,6 +163,15 @@ iptables -A INPUT -p tcp --tcp-flags ALL FIN,PSH,URG -j DROP
 iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
 iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
 iptables -A INPUT -f -j DROP
+
+# Drop invalid state packets (malformed/scan artifacts)
+iptables -A INPUT -m conntrack --ctstate INVALID -j DROP
+
+# SYN rate limiting (slow down port scans - 25 new connections/sec per source IP)
+iptables -A INPUT -p tcp --syn -m hashlimit \
+    --hashlimit-above 25/sec --hashlimit-burst 50 \
+    --hashlimit-mode srcip --hashlimit-name syn_scan \
+    --hashlimit-htable-expire 30000 -j DROP
 
 # --- Outbound: DNS, HTTP, HTTPS (for updates/tooling) ---
 iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
@@ -175,6 +184,17 @@ iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
 # MySQL (localhost only)
 iptables -A INPUT -p tcp --dport 3306 -s 127.0.0.1 -j ACCEPT
+
+# --- Outbound: Salt Minion (connects to Salt Master) ---
+iptables -A OUTPUT -p tcp --dport 4505 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 4506 -j ACCEPT
+
+# --- Outbound: Wazuh Agent (connects to Wazuh Manager) ---
+iptables -A OUTPUT -p tcp --dport 1514 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 1515 -j ACCEPT
+
+# --- Outbound: Splunk Universal Forwarder (sends logs to indexer) ---
+iptables -A OUTPUT -p tcp --dport 9997 -j ACCEPT
 
 # --- Logging for all dropped/rejected packets ---
 iptables -A INPUT -j LOG --log-prefix "IPT-INPUT-REJECT: " --log-level 4
@@ -189,7 +209,7 @@ iptables -A FORWARD -j REJECT --reject-with icmp-port-unreachable
 # Save rules
 netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables.rules
 
-log "Firewall configured: SSH(22), HTTP(80), MySQL(3306 localhost)"
+log "Firewall configured: SSH(22), HTTP(80), MySQL(3306 localhost), Salt(4505-4506), Wazuh(1514-1515), Splunk(9997)"
 
 # ============================================================================
 # PHASE 6: SYSTEM BACKUPS

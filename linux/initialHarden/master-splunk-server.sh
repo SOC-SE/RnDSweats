@@ -6,7 +6,7 @@
 #              Backs up + reinstalls Splunk fresh, hardens OS, configures firewall
 # Target: Oracle Linux 9.2 / Rocky Linux 9 - Splunk Server
 #         (also hosts SaltGUI, Wazuh, Technitium DNS)
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 2.0
 #
@@ -37,7 +37,7 @@ set -uo pipefail
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-LINUXDEV="$REPO_DIR/LinuxDev"
+LINUXDEV="$SCRIPT_DIR/modules"
 TOOLS="$REPO_DIR/Tools"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_DIR="/var/log/syst"
@@ -247,6 +247,113 @@ host = $(hostname)
 sourcetype = syslog
 index = main
 disabled = 0
+
+# =============================================================================
+# Local file monitors (logs generated on this host)
+# =============================================================================
+
+# --- System logs ---
+
+[monitor:///var/log/auth.log]
+index = main
+sourcetype = linux_secure
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/secure]
+index = main
+sourcetype = linux_secure
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/messages]
+index = main
+sourcetype = syslog
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/audit/audit.log]
+index = main
+sourcetype = linux:audit
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+# --- Custom scripts (syst) ---
+
+[monitor:///var/log/syst/*audit*]
+index = main
+sourcetype = linux_enume
+crcSalt = <SOURCE>
+
+[monitor:///var/log/syst/security_scan_*.log]
+index = main
+sourcetype = linux_security_scan
+crcSalt = <SOURCE>
+
+[monitor:///var/log/syst/linpeas_findings_*.log]
+index = main
+sourcetype = linpeas
+crcSalt = <SOURCE>
+
+[monitor:///var/log/syst/integrity_scan.log]
+index = main
+sourcetype = linux_rootkit
+crcSalt = <SOURCE>
+
+[monitor:///var/log/syst/pre_install_compromise.log]
+index = main
+sourcetype = linux_rootkit
+crcSalt = <SOURCE>
+
+# --- LMD (Linux Malware Detect) ---
+
+[monitor:///usr/local/maldetect/logs/event_log]
+index = main
+sourcetype = linux_av:events
+crcSalt = <SOURCE>
+
+[monitor:///usr/local/maldetect/logs/scan_log]
+index = main
+sourcetype = linux_av:scan_summaries
+crcSalt = <SOURCE>
+
+[monitor:///usr/local/maldetect/logs/error_log]
+index = main
+sourcetype = linux_av:errors
+crcSalt = <SOURCE>
+
+[monitor:///usr/local/maldetect/sess/*]
+index = main
+sourcetype = linux_av:full_reports
+crcSalt = <SOURCE>
+
+# --- Wazuh (local manager logs) ---
+
+[monitor:///var/ossec/logs/ossec.log]
+index = main
+sourcetype = wazuh:agent
+crcSalt = <SOURCE>
+
+[monitor:///var/ossec/logs/api.log]
+index = main
+sourcetype = wazuh:api
+crcSalt = <SOURCE>
+
+# --- Salt Master ---
+
+[monitor:///var/log/salt/master]
+index = main
+sourcetype = salt:master
+crcSalt = <SOURCE>
+
+# --- Technitium DNS (Docker container, host-mounted volume) ---
+# NOTE: Query logging must be enabled in Technitium Web UI:
+#       Settings > Logging > Enable "Log all queries"
+
+[monitor:///opt/technitium-dns/config/logs/*.log]
+index = main
+sourcetype = technitium:querylog
+crcSalt = <SOURCE>
 EOF
 
 # Move custom props.conf if it exists
@@ -353,7 +460,7 @@ iptables -A OUTPUT -o lo -j ACCEPT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# ICMP (all - required by CCDC rules)
+# ICMP (all - required by competition rules)
 iptables -A INPUT -p icmp -j ACCEPT
 iptables -A OUTPUT -p icmp -j ACCEPT
 
@@ -363,6 +470,15 @@ iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
 iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
 iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
 iptables -A INPUT -f -j DROP
+
+# Drop invalid state packets (malformed/scan artifacts)
+iptables -A INPUT -m conntrack --ctstate INVALID -j DROP
+
+# SYN rate limiting (slow down port scans - 25 new connections/sec per source IP)
+iptables -A INPUT -p tcp --syn -m hashlimit \
+    --hashlimit-above 25/sec --hashlimit-burst 50 \
+    --hashlimit-mode srcip --hashlimit-name syn_scan \
+    --hashlimit-htable-expire 30000 -j DROP
 
 # --- Outbound: DNS, HTTP, HTTPS (for updates/tooling) ---
 iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
@@ -427,10 +543,10 @@ log "Firewall configured: Splunk(8000,9997,514), Wazuh(1514,1515,55000), Salt(45
 phase "PHASE 7: KERNEL HARDENING"
 log "Applying sysctl kernel hardening..."
 
-SYSCTL_HARDEN="/etc/sysctl.d/99-ccdc-hardening.conf"
+SYSCTL_HARDEN="/etc/sysctl.d/99-security-hardening.conf"
 [[ -f "$SYSCTL_HARDEN" ]] && cp "$SYSCTL_HARDEN" "${SYSCTL_HARDEN}.backup"
 cat > "$SYSCTL_HARDEN" << 'SYSCTL_EOF'
-# CCDC Kernel Hardening
+# Kernel Hardening
 net.ipv4.ip_forward = 0
 net.ipv4.tcp_syncookies = 1
 net.ipv4.conf.all.accept_redirects = 0

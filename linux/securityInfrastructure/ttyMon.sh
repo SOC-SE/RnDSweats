@@ -4,7 +4,7 @@
 # Description: TTY session monitor that runs as a systemd service.
 #              Detects new login sessions, logs source details, and alerts
 #              via syslog. Persists across reboots.
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #
@@ -79,9 +79,9 @@ do_install() {
     # Create systemd service
     cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=TTY Session Monitor - CCDC
+Description=TTY Session Monitor
 After=network.target
-Documentation=CCDC Development Toolkit
+Documentation=Security Development Toolkit
 
 [Service]
 Type=simple

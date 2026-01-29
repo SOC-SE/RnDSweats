@@ -3,7 +3,7 @@ set -euo pipefail
 # =============================================================================
 # SPLUNK FORWARDER INSTALLER (GENTOO / OPENRC EDITION)
 # Based on Samuel Brucker's General Linux Script
-# Adapted for CCDC Gentoo Environment
+# Adapted for Gentoo Environment
 # =============================================================================
 
 # --- Configuration ---

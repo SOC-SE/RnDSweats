@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# CCDC Development - Community Yara Rules Builder & Installer
+# Security Development - Community Yara Rules Builder & Installer
 # This script installs Yara and jq, downloads the signature-base Yara rules,
 # removes problematic files at the source using find -delete, and combines
 # the rest into a single master rule file saved in the current directory.

@@ -3,7 +3,7 @@
 # Script Name: pamManager.sh
 # Description: PAM security audit and emergency restore tool
 #              Detects misconfigurations and backdoors, with restore capability
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 2.0
 #

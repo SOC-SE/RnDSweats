@@ -3,7 +3,7 @@
 # Script Name: mysqlenum.sh
 # Description: MySQL security audit script with automatic logging enablement
 #              and dangerous privilege detection
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 2.0
 #

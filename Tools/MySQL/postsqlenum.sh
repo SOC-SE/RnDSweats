@@ -3,7 +3,7 @@
 # Script Name: psqlenum.sh
 # Description: PostgreSQL security audit script - enumerates databases, users,
 #              privileges, and potential security issues
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #

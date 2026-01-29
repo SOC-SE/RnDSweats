@@ -3,7 +3,7 @@
 # Script Name: binaryVerify.sh
 # Description: Verify integrity of critical system binaries using package manager
 #              checksums. Detects trojanized binaries that have been modified.
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #

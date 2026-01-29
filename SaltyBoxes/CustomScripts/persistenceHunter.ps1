@@ -1,7 +1,7 @@
 # ==============================================================================
 # Persistence Hunter - Windows
 # Comprehensive check for attacker persistence mechanisms
-# For CCDC Competition Use
+# For Competition Use
 # ==============================================================================
 
 Write-Host "========================================" -ForegroundColor Cyan

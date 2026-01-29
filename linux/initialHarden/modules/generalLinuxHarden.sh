@@ -154,14 +154,14 @@ done
 
 echo "Setting Kernel parameters (Sysctl)..."
 # Comprehensive kernel hardening via sysctl
-SYSCTL_HARDEN="/etc/sysctl.d/99-ccdc-hardening.conf"
+SYSCTL_HARDEN="/etc/sysctl.d/99-security-hardening.conf"
 
 # Backup existing file if present
 [[ -f "$SYSCTL_HARDEN" ]] && cp "$SYSCTL_HARDEN" "${SYSCTL_HARDEN}.backup"
 
 cat > "$SYSCTL_HARDEN" << 'SYSCTL_EOF'
 # ==============================================================================
-# CCDC Kernel Hardening - Sysctl Configuration
+# Kernel Hardening - Sysctl Configuration
 # ==============================================================================
 
 # --- NETWORK SECURITY - IPv4 ---

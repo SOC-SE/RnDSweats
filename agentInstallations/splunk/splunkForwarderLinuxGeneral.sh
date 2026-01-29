@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-# Automates the installation of the Splunk Universal Forwarder. Currently set to v10.0.1. I'm not sure if the link will be valid during the entire CCDC season
+# Automates the installation of the Splunk Universal Forwarder. Currently set to v10.0.2. I'm not sure if the link will be valid during the entire competition season
 # with how much is still left to go. If the download gives you any trouble, create a Splunk account, go to the universal forwarder downloads, pick the one you want,
 # then extract the random set of characters found in the link. In this script, these are stored in the variable "SPLUNK_BUILD".
 #
@@ -15,8 +15,8 @@ set -euo pipefail
 #
 
 # Define Splunk Forwarder variables
-SPLUNK_VERSION="10.0.1"
-SPLUNK_BUILD="c486717c322b"
+SPLUNK_VERSION="10.0.2"
+SPLUNK_BUILD="e2d18b4767e9"
 SPLUNK_PACKAGE_TGZ="splunkforwarder-${SPLUNK_VERSION}-${SPLUNK_BUILD}-linux-amd64.tgz"
 SPLUNK_DOWNLOAD_URL="https://download.splunk.com/products/universalforwarder/releases/${SPLUNK_VERSION}/linux/${SPLUNK_PACKAGE_TGZ}"
 INSTALL_DIR="/opt/splunkforwarder"
@@ -485,6 +485,14 @@ index = main
 sourcetype = salt:minion
 crcSalt = <SOURCE>
 
+# Technitium DNS (Docker container, host-mounted volume)
+# NOTE: Query logging must be enabled in Technitium Web UI:
+#       Settings > Logging > Enable "Log all queries"
+[monitor:///opt/technitium-dns/config/logs/*.log]
+index = main
+sourcetype = technitium:querylog
+crcSalt = <SOURCE>
+
 # -----------------------------------------------------------------------------
 # Virtualization & Containers
 # -----------------------------------------------------------------------------
@@ -537,19 +545,19 @@ crcSalt = <SOURCE>
 #Linux masterEnum logs
 [monitor:///var/log/syst/*audit*]
 index = main
-sourcetype = linux_audit
+sourcetype = linux_enum
 crcSalt = <SOURCE>
 
-#Rootkit detection logs
-[monitor:///var/log/syst/integrity_scan.log]
+#Security scanner reports (securityScannerSetup.sh)
+[monitor:///var/log/syst/security_scan_*.log]
 index = main
-sourcetype = linux_rootkit
+sourcetype = linux_security_scan
 crcSalt = <SOURCE>
 
-#Rootkit detection logs
-[monitor:///var/log/syst/pre_install_compromise.log]
+#LinPEAS findings (filtered to actual results only)
+[monitor:///var/log/syst/linpeas_findings_*.log]
 index = main
-sourcetype = linux_rootkit
+sourcetype = linpeas
 crcSalt = <SOURCE>
 
 #Test log

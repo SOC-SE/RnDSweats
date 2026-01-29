@@ -13,15 +13,15 @@ param (
 #
 # You can be mean to this one. I know it's rough. 
 #
-#  Currently set to v10.0.1. I'm not sure if the link will be valid during the entire CCDC season
+#  Currently set to v10.0.1. I'm not sure if the link will be valid during the entire competition season
 # with how much is still left to go. If the download gives you any trouble, create a Splunk account, go to the universal forwarder downloads, pick the one you want,
 # then extract the random set of characters found in the link. In this script, these are stored in the variable "SPLUNK_BUILD".
 #
 # Samuel Brucker 2024 - 2026
 
 # Define variables
-$SPLUNK_VERSION = "10.0.1"
-$SPLUNK_BUILD = "c486717c322b"
+$SPLUNK_VERSION = "10.0.2"
+$SPLUNK_BUILD = "e2d18b4767e9"
 $SPLUNK_MSI = "splunkforwarder-${SPLUNK_VERSION}-${SPLUNK_BUILD}-windows-x64.msi"
 $SPLUNK_DOWNLOAD_URL = "https://download.splunk.com/products/universalforwarder/releases/${SPLUNK_VERSION}/windows/${SPLUNK_MSI}"
 $INSTALL_DIR = "C:\Program Files\SplunkUniversalForwarder"

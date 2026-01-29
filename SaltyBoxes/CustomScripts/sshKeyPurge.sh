@@ -4,7 +4,7 @@
 # Description: Removes SSH keys (authorized_keys and private keys) with forensic
 #              logging before secure deletion. Preserves evidence while removing
 #              attacker persistence.
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #

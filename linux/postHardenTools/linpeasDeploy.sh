@@ -3,7 +3,7 @@
 # Script Name: linpeasDeploy.sh
 # Description: Download and run LinPEAS for system enumeration
 #              Supports online download and offline/pre-staged modes
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #
@@ -12,7 +12,7 @@
 #
 # Options:
 #   -h, --help       Show this help message
-#   -o, --output     Output file for results (default: /tmp/linpeas_output.txt)
+#   -o, --output     Output file for findings (default: /var/log/syst/linpeas_findings_<timestamp>.log)
 #   -l, --local      Path to pre-staged linpeas.sh (offline mode)
 #   -q, --quiet      Run LinPEAS in quiet mode (less output)
 #   -f, --fast       Run LinPEAS in fast mode (skip slow checks)
@@ -52,7 +52,9 @@ set -uo pipefail
 SCRIPT_NAME="$(basename "$0")"
 LINPEAS_URL="https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh"
 LINPEAS_BACKUP_URL="https://raw.githubusercontent.com/peass-ng/PEASS-ng/master/linPEAS/linpeas.sh"
-OUTPUT_FILE="/tmp/linpeas_output_$(date +%Y%m%d_%H%M%S).txt"
+RAW_OUTPUT="/tmp/linpeas_raw_$(date +%Y%m%d_%H%M%S).txt"
+LOG_DIR="/var/log/syst"
+OUTPUT_FILE="$LOG_DIR/linpeas_findings_$(date +%Y%m%d_%H%M%S).log"
 LOCAL_LINPEAS=""
 LINPEAS_ARGS=""
 KEEP_FILE=false
@@ -227,31 +229,39 @@ echo "LINPEAS OUTPUT BEGINS"
 echo "========================================"
 echo ""
 
-# Run with tee to capture output
+# Run LinPEAS and capture raw output (with ANSI codes)
 # shellcheck disable=SC2086
-bash "$LINPEAS_PATH" $LINPEAS_ARGS 2>&1 | tee "$OUTPUT_FILE"
+mkdir -p "$LOG_DIR"
+bash "$LINPEAS_PATH" $LINPEAS_ARGS 2>&1 | tee "$RAW_OUTPUT"
+
+# Filter to findings only: extract lines that LinPEAS highlighted with color
+# (red, yellow, magenta = findings), strip ANSI codes, drop empty lines
+{
+    echo "========================================"
+    echo "LINPEAS FINDINGS REPORT"
+    echo "Host: $(hostname)"
+    echo "Date: $(date)"
+    echo "========================================"
+    echo ""
+    # Keep section headers (═══) and any colored (finding) lines, strip ANSI codes
+    grep -E '\x1b\[([0-9;]*)(31|33|35|91|93|95)m|═' "$RAW_OUTPUT" \
+        | sed 's/\x1b\[[0-9;]*m//g' \
+        | sed '/^[[:space:]]*$/d' || echo "No findings detected."
+} > "$OUTPUT_FILE"
+
+# Clean up raw output
+rm -f "$RAW_OUTPUT"
 
 echo ""
 echo "========================================"
 echo "LINPEAS COMPLETE"
 echo "========================================"
 echo ""
-echo "Output saved to: $OUTPUT_FILE"
+echo "Findings saved to: $OUTPUT_FILE"
 echo "File size: $(du -h "$OUTPUT_FILE" | cut -f1)"
 echo ""
-echo "Quick analysis tips:"
-echo "  - Look for RED/YELLOW highlighted items"
-echo "  - Check 'Interesting Files' section for credentials"
-echo "  - Review 'SUID' section for privilege escalation"
-echo "  - Check 'Processes' for sensitive information"
-echo ""
-echo "To view output with colors:"
-echo "  less -R $OUTPUT_FILE"
-echo ""
-echo "To search for specific patterns:"
-echo "  grep -i 'password' $OUTPUT_FILE"
-echo "  grep -i 'key' $OUTPUT_FILE"
-echo "  grep -i 'credential' $OUTPUT_FILE"
+echo "To view full findings:"
+echo "  less $OUTPUT_FILE"
 echo "========================================"
 
 exit 0

@@ -311,7 +311,7 @@ apply_rules() {
     local backup_dir="/var/backups/iptables"
     mkdir -p "$backup_dir"
     local backup_file
-    backup_file="$backup_dir/rules.pre-ccdc.$(date +%Y%m%d_%H%M%S)"
+    backup_file="$backup_dir/rules.pre-harden.$(date +%Y%m%d_%H%M%S)"
     if iptables-save > "$backup_file" 2>/dev/null; then
         echo "    > Backed up current rules to: $backup_file"
     else

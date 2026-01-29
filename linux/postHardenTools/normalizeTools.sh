@@ -126,9 +126,9 @@ elif [[ "$PKG" == "apk" ]]; then
 fi
 
 # Configure auditd with custom rules if our script exists
-AUDITD_SCRIPT="$REPO_DIR/Tools/Auditd/auditdSetup.sh"
+AUDITD_SCRIPT="$SCRIPT_DIR/dependencies/auditdSetup.sh"
 if [[ -f "$AUDITD_SCRIPT" ]]; then
-    log "Running auditd setup with custom CCDC rules..."
+    log "Running auditd setup with custom audit rules..."
     chmod +x "$AUDITD_SCRIPT"
     bash "$AUDITD_SCRIPT" || warn "auditd setup had errors (non-fatal)"
 else
@@ -169,7 +169,7 @@ log "Installing YARA..."
 
 install_pkgs yara
 
-YARA_SCRIPT="$REPO_DIR/Tools/Yara/yaraConfigure.sh"
+YARA_SCRIPT="$SCRIPT_DIR/dependencies/yaraConfigure.sh"
 if [[ -f "$YARA_SCRIPT" ]]; then
     log "Running YARA community rules builder..."
     chmod +x "$YARA_SCRIPT"
@@ -328,7 +328,7 @@ echo "  Infra:      docker, ansible"
 echo ""
 
 if [[ -f "$AUDITD_SCRIPT" ]]; then
-    echo "Auditd:  Custom CCDC rules loaded from Tools/Auditd/auditdSetup.sh"
+    echo "Auditd:  Custom audit rules loaded from postHardenTools/dependencies/auditdSetup.sh"
 else
     echo "Auditd:  Installed with default rules (custom rules not found)"
 fi

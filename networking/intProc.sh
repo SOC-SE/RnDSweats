@@ -4,7 +4,7 @@
 # Description: Network Interface Protector - Self-healing network defense system
 #              Monitors and reverts unauthorized changes to IP, gateway, DNS,
 #              iptables rules, and routes. Supports systemd and OpenRC.
-# Author: CCDC Team (Samuel Brucker 2025-2026)
+# Author: Security Team (Samuel Brucker 2025-2026)
 # Date: 2025-2026
 # Version: 3.0
 #

@@ -3,7 +3,7 @@
 # Script Name: k8sBackup.sh
 # Description: Backs up Kubernetes resources per namespace for disaster recovery
 #              and configuration preservation
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #

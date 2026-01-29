@@ -4,7 +4,7 @@
 # Suricata Emergency Removal Script
 #
 # Description: Quickly stops Suricata, flushes all NFQUEUE iptables rules,
-#              and optionally fully uninstalls Suricata. Designed for CCDC
+#              and optionally fully uninstalls Suricata. Designed for competition use
 #              scenarios where Suricata may be breaking scored services.
 #
 # Usage: sudo ./suricataUninstall.sh

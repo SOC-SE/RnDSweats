@@ -3,7 +3,7 @@
 # Description: Installs/uninstalls and provides initial setup for PSAD (Port Scan Attack Detector),
 #              a lightweight IDS that analyzes iptables logs for scans and attacks.
 #
-# Key Features (Aligned with MWCCDC and PBF):
+# Key Features (Aligned with competition and PBF):
 # 1. Menu to install or uninstall PSAD; checks status and skips/exits as needed.
 # 2. Prompts for CIDR (HOME_NET) and alert email during install.
 # 3. Automatically edits /etc/psad/psad.conf for HOME_NET, alerts, and auto-IPS.
@@ -11,7 +11,7 @@
 # 5. Handles Debian-based systems (apt); supports dnf with warnings.
 # 6. Enables and starts PSAD service; updates signatures.
 # 7. Validated for low resource use in virtual environments (e.g., NETLAB VE VMs).
-# 8. Post-install instructions for optimal CCDC use (e.g., monitoring for IR reports).
+# 8. Post-install instructions for optimal use (e.g., monitoring for IR reports).
 # ==============================================================================
 
 #!/bin/bash
@@ -29,7 +29,7 @@ ______  _____  ___ ______
 \_|    \____/\_| |_/___/  
 EOF
 echo -e "\033[0m"
-echo "PSAD IDS Installer/Uninstaller - For CCDC Team Prep"
+echo "PSAD IDS Installer/Uninstaller - For Team Prep"
 echo "-------------------------------------------------------------"
 
 # --- Configuration & Colors ---
@@ -106,7 +106,7 @@ configure_psad() {
     fi
 
     # Prompt for alert email
-    read -p "Enter email address for alerts (e.g., team@ccdc.edu): " EMAIL
+    read -p "Enter email address for alerts (e.g., team@example.edu): " EMAIL
     if [[ ! "$EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
         log_warn "Invalid email format: $EMAIL. Continuing, but alerts may fail."
     fi
@@ -193,9 +193,9 @@ uninstall_psad() {
 
 # --- Print Optimal Usage Instructions (Post-Install) ---
 print_instructions() {
-    log_info "Optimal Usage Instructions for PSAD in CCDC Competitions:"
+    log_info "Optimal Usage Instructions for PSAD in Competitions:"
     echo "  - **Monitoring:** Run 'psad --status' to check active scans and blocked IPs. Tail logs with 'tail -f /var/log/psad/scan_log' or '/var/log/psad/auto_blocked' for real-time detection."
-    echo "  - **Tuning for CCDC:** Edit /etc/psad/psad.conf to adjust AUTO_IDS_DANGER_LEVEL (e.g., set to 4+ to avoid false positives on scoring traffic like ICMP/HTTP checks per Team Pack page 14). Whitelist scoring engine IPs if needed via IGNORE_NETS."
+    echo "  - **Tuning for competition:** Edit /etc/psad/psad.conf to adjust AUTO_IDS_DANGER_LEVEL (e.g., set to 4+ to avoid false positives on scoring traffic like ICMP/HTTP checks per Team Pack page 14). Whitelist scoring engine IPs if needed via IGNORE_NETS."
     echo "  - **Incident Response:** Use detections to generate IR reports (10-20% of score, page 16). Include source IPs, timelines, and remediation (e.g., 'psad --fw-dump' for firewall state)."
     echo "  - **Integration:** Combine with tools like Splunk/ELK for centralized logging. Script auto-alerts to NISE/Team Portal for quick submissions."
     echo "  - **Testing:** Simulate Red Team scans with 'nmap -sS <your_ip>' from another VM; verify blocks without disrupting services (e.g., maintain SMTP uptime, page 17)."
@@ -237,7 +237,7 @@ main() {
     detect_pkg_manager
     prompt_mode
     log_info "${GREEN}--- Script Complete ---${NC}"
-    log_info "Remember to harden further and test in your MWCCDC lab setup."
+    log_info "Remember to harden further and test in your MWlab setup."
 }
 
 main "$@"

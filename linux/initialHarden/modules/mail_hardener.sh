@@ -3,7 +3,7 @@
 # Script Name: mail_hardener.sh
 # Description: Unified mail server hardener for Postfix + Dovecot (+ Roundcube)
 #              Supports both Debian/Ubuntu and Fedora/RHEL systems
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 3.0
 #

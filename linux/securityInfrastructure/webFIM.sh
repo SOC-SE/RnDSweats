@@ -4,7 +4,7 @@
 # Description: Lightweight file integrity monitor for web directories.
 #              Runs as a systemd service, logs changes to syslog and local log.
 #              Supplements Wazuh FIM with immediate local alerting.
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #
@@ -289,9 +289,9 @@ do_install() {
 
     cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=Web File Integrity Monitor - CCDC
+Description=Web File Integrity Monitor
 After=network.target
-Documentation=CCDC Development Toolkit
+Documentation=Security Development Toolkit
 
 [Service]
 Type=simple

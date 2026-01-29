@@ -3,7 +3,7 @@
 # Script Name: systemBaseline.sh
 # Description: Captures system state to numbered snapshots and shows diff from
 #              previous run to identify changes (useful for detecting compromise)
-# Author: CCDC Team
+# Author: Security Team
 # Date: 2025-2026
 # Version: 1.0
 #
