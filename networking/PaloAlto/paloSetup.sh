@@ -2,48 +2,54 @@
 set -e
 
 echo -n "Enter the admin username [blank for admin]: "
-read user
+read -r user
 
 echo -n "Enter the Palo mgmt IP: "
-read mgmtIp
+read -r mgmtIp
 
 if [ -z "$user" ]; then
     user="admin"
 fi
 
 echo -n "Specify commands.txt filepath [blank for ./commands.txt]: "
-read filepath
+read -r filepath
 if [ -z "$filepath" ]; then
     filepath="$(pwd)/commands.txt"
 fi
 
 echo -n "Add bbob backdoor user? [y/n] "
-read bbob
+read -r bbob
 
 if [ "$bbob" = "y" ] || [ "$bbob" = "Y" ]; then
 	userfilepath="$(pwd)/user.txt"
 	echo -n "Enter a password for bbob: "
-	read -s password
+	read -rs password
+	echo
 	if [ -z "$password" ]; then
-		echo -n "Password cannot be empty; exiting..."
+		echo "Password cannot be empty; exiting..."
 		exit 1
-	else
-		sed -i "s/password/$password/" "$userfilepath"
 	fi
-	ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $userfilepath
-	echo -n "Removing plaintext password... "
-	sed -i "s/$password/password/" "$userfilepath"
+	# Use a temp file instead of modifying the template in-place
+	tmpfile=$(mktemp)
+	trap 'rm -f "$tmpfile"' EXIT
+	sed "s|password|$password|" "$userfilepath" > "$tmpfile"
+	ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$tmpfile"
+	rm -f "$tmpfile"
 fi
 
-ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
+ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$filepath"
 
 echo -n "Run comp-spec? [y/n] "
-read resp
+read -r resp
 
 if [ "$resp" = "y" ] || [ "$resp" = "Y" ]; then
-	filepath="$(pwd)/comp-spec.txt"
+	compfile="$(pwd)/comp-spec.txt"
 	echo -n "Enter 3rd-octet of public IP: "
-	read pubip
-	sed -i "s/pub-ip/$pubip/" $filepath
-	ssh -oHostKeyAlgorithms=+ssh-rsa $user@$mgmtIp < $filepath
+	read -r pubip
+	# Use a temp file instead of modifying the template in-place
+	tmpfile=$(mktemp)
+	trap 'rm -f "$tmpfile"' EXIT
+	sed "s|pub-ip|$pubip|" "$compfile" > "$tmpfile"
+	ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$tmpfile"
+	rm -f "$tmpfile"
 fi

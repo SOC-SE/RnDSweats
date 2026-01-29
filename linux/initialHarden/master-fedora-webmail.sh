@@ -122,14 +122,7 @@ if systemctl is-active --quiet dovecot 2>/dev/null; then
     DOVECOT_ACTIVE=true
 fi
 
-# Use Fedora-specific mail hardener if it exists, otherwise use general one
-if [[ -f "$LINUXDEV/mail_hardener_fedora.sh" ]]; then
-    run_script "$LINUXDEV/mail_hardener_fedora.sh" "Fedora Mail Hardening"
-elif [[ -f "$LINUXDEV/mail_hardener.sh" ]]; then
-    run_script "$LINUXDEV/mail_hardener.sh" "Mail Server Hardening"
-else
-    warn "No mail hardening script found"
-fi
+run_script "$LINUXDEV/mail_hardener.sh" "Mail Server Hardening"
 
 # ============================================================================
 # PHASE 4: FIREWALL CONFIGURATION

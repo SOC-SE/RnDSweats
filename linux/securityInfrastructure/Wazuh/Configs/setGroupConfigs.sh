@@ -28,6 +28,9 @@ set -euo pipefail
 # ==============================================================================
 
 # --- Configuration Variables ---
+# Resolve script directory so config files are found regardless of CWD
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Define groups and their local configuration files in a list (Group:File).
 # Add more entries here to configure additional groups.
 GROUPS=(
@@ -69,11 +72,12 @@ configure_wazuh_group() {
 
     log_info "--- Starting Configuration for Group: '${GROUP_NAME}' (Using ${LOCAL_CONF_FILE}) ---"
 
-    # 1. Verify Local Configuration File Exists
+    # 1. Verify Local Configuration File Exists (resolve relative to script directory)
+    LOCAL_CONF_FILE="${SCRIPT_DIR}/${LOCAL_CONF_FILE}"
     log_info "Looking for configuration file: '${LOCAL_CONF_FILE}'..."
     if [ ! -f "${LOCAL_CONF_FILE}" ]; then
-        log_error "Configuration file not found. Make sure '${LOCAL_CONF_FILE}' is in the same directory as this script. Cannot proceed with group '${GROUP_NAME}'."
-        # Note: log_error exits the script entirely if the file for a critical group is missing.
+        echo "[WARN] Configuration file not found: '${LOCAL_CONF_FILE}'. Skipping group '${GROUP_NAME}'." >&2
+        return 1
     fi
     log_success "Local configuration file found."
 

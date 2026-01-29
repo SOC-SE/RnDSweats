@@ -347,9 +347,16 @@ install_fail2ban() {
 
     IGNORE_IP="127.0.0.1/8 ::1"
 
+    # Write DEFAULT section with ignoreip so all jails inherit it
+    cat <<EOF > $JAIL_FILE
+[DEFAULT]
+ignoreip = $IGNORE_IP
+
+EOF
+
     # If using log files
     if [ "$SSH_LOG" != "systemd" ]; then
-        cat <<EOF > $JAIL_FILE
+        cat <<EOF >> $JAIL_FILE
 [sshd]
 enabled = true
 port    = ssh
@@ -358,11 +365,10 @@ logpath = $SSH_LOG
 maxretry = 3
 findtime = 600
 bantime  = 86400
-ignoreip = $IGNORE_IP
 EOF
     else
         # If using systemd backend (modern/arch)
-        cat <<EOF > $JAIL_FILE
+        cat <<EOF >> $JAIL_FILE
 [sshd]
 enabled = true
 port    = ssh
@@ -371,7 +377,6 @@ backend = systemd
 maxretry = 3
 findtime = 600
 bantime  = 86400
-ignoreip = $IGNORE_IP
 EOF
     fi
 
@@ -448,104 +453,6 @@ install_all_services() {
     echo ""
     echo "=== Active Jails ==="
     fail2ban-client status 2>/dev/null || echo "Could not get status"
-}
-
-unblock_ip() {
-    # Get list of active jails
-    local jails
-    jails=$(fail2ban-client status 2>/dev/null | grep "Jail list:" | sed 's/.*Jail list:\s*//' | tr ',' '\n' | tr -d ' ')
-
-    if [ -z "$jails" ]; then
-        echo "No active jails found."
-        return
-    fi
-
-    echo "Active jails:"
-    local i=1
-    local jail_array=()
-    for jail in $jails; do
-        echo "  $i. $jail"
-        jail_array+=("$jail")
-        ((i++))
-    done
-    echo "  $i. All jails"
-
-    read -r -p "Select jail (number): " JAIL_NUM
-    read -r -p "Enter IP to unblock: " UNBAN_IP
-
-    if [[ -z "$UNBAN_IP" ]]; then
-        echo "Invalid IP"
-        return
-    fi
-
-    if [[ "$JAIL_NUM" -eq "$i" ]]; then
-        # Unban from all jails
-        for jail in "${jail_array[@]}"; do
-            fail2ban-client set "$jail" unbanip "$UNBAN_IP" 2>/dev/null && \
-                echo "Unbanned $UNBAN_IP from $jail" || true
-        done
-    elif [[ "$JAIL_NUM" -ge 1 && "$JAIL_NUM" -lt "$i" ]]; then
-        local selected_jail="${jail_array[$((JAIL_NUM-1))]}"
-        fail2ban-client set "$selected_jail" unbanip "$UNBAN_IP"
-        echo "Unban command sent for $UNBAN_IP in $selected_jail"
-    else
-        echo "Invalid selection"
-    fi
-}
-
-view_status() {
-    echo "--- Fail2Ban SSHD Status ---"
-    fail2ban-client status sshd 2>/dev/null || echo "Fail2Ban not running."
-    echo ""
-    echo "--- Currently Banned IPs ---"
-    # Extract IPs from status command
-    fail2ban-client status sshd 2>/dev/null | grep "Banned IP list:"
-}
-
-view_all_status() {
-    echo "=== Fail2Ban Status - All Jails ==="
-    echo ""
-
-    # Get list of active jails
-    local jails
-    jails=$(fail2ban-client status 2>/dev/null | grep "Jail list:" | sed 's/.*Jail list:\s*//' | tr ',' '\n' | tr -d ' ')
-
-    if [ -z "$jails" ]; then
-        echo "No active jails found. Fail2Ban may not be running."
-        fail2ban-client status 2>/dev/null || true
-        return
-    fi
-
-    echo "Active jails:"
-    echo "$jails" | tr '\n' ', '
-    echo ""
-    echo ""
-
-    # Show status for each jail
-    for jail in $jails; do
-        echo "--- $jail ---"
-        fail2ban-client status "$jail" 2>/dev/null | grep -E "(Currently banned|Total banned|Banned IP list)" || echo "  No data"
-        echo ""
-    done
-}
-
-disable_ssh() {
-    echo -e "\033[1;31m[!!!] WARNING: THIS WILL STOP THE SSH SERVICE [!!!]\033[0m"
-    echo "If you are connected via SSH, you will be disconnected immediately."
-    read -r -p "Are you sure you want to proceed? (type 'yes'): " CONFIRM
-    
-    if [ "$CONFIRM" == "yes" ]; then
-        echo "Stopping SSH Service..."
-        if command -v systemctl &> /dev/null; then
-            systemctl stop sshd 2>/dev/null || systemctl stop ssh
-            systemctl disable sshd 2>/dev/null || systemctl disable ssh
-        else
-            service ssh stop
-        fi
-        echo "SSH Service Stopped."
-    else
-        echo "Aborted."
-    fi
 }
 
 check_root

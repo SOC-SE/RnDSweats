@@ -214,7 +214,7 @@ iptables -A FORWARD -j REJECT --reject-with icmp-port-unreachable
 # Save rules
 netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables.rules
 
-log "Firewall configured: SSH(22), HTTP(80), MySQL(3306 localhost), Salt(4505-4506), Wazuh(1514-1515), Splunk(9997)"
+log "Firewall configured: HTTP(80), MySQL(3306 localhost), Salt(4505-4506), Wazuh(1514-1515), Splunk(9997)"
 
 # ============================================================================
 # PHASE 6: SYSTEM BACKUPS

@@ -14,8 +14,9 @@
 REPO_URL="https://github.com/neo23x0/signature-base.git"
 CLONE_DIR="/tmp/signature-base"
 YARA_RULES_SRC_DIR="${CLONE_DIR}/yara"
-# Output file in the current directory
-MASTER_RULES_FILE="./master_community_rules.yar"
+# Output to standard location so scanners can find it
+YARA_INSTALL_DIR="/etc/yara"
+MASTER_RULES_FILE="${YARA_INSTALL_DIR}/master_community_rules.yar"
 LOG_FILE="/var/log/community_yara_builder.log"
 
 # --- Functions ---
@@ -37,15 +38,15 @@ check_root() {
 # Function to check for dependencies
 check_deps() {
     local missing_deps=0
-    # Dependencies needed: git, find, xargs, cat, yara, jq
-    for cmd in git find xargs cat yara jq; do
+    # Dependencies needed: git, find, xargs, cat, yara
+    for cmd in git find xargs cat yara; do
         if ! command -v "$cmd" &> /dev/null; then
             log "ERROR: Dependency '$cmd' not found."
             missing_deps=1
         fi
     done
     if [[ $missing_deps -eq 1 ]]; then
-        log "Please install the missing dependencies (git, findutils, coreutils, yara, jq) and run the script again."
+        log "Please install the missing dependencies (git, findutils, coreutils, yara) and run the script again."
         exit 1
     fi
     log "All dependencies are satisfied."
@@ -53,27 +54,26 @@ check_deps() {
 
 # Function to install dependencies (Yara & jq)
 install_deps() {
-    log "Installing dependencies (Yara & jq)..."
+    log "Installing dependencies (Yara)..."
     if command -v apt-get &> /dev/null; then
         echo "Debian/Ubuntu based system detected. Using apt-get..."
         apt-get update -y > /dev/null 2>&1
-        apt-get install yara jq -y
-        
+        apt-get install yara -y
+
     elif command -v dnf &> /dev/null; then
         echo "RHEL/Fedora based system detected. Using dnf..."
-        dnf install yara jq -y
-        
+        dnf install yara -y
+
     elif command -v yum &> /dev/null; then
         echo "RHEL/CentOS based system detected. Using yum..."
-        # JQ might be in EPEL repository for older CentOS
         if ! rpm -q epel-release > /dev/null 2>&1; then
-            log "  - Installing EPEL repository for JQ..."
+            log "  - Installing EPEL repository..."
             yum install epel-release -y
         fi
-        yum install yara jq -y
-        
+        yum install yara -y
+
     else
-        log "Unsupported package manager. Please install Yara and JQ manually."
+        log "Unsupported package manager. Please install Yara manually."
         exit 1
     fi
     log "Dependencies installed successfully."
@@ -151,6 +151,9 @@ remove_problematic_rules() {
 build_master_rule_file() {
     log "Finding and concatenating all remaining .yar/.yara files..."
     
+    # Ensure output directory exists
+    mkdir -p "$YARA_INSTALL_DIR"
+
     # Clear the old file before appending
     rm -f "$MASTER_RULES_FILE"
     touch "$MASTER_RULES_FILE"
@@ -170,6 +173,17 @@ build_master_rule_file() {
 
     # Set standard permissions
     chmod 644 "$MASTER_RULES_FILE"
+
+    # Verify the master file compiles without errors
+    log "Verifying YARA rules compile cleanly..."
+    if yara -C "$MASTER_RULES_FILE" /dev/null 2>/dev/null; then
+        log "YARA compilation test passed."
+    else
+        log "WARNING: YARA compilation errors detected. Attempting to identify broken rules..."
+        # Try to find the offending rule by testing line ranges
+        # For now, warn but don't fail — partial rules are better than none
+        log "Run 'yara -C $MASTER_RULES_FILE /dev/null' manually to see errors."
+    fi
 
     log "Master rule file created successfully at ${MASTER_RULES_FILE}."
 }

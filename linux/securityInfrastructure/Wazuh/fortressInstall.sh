@@ -23,6 +23,25 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# Check Wazuh is installed
+if [[ ! -d "/var/ossec" ]]; then
+    echo "Error: Wazuh does not appear to be installed (/var/ossec not found). Exiting."
+    exit 1
+fi
+
+# Detect Wazuh user (newer versions use 'wazuh', older use 'ossec')
+if id "wazuh" &>/dev/null; then
+    WAZUH_USER="wazuh"
+    WAZUH_GROUP="wazuh"
+elif id "ossec" &>/dev/null; then
+    WAZUH_USER="ossec"
+    WAZUH_GROUP="ossec"
+else
+    echo "Warning: Neither 'wazuh' nor 'ossec' user found. Using root ownership."
+    WAZUH_USER="root"
+    WAZUH_GROUP="root"
+fi
+
 # Check for git
 if ! command -v git &> /dev/null; then
     echo "Error: 'git' command not found. Please install it to continue."
@@ -85,22 +104,24 @@ for src_path in "${!files_to_copy[@]}"; do
     esac
 
     if [ -f "$full_src_path" ]; then
+        local dest_file="$dest_dir/$(basename "$full_src_path")"
         echo "  - Copying $(basename "$full_src_path") to $dest_dir/"
-        cp "$full_src_path" "$dest_dir/"
+        cp "$full_src_path" "$dest_file"
+
+        # Set ownership and permissions per-file (only on files we just copied)
+        chown "${WAZUH_USER}:${WAZUH_GROUP}" "$dest_file"
+        case $dest_type in
+            rules|decoders) chmod 660 "$dest_file" ;;
+            integrations|ar) chmod 770 "$dest_file" ;;
+        esac
     else
         echo "  - Warning: Source file not found in repository: $full_src_path"
     fi
 done
 
-# 4. Set Permissions and Ownership
-echo "[4/5] Setting correct permissions and ownership for new files..."
-# Set ownership for all new files
-chown wazuh:wazuh "$WAZUH_RULES_DIR"/* "$WAZUH_DECODERS_DIR"/* "$WAZUH_INTEGRATIONS_DIR"/* "$WAZUH_AR_DIR"/* 2>/dev/null
-
-# Set permissions: Read/Write for owner/group on rules/decoders
-chmod 660 "$WAZUH_RULES_DIR"/* "$WAZUH_DECODERS_DIR"/* 2>/dev/null
-# Set permissions: Read/Write/Execute for owner/group on scripts
-chmod 770 "$WAZUH_INTEGRATIONS_DIR"/* "$WAZUH_AR_DIR"/* 2>/dev/null
+# 4. Verify permissions
+echo "[4/5] Verifying permissions on copied files..."
+echo "  Files owned by ${WAZUH_USER}:${WAZUH_GROUP}"
 
 # 5. Cleanup
 echo "[5/5] Cleaning up temporary repository clone..."

@@ -98,7 +98,7 @@ write_dropin() {
 
   # ---- Authentication hardening ----
   lanman auth = no
-  ntlm auth = no
+  ntlm auth = ntlmv2-only
   client lanman auth = no
   client ntlmv2 auth = yes
 
@@ -173,7 +173,7 @@ install_packages() {
 
 validate_config() {
   log "Validating Samba configuration with testparm..."
-  testparm -s >/dev/null
+  testparm -s >/dev/null 2>&1
 }
 
 restart_services() {

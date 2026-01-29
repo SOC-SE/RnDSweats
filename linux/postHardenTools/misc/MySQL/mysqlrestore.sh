@@ -54,6 +54,16 @@ fi
 
 echo "Starting restoration process..."
 
+# Create a safety backup before destroying anything
+SAFETY_BACKUP="/var/backups/mysql/pre_restore_$(date +%F_%H-%M-%S).sql.gz"
+mkdir -p /var/backups/mysql
+echo "Creating safety backup before restore: $SAFETY_BACKUP"
+if mysqldump --defaults-extra-file="$CNF_FILE" --all-databases --single-transaction 2>/dev/null | gzip > "$SAFETY_BACKUP"; then
+    echo "Safety backup created: $SAFETY_BACKUP ($(du -h "$SAFETY_BACKUP" | cut -f1))"
+else
+    echo "WARNING: Safety backup failed. Proceeding anyway since you confirmed."
+fi
+
 echo "Dropping existing user databases to ensure a clean slate..."
 
 # Get list of user databases (excluding system databases)

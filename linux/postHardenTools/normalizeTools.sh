@@ -196,9 +196,13 @@ fi
 
 if command_exists pip3; then
     log "Installing Volatility3 via pip..."
-    pip3 install volatility3 2>/dev/null || warn "Volatility3 pip install failed (non-fatal)"
+    pip3 install --break-system-packages volatility3 2>/dev/null || \
+        pip3 install volatility3 2>/dev/null || \
+        warn "Volatility3 pip install failed (non-fatal)"
 elif command_exists pip; then
-    pip install volatility3 2>/dev/null || warn "Volatility3 pip install failed (non-fatal)"
+    pip install --break-system-packages volatility3 2>/dev/null || \
+        pip install volatility3 2>/dev/null || \
+        warn "Volatility3 pip install failed (non-fatal)"
 else
     warn "pip not available, skipping Volatility3"
 fi
@@ -236,10 +240,13 @@ else
         apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
         apt-get install -y ca-certificates curl gnupg
         install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        # Use distro ID (ubuntu or debian) for correct Docker repo
+        local docker_distro="$DISTRO_ID"
+        [[ "$docker_distro" == "debian" || "$docker_distro" == "ubuntu" ]] || docker_distro="ubuntu"
+        curl -fsSL "https://download.docker.com/linux/${docker_distro}/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
         echo \
-          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${docker_distro} \
           $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
           tee /etc/apt/sources.list.d/docker.list > /dev/null
         apt-get update -y
@@ -334,7 +341,7 @@ else
 fi
 
 if [[ -f "$YARA_SCRIPT" ]]; then
-    echo "YARA:    Community rules built from Tools/Yara/yaraConfigure.sh"
+    echo "YARA:    Community rules built from postHardenTools/dependencies/yaraConfigure.sh"
 else
     echo "YARA:    Installed without community rules (script not found)"
 fi

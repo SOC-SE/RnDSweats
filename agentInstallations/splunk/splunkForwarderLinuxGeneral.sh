@@ -32,6 +32,9 @@ INDEXER_IP=${1:-$DEFAULT_INDEXER_IP}
 ADMIN_USERNAME=${2:-$DEFAULT_ADMIN_USERNAME}
 ADMIN_PASSWORD=${3:-}
 
+# Ensure terminal echo is restored on exit/interrupt
+trap 'stty echo 2>/dev/null; exit' INT TERM
+
 # Prompt for password if not provided via CLI argument
 if [[ -z "$ADMIN_PASSWORD" ]]; then
     echo "Enter password for Splunk admin user:"
@@ -194,17 +197,18 @@ install_splunk() {
   local retry_count=0
   local download_success=false
 
-  echo "${BLUE}Downloading Splunk Forwarder tarball...${NC}"
+  local download_path="/tmp/$SPLUNK_PACKAGE_TGZ"
+  echo "${BLUE}Downloading Splunk Forwarder tarball to $download_path...${NC}"
 
   while [ $retry_count -lt $max_retries ] && [ $download_success = false ]; do
     local status=0
     if [ $retry_count -eq 0 ]; then
       # First attempt: Try with certificate verification
-      wget -O "$SPLUNK_PACKAGE_TGZ" "$SPLUNK_DOWNLOAD_URL" || status=$?
+      wget -O "$download_path" "$SPLUNK_DOWNLOAD_URL" || status=$?
     else
       # Subsequent attempts: Try without certificate verification
       echo "${YELLOW}Certificate verification failed, attempting download without certificate check...${NC}"
-      wget --no-check-certificate -O "$SPLUNK_PACKAGE_TGZ" "$SPLUNK_DOWNLOAD_URL" || status=$?
+      wget --no-check-certificate -O "$download_path" "$SPLUNK_DOWNLOAD_URL" || status=$?
     fi
 
     if [ $status -eq 0 ]; then
@@ -222,8 +226,8 @@ install_splunk() {
   fi
 
   echo "${BLUE}Extracting Splunk Forwarder tarball...${NC}"
-  sudo tar -xvzf "$SPLUNK_PACKAGE_TGZ" -C /opt
-  rm -f "$SPLUNK_PACKAGE_TGZ"
+  sudo tar -xvzf "$download_path" -C /opt
+  rm -f "$download_path"
 
   echo "${BLUE}Setting permissions...${NC}"
   create_splunk_user
@@ -608,7 +612,8 @@ set_admin_credentials
 if [ -d "$INSTALL_DIR/bin" ]; then
   echo "${BLUE}Starting and enabling Splunk Universal Forwarder service...${NC}"
   sudo "$INSTALL_DIR/bin/splunk" start --accept-license --answer-yes --no-prompt
-  sudo "$INSTALL_DIR/bin/splunk" enable boot-start
+  # boot-start may warn/fail if systemd unit already exists — don't let set -e kill the script
+  sudo "$INSTALL_DIR/bin/splunk" enable boot-start || echo "${YELLOW}boot-start returned non-zero (service file may already exist). Continuing...${NC}"
 
   # Add monitors
   setup_monitors

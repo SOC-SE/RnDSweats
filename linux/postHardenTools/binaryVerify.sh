@@ -161,8 +161,9 @@ verify_rpm() {
 
     # rpm -V returns:
     # S.5....T.  /path/to/file
-    # Where 5 means MD5 checksum mismatch, S means size changed
-    results=$(rpm -V $packages 2>/dev/null | grep -E "^..5|^S" || true)
+    # Where 5 means MD5 checksum mismatch — the strongest indicator of tampering
+    # Filter out config files (lines ending with 'c /path') as those change legitimately
+    results=$(rpm -V $packages 2>/dev/null | grep -E "^..5" | grep -v " c /" || true)
     echo "$results"
 }
 
@@ -302,10 +303,10 @@ fi
 if [[ -n "$results" ]]; then
     alert "MODIFIED BINARIES DETECTED!"
     echo ""
-    echo "$results" | while IFS= read -r line; do
+    while IFS= read -r line; do
         echo -e "${RED}  [MODIFIED]${NC} $line"
         ((MODIFIED_COUNT++))
-    done
+    done <<< "$results"
     echo ""
 
     # Extract list of modified files for reporting
@@ -367,7 +368,11 @@ if [[ -n "$results" ]]; then
         echo ""
 
         # Re-verify
-        results=$(verify_dpkg "$PACKAGES_TO_CHECK" 2>/dev/null || verify_rpm "$PACKAGES_TO_CHECK" 2>/dev/null)
+        if [[ "$PKG_MANAGER" == "dpkg" ]]; then
+            results=$(verify_dpkg "$PACKAGES_TO_CHECK")
+        else
+            results=$(verify_rpm "$PACKAGES_TO_CHECK")
+        fi
         if [[ -z "$results" ]]; then
             echo -e "${GREEN}All binaries now verified successfully!${NC}"
         else

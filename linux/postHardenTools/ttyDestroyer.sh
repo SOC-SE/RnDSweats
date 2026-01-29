@@ -17,7 +17,7 @@ check_user_sessions() {
     # Find all sessions for this user
     # We filter out the ADMIN_SESSION to ensure we never kill the script's own terminal
     local ALLSESS
-    ALLSESS=$(w -h "$TARGET_USER" | grep "^$TARGET_USER" | grep -v "$ADMIN_SESSION" | tr -s " " | cut -d" " -f2)
+    ALLSESS=$(w -h "$TARGET_USER" | grep "^$TARGET_USER" | tr -s " " | cut -d" " -f2 | grep -vxF "$ADMIN_SESSION")
     
     # If sessions exist
     if [[ -n "$ALLSESS" ]]; then
@@ -25,7 +25,7 @@ check_user_sessions() {
         printf "\e[33mActive sessions for user: %s\e[0m\n" "$TARGET_USER"
         
         # Display detailed session info
-        w "$TARGET_USER" | grep "^$TARGET_USER" | grep -v "$ADMIN_SESSION" | column -t
+        w "$TARGET_USER" | grep "^$TARGET_USER" | grep -vF " ${ADMIN_SESSION} " | column -t
         echo "------------------------------------------------------------------"
         
         # Interactive Prompt

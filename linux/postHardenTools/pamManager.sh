@@ -151,7 +151,8 @@ backup_pam_configs() {
     cp -a /etc/pam.conf "$BACKUP_DIR/" 2>/dev/null || true
     mkdir -p "$BACKUP_DIR/modules"
     find /lib /lib64 /usr/lib /usr/lib64 -name "pam_*.so" -exec cp {} "$BACKUP_DIR/modules/" \; 2>/dev/null
-    chmod -R 600 "$BACKUP_DIR"
+    find "$BACKUP_DIR" -type f -exec chmod 600 {} +
+    find "$BACKUP_DIR" -type d -exec chmod 700 {} +
     log "Backup complete: $BACKUP_DIR"
 }
 
@@ -382,11 +383,10 @@ run_audit() {
     for dir in /lib/x86_64-linux-gnu/security /lib64/security /usr/lib64/security /usr/lib/x86_64-linux-gnu/security; do
         if [[ -d "$dir" ]]; then
             recent=$(find "$dir" -name "pam_*.so" -mtime -1 2>/dev/null)
-            [[ -n "$recent" ]] && warn "Recently modified PAM modules (last 24h): $recent"
+            [[ -n "$recent" ]] && warn "Recently modified PAM modules in $dir (last 24h): $recent"
 
             writable=$(find "$dir" -name "pam_*.so" -perm -002 2>/dev/null)
-            [[ -n "$writable" ]] && critical "World-writable PAM modules: $writable"
-            break
+            [[ -n "$writable" ]] && critical "World-writable PAM modules in $dir: $writable"
         fi
     done
     ok "Module integrity check complete"

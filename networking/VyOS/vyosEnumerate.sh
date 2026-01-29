@@ -24,5 +24,5 @@ echo -e '\n+------+USERS/SESSIONS+------+\n' >> vyosConfig.txt
 run show users >> vyosConfig.txt
 echo -e '\n+------+------+------+\n' >> vyosConfig.txt
 
-exit
 echo -e 'Configuration details found in ./vyosConfig.txt'
+exit

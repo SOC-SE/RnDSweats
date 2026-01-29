@@ -181,8 +181,8 @@ do_check() {
     if [[ -n "$common_files" ]]; then
         while IFS= read -r file; do
             local old_hash new_hash
-            old_hash=$(grep -F " $file" "$BASELINE_FILE" 2>/dev/null | awk '{print $1}' | head -1)
-            new_hash=$(grep -F " $file" "$current_file" 2>/dev/null | awk '{print $1}' | head -1)
+            old_hash=$(grep -F " ${file}" "$BASELINE_FILE" 2>/dev/null | awk -v f="$file" '$2 == f {print $1; exit}')
+            new_hash=$(grep -F " ${file}" "$current_file" 2>/dev/null | awk -v f="$file" '$2 == f {print $1; exit}')
             if [[ "$old_hash" != "$new_hash" && -n "$old_hash" && -n "$new_hash" ]]; then
                 log_msg "CRIT" "FILE MODIFIED: $file (old=$old_hash new=$new_hash)"
                 echo -e "${RED}[MODIFIED]${NC} $file"

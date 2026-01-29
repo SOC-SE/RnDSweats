@@ -387,9 +387,9 @@ log "Creating backup manifest..."
     find "$OUTPUT_DIR" -type f | sort
 } > "$OUTPUT_DIR/MANIFEST.txt"
 
-# Set secure permissions
-chmod -R 600 "$OUTPUT_DIR"
-chmod 700 "$OUTPUT_DIR"
+# Set secure permissions (dirs need execute to be traversable)
+find "$OUTPUT_DIR" -type f -exec chmod 600 {} +
+find "$OUTPUT_DIR" -type d -exec chmod 700 {} +
 
 # ==============================================================================
 # COMPRESSION AND ENCRYPTION

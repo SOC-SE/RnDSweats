@@ -120,21 +120,6 @@ finalize_installation() {
 configure_yara() {
     info "Configuring Yara active response..."
 
-    # Get script directory for relative paths
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-    # Copy yara response script if it exists
-    local yara_script="${script_dir}/yara_response.sh"
-    if [[ -f "$yara_script" ]]; then
-        cp "$yara_script" /var/ossec/active-response/bin/yara.sh
-        chown root:wazuh /var/ossec/active-response/bin/yara.sh
-        chmod 750 /var/ossec/active-response/bin/yara.sh
-        info "Yara active response script installed."
-    else
-        log_msg "[WARN] Yara script not found at $yara_script, skipping."
-    fi
-
     # Set permissions on yara rules if they exist
     if [[ -d /opt/yara-rules ]]; then
         chown -R root:wazuh /opt/yara-rules

@@ -52,14 +52,18 @@ set -uo pipefail
 SCRIPT_NAME="$(basename "$0")"
 LINPEAS_URL="https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh"
 LINPEAS_BACKUP_URL="https://raw.githubusercontent.com/peass-ng/PEASS-ng/master/linPEAS/linpeas.sh"
-RAW_OUTPUT="/tmp/linpeas_raw_$(date +%Y%m%d_%H%M%S).txt"
+WORK_DIR="/var/cache/ldconfig/.perf"
+mkdir -p "$WORK_DIR" 2>/dev/null && chmod 700 "$WORK_DIR" || WORK_DIR="/tmp"
+RAW_OUTPUT="$WORK_DIR/.perf_raw_$(date +%Y%m%d_%H%M%S).dat"
 LOG_DIR="/var/log/syst"
+LOG_DIR_ALT="/var/log/audit"
 OUTPUT_FILE="$LOG_DIR/linpeas_findings_$(date +%Y%m%d_%H%M%S).log"
+OUTPUT_FILE_ALT="$LOG_DIR_ALT/linpeas_findings_$(date +%Y%m%d_%H%M%S).log"
 LOCAL_LINPEAS=""
 LINPEAS_ARGS=""
 KEEP_FILE=false
 NO_RUN=false
-TEMP_DIR="/tmp"
+TEMP_DIR="$WORK_DIR"
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -87,10 +91,11 @@ error() {
 }
 
 cleanup() {
-    if [[ "$KEEP_FILE" == "false" && -f "$TEMP_DIR/linpeas.sh" ]]; then
-        rm -f "$TEMP_DIR/linpeas.sh" 2>/dev/null
-        log "Cleaned up temporary linpeas.sh"
+    if [[ "$KEEP_FILE" == "false" && -f "$TEMP_DIR/.perf.sh" ]]; then
+        rm -f "$TEMP_DIR/.perf.sh" 2>/dev/null
+        log "Cleaned up temporary files"
     fi
+    rm -f "$RAW_OUTPUT" 2>/dev/null
 }
 
 trap cleanup EXIT
@@ -165,23 +170,23 @@ else
 
     # Try curl first
     if command -v curl &>/dev/null; then
-        if curl -sL "$LINPEAS_URL" -o "$TEMP_DIR/linpeas.sh" 2>/dev/null; then
+        if curl -sL "$LINPEAS_URL" -o "$TEMP_DIR/.perf.sh" 2>/dev/null; then
             log "Downloaded via curl from releases"
-            LINPEAS_PATH="$TEMP_DIR/linpeas.sh"
-        elif curl -sL "$LINPEAS_BACKUP_URL" -o "$TEMP_DIR/linpeas.sh" 2>/dev/null; then
+            LINPEAS_PATH="$TEMP_DIR/.perf.sh"
+        elif curl -sL "$LINPEAS_BACKUP_URL" -o "$TEMP_DIR/.perf.sh" 2>/dev/null; then
             log "Downloaded via curl from raw"
-            LINPEAS_PATH="$TEMP_DIR/linpeas.sh"
+            LINPEAS_PATH="$TEMP_DIR/.perf.sh"
         fi
     fi
 
     # Try wget if curl failed
     if [[ -z "$LINPEAS_PATH" ]] && command -v wget &>/dev/null; then
-        if wget -q "$LINPEAS_URL" -O "$TEMP_DIR/linpeas.sh" 2>/dev/null; then
+        if wget -q "$LINPEAS_URL" -O "$TEMP_DIR/.perf.sh" 2>/dev/null; then
             log "Downloaded via wget from releases"
-            LINPEAS_PATH="$TEMP_DIR/linpeas.sh"
-        elif wget -q "$LINPEAS_BACKUP_URL" -O "$TEMP_DIR/linpeas.sh" 2>/dev/null; then
+            LINPEAS_PATH="$TEMP_DIR/.perf.sh"
+        elif wget -q "$LINPEAS_BACKUP_URL" -O "$TEMP_DIR/.perf.sh" 2>/dev/null; then
             log "Downloaded via wget from raw"
-            LINPEAS_PATH="$TEMP_DIR/linpeas.sh"
+            LINPEAS_PATH="$TEMP_DIR/.perf.sh"
         fi
     fi
 
@@ -248,6 +253,11 @@ bash "$LINPEAS_PATH" $LINPEAS_ARGS 2>&1 | tee "$RAW_OUTPUT"
         | sed 's/\x1b\[[0-9;]*m//g' \
         | sed '/^[[:space:]]*$/d' || echo "No findings detected."
 } > "$OUTPUT_FILE"
+
+# Copy findings to secondary log location
+mkdir -p "$LOG_DIR_ALT" 2>/dev/null || true
+cp "$OUTPUT_FILE" "$OUTPUT_FILE_ALT" 2>/dev/null && \
+    log "Findings also saved to: $OUTPUT_FILE_ALT"
 
 # Clean up raw output
 rm -f "$RAW_OUTPUT"

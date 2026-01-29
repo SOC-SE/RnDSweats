@@ -31,8 +31,6 @@ echo "Starting robust, Wazuh-compatible auditd setup..."
 echo "----------------------------------------"
 echo "STEP 1: Installing auditd package..."
 if command -v apt-get &> /dev/null; then
-if command -v apt-get &> /dev/null; then
-if command -v apt-get &> /dev/null; then
     apt-get update -y > /dev/null 2>&1
     apt-get install auditd audispd-plugins -y
     

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# OpenCart Hardening & Management Script (Ubuntu) - Created with Copilot AI
+# OpenCart Hardening & Management Script (Ubuntu)
 #
 # DESCRIPTION:
 #   This script manages and hardens an OpenCart installation and its dependent services
@@ -162,7 +162,7 @@ detect_php() {
         PHP_VERSION_DETECTED="$(php -r 'echo PHP_VERSION;' 2>/dev/null || echo "")"
     fi
 
-    if systemctl is-active --quiet php*-fpm 2>/dev/null; then
+    if systemctl list-units --type=service --state=running --no-legend 2>/dev/null | grep -q 'php.*fpm'; then
         PHP_SAPI="fpm"
     elif [[ "$WEB_SERVER" == "apache" ]] && apache2ctl -M 2>/dev/null | grep -qi "php"; then
         PHP_SAPI="apache2"
@@ -222,7 +222,7 @@ create_backup() {
     if [[ "$DB_SERVER" != "unknown" ]]; then
         log_info "Backing up database '${OPENCART_DB_NAME}'..."
         if command -v mysqldump >/dev/null 2>&1; then
-            mysqldump "${OPENCART_DB_NAME}" > "${backup_dir}/db_${OPENCART_DB_NAME}.sql" || log_warn "Failed to dump DB ${OPENCART_DB_NAME}."
+            mysqldump --defaults-file=/dev/null -u root "${OPENCART_DB_NAME}" > "${backup_dir}/db_${OPENCART_DB_NAME}.sql" || log_warn "Failed to dump DB ${OPENCART_DB_NAME}."
         else
             log_warn "mysqldump not found, skipping DB backup."
         fi
@@ -257,30 +257,6 @@ list_backups() {
 #######################################
 # HARDENING FUNCTIONS
 #######################################
-
-harden_os() {
-    log_info "OS-level hardening (minimal, non-destructive)..."
-    # Example: ensure ufw installed, but only enable with confirmation
-    if ! command -v ufw >/dev/null 2>&1; then
-        if confirm "Install ufw (firewall)?"; then
-            apt-get update
-            apt-get install -y ufw
-        fi
-    fi
-
-    if command -v ufw >/dev/null 2>&1; then
-        if ! ufw status | grep -q "Status: active"; then
-            log_warn "ufw is currently disabled."
-            if confirm "Enable ufw and allow SSH, HTTP, HTTPS?"; then
-                ufw allow OpenSSH || true
-                ufw allow 80/tcp || true
-                ufw allow 443/tcp || true
-                ufw --force enable
-                log_success "ufw enabled with basic rules."
-            fi
-        fi
-    fi
-}
 
 harden_apache() {
     log_info "Applying Apache hardening..."
@@ -415,8 +391,10 @@ harden_php() {
     done
 
     # Reload PHP services
-    if systemctl list-units | grep -q "php.*fpm.service"; then
-        systemctl restart php*-fpm || true
+    local php_fpm_unit
+    php_fpm_unit=$(systemctl list-units --type=service --state=running --no-legend 2>/dev/null | grep -oP 'php[\d.]+-fpm\.service' | head -1)
+    if [[ -n "$php_fpm_unit" ]]; then
+        systemctl restart "$php_fpm_unit" || true
     fi
     if [[ "$WEB_SERVER" == "apache" ]]; then
         systemctl reload apache2 || true
@@ -498,8 +476,6 @@ run_hardening() {
     detect_web_server
     detect_db_server
     detect_php
-
-    harden_os
 
     case "$WEB_SERVER" in
         apache) harden_apache ;;

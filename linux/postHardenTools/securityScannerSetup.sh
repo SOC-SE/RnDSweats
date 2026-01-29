@@ -229,14 +229,8 @@ if [[ "$MODE" == "scan" ]]; then
 
     if command -v clamscan &>/dev/null; then
         log "Running ClamAV scan on key directories..."
-        for dir in $SCAN_DIRS; do
-            if [[ -d "$dir" ]]; then
-                echo "--- Scanning $dir ---" >> "$REPORT_FILE"
-                clamscan -r --no-summary --infected "$dir" 2>/dev/null >> "$REPORT_FILE" || true
-            fi
-        done
-        echo "--- ClamAV Summary ---" >> "$REPORT_FILE"
-        clamscan -r $SCAN_DIRS 2>/dev/null | tail -10 | tee -a "$REPORT_FILE"
+        echo "--- ClamAV Results ---" >> "$REPORT_FILE"
+        clamscan -r --infected $SCAN_DIRS 2>/dev/null | tee -a "$REPORT_FILE"
         log "ClamAV scan complete"
     else
         warn "clamscan not available"
@@ -252,8 +246,7 @@ if [[ "$MODE" == "scan" ]]; then
         YARA_RULES=""
         for rules_dir in /etc/yara /opt/yara-rules /usr/share/yara; do
             if [[ -d "$rules_dir" ]]; then
-                YARA_RULES=$(find "$rules_dir" -name "*.yar" -o -name "*.yara" 2>/dev/null | head -20)
-                break
+                YARA_RULES="$YARA_RULES $(find "$rules_dir" -name "*.yar" -o -name "*.yara" 2>/dev/null | head -20)"
             fi
         done
 
@@ -467,8 +460,8 @@ if [[ "$MODE" == "cron" ]]; then
     CRON_FILE="/etc/cron.d/maldet_scheduled_scan"
 
     cat > "$CRON_FILE" << EOF
-# LMD scheduled scan - runs every $CRON_INTERVAL minutes
-*/$CRON_INTERVAL * * * * root /usr/local/sbin/maldet -b -a ${SCAN_PATH_STRING} > /dev/null 2>&1
+# LMD scheduled scan - runs every $CRON_INTERVAL minutes (flock prevents stacking)
+*/$CRON_INTERVAL * * * * root /usr/bin/flock -xn /tmp/maldet.lock /usr/local/sbin/maldet -b -a ${SCAN_PATH_STRING} > /dev/null 2>&1
 EOF
 
     chmod 0644 "$CRON_FILE"

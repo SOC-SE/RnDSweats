@@ -191,9 +191,11 @@ suricata-update || exit_with_error "Failed to update Suricata rules."
 if [ "$RULE_MODE" == "2" ]; then
     RULES_FILE="/var/lib/suricata/rules/suricata.rules"
     if [ -f "$RULES_FILE" ]; then
+        ALERT_COUNT=$(grep -c '^alert' "$RULES_FILE" || true)
+        print_warning "This will convert $ALERT_COUNT alert rules to drop. Overly broad rules may block legitimate traffic."
         echo "Converting all 'alert' rules to 'drop'..."
         sed -i 's/^alert/drop/' "$RULES_FILE"
-        echo -e "${GREEN}All rules converted to drop.${NC}"
+        echo -e "${GREEN}$ALERT_COUNT rules converted to drop.${NC}"
     else
         print_warning "Rules file not found at $RULES_FILE. Skipping alert-to-drop conversion."
     fi
@@ -283,12 +285,17 @@ echo -e "${GREEN}Configuration and rules validated successfully.${NC}"
 
 print_header "Step 6: Applying Firewall Rules and Starting Suricata"
 
-# Function to clean up iptables rules on failure
+# Function to clean up ONLY Suricata NFQUEUE rules on failure (preserves existing firewall rules)
 cleanup_on_failure() {
     echo " "
-    echo -e "${RED}An error occurred. Rolling back firewall rules to restore connectivity...${NC}"
-    iptables -F
-    echo "iptables rules flushed. Network should be restored."
+    echo -e "${RED}An error occurred. Rolling back Suricata NFQUEUE rules only...${NC}"
+    iptables -D INPUT -j NFQUEUE --queue-num 0 --queue-bypass 2>/dev/null || true
+    iptables -D OUTPUT -j NFQUEUE --queue-num 0 --queue-bypass 2>/dev/null || true
+    iptables -D INPUT -j NFQUEUE --queue-num 0 2>/dev/null || true
+    iptables -D OUTPUT -j NFQUEUE --queue-num 0 2>/dev/null || true
+    iptables -D FORWARD -j NFQUEUE --queue-num 0 2>/dev/null || true
+    iptables -D FORWARD -j NFQUEUE --queue-num 0 --queue-bypass 2>/dev/null || true
+    echo "Suricata NFQUEUE rules removed. Existing firewall rules preserved."
 }
 
 # Trap errors to call the cleanup function
@@ -313,23 +320,23 @@ case "$OS_FAMILY" in
         ;;
 esac
 
-# Flush any existing rules to be safe
-iptables -F
+# Remove any existing Suricata NFQUEUE rules before adding new ones (idempotent)
+echo "Cleaning any previous Suricata NFQUEUE rules..."
+iptables -D INPUT -j NFQUEUE --queue-num 0 --queue-bypass 2>/dev/null || true
+iptables -D OUTPUT -j NFQUEUE --queue-num 0 --queue-bypass 2>/dev/null || true
+iptables -D INPUT -j NFQUEUE --queue-num 0 2>/dev/null || true
+iptables -D OUTPUT -j NFQUEUE --queue-num 0 2>/dev/null || true
+iptables -D FORWARD -j NFQUEUE --queue-num 0 2>/dev/null || true
+iptables -D FORWARD -j NFQUEUE --queue-num 0 --queue-bypass 2>/dev/null || true
 
-# Add bypass rules for stability
-iptables -I INPUT 1 -i lo -j ACCEPT
-iptables -I OUTPUT 1 -o lo -j ACCEPT
-iptables -I INPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-iptables -I OUTPUT 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-# Send traffic to NFQUEUE for Suricata
+# Append NFQUEUE rules to existing firewall (preserves all hardening rules)
 if [ "$FW_MODE" == "2" ]; then
-    echo "Applying NFQUEUE rules with --queue-bypass (fail-open)..."
+    echo "Appending NFQUEUE rules with --queue-bypass (fail-open)..."
     iptables -A INPUT -j NFQUEUE --queue-num 0 --queue-bypass
     iptables -A OUTPUT -j NFQUEUE --queue-num 0 --queue-bypass
-    iptables -A FORWARD -j NFQUEUE --queue-num 0
+    iptables -A FORWARD -j NFQUEUE --queue-num 0 --queue-bypass
 else
-    echo "Applying NFQUEUE rules without bypass (fail-closed)..."
+    echo "Appending NFQUEUE rules without bypass (fail-closed)..."
     iptables -A INPUT -j NFQUEUE --queue-num 0
     iptables -A OUTPUT -j NFQUEUE --queue-num 0
     iptables -A FORWARD -j NFQUEUE --queue-num 0
@@ -345,7 +352,7 @@ case "$OS_FAMILY" in
         iptables-save > /etc/sysconfig/iptables
         ;;
 esac
-echo "iptables rules added and made persistent."
+echo "NFQUEUE rules appended and all rules made persistent."
 
 # --- Service Start ---
 # Stop any running instance and clean up the old PID file

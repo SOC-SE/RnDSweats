@@ -1,18 +1,20 @@
 #!/bin/bash
 # =============================================================================
-# UNIVERSAL SENTINEL FIREWALL 
+# UNIVERSAL SENTINEL FIREWALL
 # Logic: Category Drill-Down | Strict In/Out | Anti-C2 | Failsafe
 # =============================================================================
+set -uo pipefail
 
 # --- GLOBAL VARS ---
-declare -a IN_TCP
-declare -a IN_UDP
-declare -a OUT_TCP
-declare -a OUT_UDP
+declare -a IN_TCP=()
+declare -a IN_UDP=()
+declare -a OUT_TCP=()
+declare -a OUT_UDP=()
 
 IS_K8S=false
 IS_DOCKER=false
 MOD_FTP=false
+PERSIST=false
 LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/firewall.log"
 FAILSAFE_DELAY=60
@@ -75,7 +77,7 @@ detect_orchestration() {
 interactive_menu() {
     clear
     echo "=== UNIVERSAL FIREWALL GENERATOR =="
-    
+
     # 1. ESSENTIALS (Top Level - High Priority)
     echo "--- ESSENTIALS ---"
     read -p "1. Allow SSH (Inbound 22)? [Y/n]: " ans
@@ -133,7 +135,7 @@ interactive_menu() {
         [[ "$sub" =~ ^[Yy]$ ]] && { IN_TCP+=("9200" "9300" "5601" "5044" "514"); IN_UDP+=("514"); }
         read -p "   > Elastic AGENT (Out: 8220/9200)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("8220" "9200")
-        
+
         # SALT
         read -p "   > Salt MASTER (In: 4505-4506, 8881, 3000)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("4505" "4506" "8881" "3000")
@@ -145,7 +147,7 @@ interactive_menu() {
         [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("8000" "8001" "8003")
         read -p "   > Velociraptor AGENT (Out: 8001)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && OUT_TCP+=("8001")
-        
+
         # PALO ALTO
         read -p "   > Palo Alto Mgmt (In: 443/22)? [y/N]: " sub
         [[ "$sub" =~ ^[Yy]$ ]] && IN_TCP+=("443" "22")
@@ -155,7 +157,7 @@ interactive_menu() {
     echo -e "\n--- MISC ---"
     read -p "8. Minecraft Server (In: 25565)? [y/N]: " ans
     [[ "$ans" =~ ^[Yy]$ ]] && { IN_TCP+=("25565"); IN_UDP+=("25565"); }
-    
+
     read -p "9. Kubernetes Node (Force Enable)? [y/N]: " ans
     if [[ "$ans" =~ ^[Yy]$ ]]; then
         IS_K8S=true
@@ -169,8 +171,7 @@ interactive_menu() {
 }
 
 parse_args() {
-    # Argument parsing
-    while [ "$1" != "" ]; do
+    while [[ $# -gt 0 ]]; do
         case $1 in
             -h | --help )       usage ;;
             --ssh )             IN_TCP+=("22") ;;
@@ -193,7 +194,7 @@ parse_args() {
             --wazuh-srv )       IN_TCP+=("1514" "1515" "55000" "443") ;;
             --wazuh-agt )       OUT_TCP+=("1514" "1515") ;;
             --elk )             IN_TCP+=("9200" "9300" "5601" "5044" "514"); IN_UDP+=("514") ;;
-            --elk-agt )         OUT_TCP+=("8220" "9200") ;; 
+            --elk-agt )         OUT_TCP+=("8220" "9200") ;;
             --velo-srv )        IN_TCP+=("8000" "8001" "8003") ;;
             --velo-agt )        OUT_TCP+=("8001") ;;
             --salt-master )     IN_TCP+=("4505" "4506" "8881" "3000" "8001") ;;
@@ -204,6 +205,7 @@ parse_args() {
             --persist )         PERSIST=true ;;
             --custom-in )       shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do IN_TCP+=("$i"); done ;;
             --custom-out )      shift; IFS=',' read -ra ADDR <<< "$1"; for i in "${ADDR[@]}"; do OUT_TCP+=("$i"); done ;;
+            *)                  echo "[-] Unknown option: $1"; usage ;;
         esac
         shift
     done
@@ -233,12 +235,12 @@ confirm_failsafe() {
 
 apply_rules() {
     echo "[*] Applying Rules..."
-    
-    if [ "$MOD_FTP" = true ]; then 
+
+    if [ "$MOD_FTP" = true ]; then
         modprobe nf_conntrack_ftp 2>/dev/null || echo "    > Warning: Could not load FTP conntrack."
     fi
 
-    # 1. ACCEPT POLICY (Safety)
+    # 1. ACCEPT POLICY (Safety — ensures connectivity during rule setup)
     iptables -P INPUT ACCEPT
     iptables -P FORWARD ACCEPT
     iptables -P OUTPUT ACCEPT
@@ -250,15 +252,17 @@ apply_rules() {
         iptables -F; iptables -X
     fi
 
-    # 3. BASELINE
+    # 3. BASELINE — Loopback, established connections
     iptables -A INPUT -i lo -j ACCEPT
     iptables -A OUTPUT -o lo -j ACCEPT
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+    # 3a. ICMP — Always allowed (CCDC requirement: must respond to ping)
     iptables -A INPUT -p icmp -j ACCEPT
     iptables -A OUTPUT -p icmp -j ACCEPT
 
-    # 3b. ANTI-RECONNAISSANCE - Bad TCP Flag Combinations
+    # 3b. ANTI-RECONNAISSANCE — Bad TCP Flag Combinations
     # Drop packets with invalid flag combinations (used for OS fingerprinting/scanning)
     iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP                    # NULL scan
     iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP                     # XMAS scan
@@ -268,7 +272,16 @@ apply_rules() {
     iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP            # SYN+FIN
     iptables -A INPUT -p tcp --tcp-flags FIN,RST FIN,RST -j DROP            # FIN+RST
 
-    # Drop fragmented packets (often used to bypass firewalls)
+    # 3c. DROP INVALID STATE — catches mangled/out-of-sequence packets
+    iptables -A INPUT -m conntrack --ctstate INVALID -j DROP
+    iptables -A OUTPUT -m conntrack --ctstate INVALID -j DROP
+
+    # 3d. ANTI-PORT-SCAN — SYN flood protection via rate limiting
+    # Limits new TCP connections to 25/sec with a burst of 50 (allows legitimate bursts)
+    iptables -A INPUT -p tcp --syn -m limit --limit 25/sec --limit-burst 50 -j ACCEPT
+    iptables -A INPUT -p tcp --syn -j DROP
+
+    # 3e. DROP FRAGMENTED PACKETS (often used to bypass firewalls/IDS)
     iptables -A INPUT -f -j LOG --log-prefix "FW-FRAG: " --log-level 4
     iptables -A INPUT -f -j DROP
 
@@ -285,20 +298,34 @@ apply_rules() {
     fi
 
     # 5. INBOUND RULES
-    IFS=" " read -r -a U_IN_TCP <<< "$(echo "${IN_TCP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-    IFS=" " read -r -a U_IN_UDP <<< "$(echo "${IN_UDP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-    
-    for port in "${U_IN_TCP[@]}"; do [ ! -z "$port" ] && iptables -A INPUT -p tcp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
-    for port in "${U_IN_UDP[@]}"; do [ ! -z "$port" ] && iptables -A INPUT -p udp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
+    if [[ ${#IN_TCP[@]} -gt 0 ]]; then
+        IFS=" " read -r -a U_IN_TCP <<< "$(printf '%s\n' "${IN_TCP[@]}" | sort -u | tr '\n' ' ')"
+        for port in "${U_IN_TCP[@]}"; do
+            [[ -n "$port" ]] && iptables -A INPUT -p tcp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT
+        done
+    fi
+    if [[ ${#IN_UDP[@]} -gt 0 ]]; then
+        IFS=" " read -r -a U_IN_UDP <<< "$(printf '%s\n' "${IN_UDP[@]}" | sort -u | tr '\n' ' ')"
+        for port in "${U_IN_UDP[@]}"; do
+            [[ -n "$port" ]] && iptables -A INPUT -p udp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT
+        done
+    fi
 
     # 6. OUTBOUND RULES
-    IFS=" " read -r -a U_OUT_TCP <<< "$(echo "${OUT_TCP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-    IFS=" " read -r -a U_OUT_UDP <<< "$(echo "${OUT_UDP[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+    if [[ ${#OUT_TCP[@]} -gt 0 ]]; then
+        IFS=" " read -r -a U_OUT_TCP <<< "$(printf '%s\n' "${OUT_TCP[@]}" | sort -u | tr '\n' ' ')"
+        for port in "${U_OUT_TCP[@]}"; do
+            [[ -n "$port" ]] && iptables -A OUTPUT -p tcp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT
+        done
+    fi
+    if [[ ${#OUT_UDP[@]} -gt 0 ]]; then
+        IFS=" " read -r -a U_OUT_UDP <<< "$(printf '%s\n' "${OUT_UDP[@]}" | sort -u | tr '\n' ' ')"
+        for port in "${U_OUT_UDP[@]}"; do
+            [[ -n "$port" ]] && iptables -A OUTPUT -p udp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT
+        done
+    fi
 
-    for port in "${U_OUT_TCP[@]}"; do [ ! -z "$port" ] && iptables -A OUTPUT -p tcp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
-    for port in "${U_OUT_UDP[@]}"; do [ ! -z "$port" ] && iptables -A OUTPUT -p udp --dport $port -m conntrack --ctstate NEW -j ACCEPT; done
-
-    # 7. LOGGING
+    # 7. LOGGING — rate-limited to prevent log flooding
     iptables -A INPUT -m limit --limit 2/sec -j LOG --log-prefix "FW-DROP-IN: " --log-level 4
     iptables -A OUTPUT -m limit --limit 2/sec -j LOG --log-prefix "FW-DROP-OUT: " --log-level 4
 
@@ -310,7 +337,7 @@ apply_rules() {
         echo "    > K8s Detected: Defaulting OUTPUT to ACCEPT."
         iptables -P OUTPUT ACCEPT
     fi
-    
+
     if [ "$IS_DOCKER" = false ] && [ "$IS_K8S" = false ]; then
         iptables -P FORWARD DROP
     fi
@@ -337,7 +364,7 @@ start_failsafe
 apply_rules
 confirm_failsafe
 
-if ps -p $FAILSAFE_PID > /dev/null; then
+if ps -p $FAILSAFE_PID > /dev/null 2>&1; then
    kill $FAILSAFE_PID 2>/dev/null
    save_persistence
    echo -e "\n[+] FIREWALL SECURED (IN & OUT)."

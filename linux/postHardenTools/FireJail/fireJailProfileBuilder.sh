@@ -36,6 +36,18 @@ log_step() {
     echo -e "\n${CYAN}--- $1 ---${NC}"
 }
 
+# Cleanup function to kill background firejail process on exit
+FJ_PID=""
+cleanup_fj() {
+    if [[ -n "$FJ_PID" ]] && kill -0 "$FJ_PID" 2>/dev/null; then
+        log_warning "Cleaning up firejail process (PID: $FJ_PID)..."
+        kill -TERM "$FJ_PID" 2>/dev/null || true
+        sleep 1
+        kill -KILL "$FJ_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup_fj EXIT
+
 # --- Root User Check (Modified for Safety) ---
 if [ "$(id -u)" -eq 0 ]; then
     echo -e "${RED}====================================================================${NC}"
@@ -101,10 +113,16 @@ FJ_PID=$!
 # Wait for the user to finish their interaction
 read -r -p "Tracing is active. Press [Enter] when you are done interacting with the application..."
 
-# Stop the tracing process
+# Stop the tracing process gracefully, then force if needed
 log_message "Stopping the trace and killing the application process (PID: $FJ_PID)..."
-kill -SIGINT "$FJ_PID"
-sleep 2 # Wait a moment to ensure the process is terminated and the file is written
+kill -TERM "$FJ_PID" 2>/dev/null || true
+sleep 2
+# Force kill if still running
+if kill -0 "$FJ_PID" 2>/dev/null; then
+    log_warning "Process still running, sending SIGKILL..."
+    kill -KILL "$FJ_PID" 2>/dev/null || true
+    sleep 1
+fi
 
 if [ ! -f "$TEMP_PROFILE_PATH" ]; then
     log_warning "Profile generation failed. The file '$TEMP_PROFILE_PATH' was not created."

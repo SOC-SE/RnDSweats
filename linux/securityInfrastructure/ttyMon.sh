@@ -72,7 +72,8 @@ do_install() {
 
     echo -e "${GREEN}[INFO]${NC} Installing ttymon service..."
 
-    # Create log file
+    # Create log directory and file
+    mkdir -p "$(dirname "$LOG_FILE")"
     touch "$LOG_FILE"
     chmod 600 "$LOG_FILE"
 

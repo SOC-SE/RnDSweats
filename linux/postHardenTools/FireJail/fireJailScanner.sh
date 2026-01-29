@@ -20,7 +20,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # CRITICAL EXCLUSIONS
-EXCLUDED_SERVICES=("sshd" "ssh" "docker" "fail2ban" "rsyslog" "NetworkManager" "vmtoolsd" "qemu-guest-agent" "systemd-journald")
+EXCLUDED_SERVICES=("sshd" "ssh" "docker" "fail2ban" "rsyslog" "NetworkManager" "vmtoolsd" "qemu-guest-agent" "systemd-journald" "systemd-logind" "systemd-resolved" "systemd-networkd" "systemd-timesyncd" "systemd-udevd" "systemd-oomd" "systemd-homed" "systemd-userdbd" "dbus" "dbus-broker" "polkit" "auditd")
 
 log_message() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
