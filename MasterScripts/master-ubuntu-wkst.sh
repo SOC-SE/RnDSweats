@@ -96,39 +96,69 @@ run_script "$LINUXDEV/generalLinuxHarden.sh" "General Linux Hardening"
 # PHASE 3: FIREWALL CONFIGURATION
 # ============================================================================
 phase "PHASE 3: FIREWALL CONFIGURATION"
-log "Configuring restrictive firewall for workstation..."
+log "Configuring iptables firewall for workstation..."
 
-# Very restrictive - workstation doesn't need to accept connections
-iptables -F INPUT
+# Disable firewalld if present, use iptables only
+if command -v firewall-cmd &>/dev/null; then
+    systemctl stop firewalld 2>/dev/null || true
+    systemctl disable firewalld 2>/dev/null || true
+fi
+
+# Install iptables persistence
+DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent 2>/dev/null || true
+
+# Flush existing rules
+iptables -F
+iptables -X
+iptables -Z
+
+# Default policies (safety net behind explicit REJECT rules)
 iptables -P INPUT DROP
 iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT
+iptables -P OUTPUT DROP
 
+# Loopback
 iptables -A INPUT -i lo -j ACCEPT
-iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -o lo -j ACCEPT
 
-# Anti-recon
+# Established/related connections
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# ICMP (all - required by CCDC rules)
+iptables -A INPUT -p icmp -j ACCEPT
+iptables -A OUTPUT -p icmp -j ACCEPT
+
+# Anti-recon: Bad TCP flags
 iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
 iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
 iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
 iptables -A INPUT -f -j DROP
 
-# ICMP (limited)
-iptables -A INPUT -p icmp --icmp-type echo-request -m limit --limit 1/s -j ACCEPT
+# --- Outbound: DNS, HTTP, HTTPS (for updates/tooling) ---
+iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 
-# SSH only (for admin access)
-iptables -A INPUT -p tcp --dport 22 -m conntrack --ctstate NEW -m limit --limit 3/min -j ACCEPT
+# --- Inbound: None (workstation) ---
+# No inbound services
 
-# Log drops
-iptables -A INPUT -j LOG --log-prefix "FW-DROP: " --log-level 4
+# --- Logging for all dropped/rejected packets ---
+iptables -A INPUT -j LOG --log-prefix "IPT-INPUT-REJECT: " --log-level 4
+iptables -A OUTPUT -j LOG --log-prefix "IPT-OUTPUT-REJECT: " --log-level 4
+iptables -A FORWARD -j LOG --log-prefix "IPT-FORWARD-REJECT: " --log-level 4
 
-if command -v netfilter-persistent &>/dev/null; then
-    netfilter-persistent save
-else
-    iptables-save > /etc/iptables.rules
-fi
+# --- Default REJECT ---
+iptables -A INPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A FORWARD -j REJECT --reject-with icmp-port-unreachable
 
-log "Firewall configured: SSH(22) only"
+# Save rules
+netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables.rules
+
+log "Firewall configured: no inbound services (workstation)"
 
 # ============================================================================
 # PHASE 4: SYSTEM BACKUPS

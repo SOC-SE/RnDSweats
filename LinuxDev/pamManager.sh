@@ -74,6 +74,9 @@ KNOWN_MODULES=(
     "pam_fprintd.so" "pam_google_authenticator.so" "pam_u2f.so"
     "pam_yubico.so" "pam_ecryptfs.so" "pam_gdm.so" "pam_apparmor.so"
     "pam_passwdqc.so" "pam_pwhistory.so" "pam_tmpdir.so"
+    "pam_selinux_permit.so" "pam_console.so" "pam_postgresok.so"
+    "pam_cockpit_cert.so" "pam_sshauth.so" "pam_oddjob_mkhomedir.so"
+    "pam_reauthorize.so" "pam_cifscreds.so" "pam_script.so"
 )
 
 # Files where nullok is EXPECTED on many distributions

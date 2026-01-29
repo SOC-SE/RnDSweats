@@ -3,23 +3,29 @@
 # Script Name: master-splunk-server.sh
 # Description: Master hardening script for Splunk/SIEM Server
 #              This is the CRITICAL infrastructure box - handles with care
-# Target: Oracle Linux 9.2 - Splunk Server (also hosts SaltGUI, Wazuh, DNS)
+#              Backs up + reinstalls Splunk fresh, hardens OS, configures firewall
+# Target: Oracle Linux 9.2 / Rocky Linux 9 - Splunk Server
+#         (also hosts SaltGUI, Wazuh, Technitium DNS)
 # Author: CCDC Team
 # Date: 2025-2026
-# Version: 1.0
+# Version: 2.0
 #
 # Workflow:
-#   1. Initial enumeration (masterEnum.sh)
-#   2. Splunk-specific hardening (masterHardenSplunk.sh)
-#   3. Minimal general hardening (avoid breaking Splunk)
-#   4. Firewall configuration (service-specific rules)
-#   5. System backups (systemBackups.sh)
-#   6. Post-hardening enumeration (masterEnum.sh)
+#   1. Initial enumeration
+#   2. Credential setup
+#   3. Splunk backup, nuke, fresh install, restore licenses
+#   4. Splunk configuration (listeners, props.conf, MongoDB)
+#   5. OS hardening (banners, cron, SSH removal, user restrictions)
+#   6. Disable/remove cockpit and firewalld
+#   7. Strict iptables firewall
+#   8. Kernel hardening (sysctl)
+#   9. PAM audit
+#   10. System backups + baseline
+#   11. Post-hardening enumeration
 #
-# Services Protected: Splunk (8000, 8089, 9997), SSH (22)
-# Future Services: SaltGUI, Wazuh Server, DNS
-#
-# WARNING: This is a critical infrastructure box. Be careful with hardening!
+# Services Protected: Splunk (8000, 9997), Syslog (514),
+#                     Wazuh (1514, 1515, 55000), Salt (4505, 4506, 8881, 3000),
+#                     DNS (53, 5380)
 #
 # Usage:
 #   ./master-splunk-server.sh
@@ -37,6 +43,16 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_DIR="/var/log/syst"
 LOG_FILE="$LOG_DIR/master-splunk-server_$TIMESTAMP.log"
 
+# Splunk configuration
+SPLUNK_VERSION="10.0.2"
+SPLUNK_BUILD="e2d18b4767e9"
+SPLUNK_HOME="/opt/splunk"
+SPLUNK_PKG="splunk-${SPLUNK_VERSION}-${SPLUNK_BUILD}.x86_64.rpm"
+SPLUNK_URL="https://download.splunk.com/products/splunk/releases/${SPLUNK_VERSION}/linux/${SPLUNK_PKG}"
+SPLUNK_USERNAME="admin"
+
+BACKUP_DIR="/etc/BacService"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -50,11 +66,31 @@ warn() { echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$LOG_FILE"; }
 error() { echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"; }
 phase() { echo -e "\n${CYAN}========== $1 ==========${NC}" | tee -a "$LOG_FILE"; }
 
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        error "This script must be run as root"
-        exit 1
-    fi
+# Global variable to hold prompted password (avoids eval)
+_PROMPTED_PASS=""
+
+prompt_password() {
+    local user_label=$1
+    _PROMPTED_PASS=""
+    while true; do
+        echo -n "Enter new password for $user_label: "
+        stty -echo
+        read -r pass1
+        stty echo
+        echo
+        echo -n "Confirm new password for $user_label: "
+        stty -echo
+        read -r pass2
+        stty echo
+        echo
+
+        if [ "$pass1" == "$pass2" ] && [ -n "$pass1" ]; then
+            _PROMPTED_PASS="$pass1"
+            break
+        else
+            echo "Passwords do not match or are empty. Please try again."
+        fi
+    done
 }
 
 run_script() {
@@ -71,13 +107,20 @@ run_script() {
     fi
 }
 
-# --- Main ---
-check_root
+# --- Pre-checks ---
+if [[ $EUID -ne 0 ]]; then
+    echo -e "${RED}[ERROR]${NC} This script must be run as root"
+    exit 1
+fi
+
 mkdir -p "$LOG_DIR"
+
+# Redirect output to log
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "========================================================"
 echo "  SPLUNK/SIEM SERVER - MASTER HARDENING SCRIPT"
-echo "  Target: Oracle Linux 9.2 with Splunk"
+echo "  Target: Oracle Linux 9.2 / Rocky Linux 9"
 echo "  Time: $(date)"
 echo "  WARNING: Critical infrastructure - proceed carefully!"
 echo "========================================================"
@@ -96,44 +139,294 @@ if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
 fi
 
 # ============================================================================
-# PHASE 2: SPLUNK-SPECIFIC HARDENING
+# PHASE 2: CREDENTIAL SETUP
 # ============================================================================
-phase "PHASE 2: SPLUNK-SPECIFIC HARDENING"
+phase "PHASE 2: CREDENTIAL SETUP"
+log "Setting up credentials for system and Splunk..."
 
-# Check if Splunk is running
-if pgrep -f splunkd &>/dev/null; then
-    log "Splunk daemon detected"
+prompt_password "Root"
+ROOT_PASS="$_PROMPTED_PASS"
+
+prompt_password "Bbob (backup user)"
+BBOB_PASS="$_PROMPTED_PASS"
+
+prompt_password "Splunk Admin"
+SPLUNK_PASSWORD="$_PROMPTED_PASS"
+
+prompt_password "sysadmin"
+SYSADMIN_PASS="$_PROMPTED_PASS"
+
+echo "root:$ROOT_PASS" | chpasswd
+echo "sysadmin:$SYSADMIN_PASS" | chpasswd
+log "Changed root and sysadmin passwords"
+
+# Create backup user 'bbob'
+if ! id "bbob" &>/dev/null; then
+    log "Creating backup user bbob..."
+    useradd bbob
+    echo "bbob:$BBOB_PASS" | chpasswd
+    usermod -aG wheel bbob
 else
-    warn "Splunk not detected - may need to start it first"
+    log "Updating bbob password..."
+    echo "bbob:$BBOB_PASS" | chpasswd
 fi
 
-# Run Splunk hardening script
-if [[ -f "$TOOLS/Splunk/masterHardenSplunk.sh" ]]; then
-    run_script "$TOOLS/Splunk/masterHardenSplunk.sh" "Splunk Hardening"
-else
-    warn "masterHardenSplunk.sh not found"
-    log "Applying manual Splunk hardening..."
+# ============================================================================
+# PHASE 3: SPLUNK BACKUP, NUKE, REINSTALL
+# ============================================================================
+phase "PHASE 3: SPLUNK BACKUP, NUKE & REINSTALL"
+log "This removes red team persistence from the original Splunk installation."
 
-    # Basic Splunk hardening if script not found
-    SPLUNK_HOME="${SPLUNK_HOME:-/opt/splunk}"
-
-    if [[ -d "$SPLUNK_HOME" ]]; then
-        # Secure file permissions
-        chmod 700 "$SPLUNK_HOME/etc"
-        chmod 600 "$SPLUNK_HOME/etc/passwd" 2>/dev/null || true
-
-        log "Basic Splunk permissions secured"
+# Backup original Splunk and licenses, then nuke
+if [ -d "$SPLUNK_HOME" ]; then
+    log "Found existing Splunk. Backing up licenses..."
+    mkdir -p "$BACKUP_DIR/licenses"
+    if [ -d "$SPLUNK_HOME/etc/licenses" ]; then
+        cp -R "$SPLUNK_HOME/etc/licenses/." "$BACKUP_DIR/licenses/"
     fi
+
+    log "Backing up base Splunk installation..."
+    mkdir -p "$BACKUP_DIR/splunkORIGINAL"
+    cp -R "$SPLUNK_HOME" "$BACKUP_DIR/splunkORIGINAL"
+
+    log "Stopping and removing old Splunk..."
+    $SPLUNK_HOME/bin/splunk stop 2>/dev/null || true
+    pkill -f splunkd || true
+    rm -rf "$SPLUNK_HOME"
+
+    log "Removing Splunk package..."
+    dnf remove -y splunk 2>/dev/null || rpm -e splunk 2>/dev/null || true
 fi
 
-# ============================================================================
-# PHASE 3: MINIMAL GENERAL HARDENING
-# ============================================================================
-phase "PHASE 3: MINIMAL GENERAL HARDENING (Splunk-Safe)"
-log "Applying minimal hardening to avoid breaking Splunk..."
+# Download fresh Splunk
+if [ ! -f "$SPLUNK_PKG" ]; then
+    log "Downloading Splunk $SPLUNK_VERSION..."
+    wget -q -O "$SPLUNK_PKG" "$SPLUNK_URL"
+fi
 
-# Kernel hardening via sysctl (safe for Splunk)
-log "Applying kernel sysctl hardening..."
+log "Installing fresh Splunk $SPLUNK_VERSION..."
+dnf install -y "$SPLUNK_PKG" 2>/dev/null || rpm -i "$SPLUNK_PKG" 2>/dev/null
+
+# Create admin user via seed
+mkdir -p "$SPLUNK_HOME/etc/system/local"
+cat > "$SPLUNK_HOME/etc/system/local/user-seed.conf" <<EOF
+[user_info]
+USERNAME = $SPLUNK_USERNAME
+PASSWORD = $SPLUNK_PASSWORD
+EOF
+chown -R splunk:splunk "$SPLUNK_HOME/etc/system/local"
+
+# Restore licenses from backup
+if [ -d "$BACKUP_DIR/licenses" ] && [ "$(ls -A "$BACKUP_DIR/licenses" 2>/dev/null)" ]; then
+    log "Restoring licenses..."
+    mkdir -p "$SPLUNK_HOME/etc/licenses"
+    cp -r "$BACKUP_DIR/licenses/." "$SPLUNK_HOME/etc/licenses/"
+    chown -R splunk:splunk "$SPLUNK_HOME/etc/licenses"
+fi
+
+# First start (accept license)
+log "Initializing Splunk (first start)..."
+$SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
+
+# ============================================================================
+# PHASE 4: SPLUNK CONFIGURATION
+# ============================================================================
+phase "PHASE 4: SPLUNK CONFIGURATION"
+
+# Lock down MongoDB to localhost
+log "Locking down MongoDB..."
+sed -i '$a [kvstore]\nbind_ip = 127.0.0.1' "$SPLUNK_HOME/etc/system/local/server.conf"
+
+# Configure inputs (syslog on 514)
+log "Configuring inputs.conf..."
+cat > "$SPLUNK_HOME/etc/system/local/inputs.conf" << EOF
+[default]
+host = $(hostname)
+
+[tcp://514]
+sourcetype = syslog
+index = main
+disabled = 0
+EOF
+
+# Move custom props.conf if it exists
+# Check multiple locations since script may run from /tmp or from repo
+PROPS_CONF=""
+for props_path in "$TOOLS/Splunk/props.conf" "$SCRIPT_DIR/props.conf" "$SCRIPT_DIR/../Tools/Splunk/props.conf" "/tmp/props.conf"; do
+    if [[ -f "$props_path" ]]; then
+        PROPS_CONF="$props_path"
+        break
+    fi
+done
+
+if [[ -n "$PROPS_CONF" ]]; then
+    log "Installing custom props.conf from $PROPS_CONF..."
+    cp "$PROPS_CONF" "$SPLUNK_HOME/etc/system/local/"
+    chown splunk:splunk "$SPLUNK_HOME/etc/system/local/props.conf"
+else
+    warn "props.conf not found. Checked: $TOOLS/Splunk/, $SCRIPT_DIR/, /tmp/"
+fi
+
+# Restart Splunk with new config
+log "Starting hardened Splunk..."
+$SPLUNK_HOME/bin/splunk start
+$SPLUNK_HOME/bin/splunk enable boot-start
+
+# Enable 9997 listener via CLI
+log "Enabling 9997 forwarder listener..."
+$SPLUNK_HOME/bin/splunk enable listen 9997 -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
+
+log "Splunk reinstallation and configuration complete."
+
+# ============================================================================
+# PHASE 5: OS HARDENING
+# ============================================================================
+phase "PHASE 5: OS HARDENING"
+
+# Legal banners
+log "Setting legal banners..."
+cat > /etc/issue << EOF
+UNAUTHORIZED ACCESS PROHIBITED. VIOLATORS WILL BE PROSECUTED TO THE FULLEST EXTENT OF THE LAW.
+EOF
+cp /etc/issue /etc/motd
+
+# Cron lockdown
+log "Clearing cron jobs and locking down..."
+echo "" > /etc/crontab
+rm -f /var/spool/cron/*
+
+touch /etc/cron.allow
+chmod 600 /etc/cron.allow
+awk -F: '{print $1}' /etc/passwd | grep -v root > /etc/cron.deny
+
+touch /etc/at.allow
+chmod 600 /etc/at.allow
+awk -F: '{print $1}' /etc/passwd | grep -v root > /etc/at.deny
+
+# SSH removal
+log "Removing SSH server..."
+dnf remove -y openssh-server 2>/dev/null || yum remove -y openssh-server 2>/dev/null || true
+find / -name "authorized_keys" -type f -delete 2>/dev/null || true
+
+# Restrict user creation tools
+log "Restricting user creation tools..."
+chmod 700 /usr/sbin/useradd
+chmod 700 /usr/sbin/groupadd
+
+# Disable and remove cockpit
+log "Disabling and removing cockpit..."
+systemctl stop cockpit.socket cockpit.service 2>/dev/null || true
+systemctl disable cockpit.socket cockpit.service 2>/dev/null || true
+dnf remove -y cockpit cockpit-ws cockpit-bridge cockpit-system 2>/dev/null || \
+    yum remove -y cockpit cockpit-ws cockpit-bridge cockpit-system 2>/dev/null || true
+
+# Disable and remove firewalld (iptables only)
+log "Disabling and removing firewalld..."
+systemctl stop firewalld 2>/dev/null || true
+systemctl disable firewalld 2>/dev/null || true
+dnf remove -y firewalld 2>/dev/null || yum remove -y firewalld 2>/dev/null || true
+
+# ============================================================================
+# PHASE 6: IPTABLES FIREWALL
+# ============================================================================
+phase "PHASE 6: IPTABLES FIREWALL"
+log "Configuring strict iptables firewall..."
+
+# Install iptables services
+dnf install -y iptables-services 2>/dev/null || yum install -y iptables-services 2>/dev/null || true
+
+# Flush existing rules
+iptables -F
+iptables -X
+iptables -Z
+
+# Default policies (safety net behind explicit REJECT rules)
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT DROP
+
+# Loopback
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A OUTPUT -o lo -j ACCEPT
+
+# Established/related connections
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# ICMP (all - required by CCDC rules)
+iptables -A INPUT -p icmp -j ACCEPT
+iptables -A OUTPUT -p icmp -j ACCEPT
+
+# Anti-reconnaissance: Bad TCP flags
+iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
+iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
+iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
+iptables -A INPUT -f -j DROP
+
+# --- Outbound: DNS, HTTP, HTTPS (for updates/tooling) ---
+iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
+
+# --- Inbound: Splunk services ---
+iptables -A INPUT -p tcp --dport 8000 -j ACCEPT   # Splunk Web
+iptables -A INPUT -p tcp --dport 9997 -j ACCEPT   # Splunk Forwarders
+iptables -A INPUT -p tcp --dport 514 -j ACCEPT    # Syslog
+
+# --- Inbound: Wazuh ---
+iptables -A INPUT -p tcp --dport 1514 -j ACCEPT   # Wazuh Event
+iptables -A INPUT -p tcp --dport 1515 -j ACCEPT   # Wazuh Auth
+iptables -A INPUT -p tcp --dport 55000 -j ACCEPT  # Wazuh API
+
+# --- Inbound: Salt ---
+iptables -A INPUT -p tcp --dport 4505 -j ACCEPT   # Salt Publish
+iptables -A INPUT -p tcp --dport 4506 -j ACCEPT   # Salt Request
+iptables -A INPUT -p tcp --dport 8881 -j ACCEPT   # Salt API
+iptables -A INPUT -p tcp --dport 3000 -j ACCEPT   # Salt Custom GUI
+
+# --- Inbound: DNS (Technitium) ---
+iptables -A INPUT -p udp --dport 53 -j ACCEPT
+iptables -A INPUT -p tcp --dport 53 -j ACCEPT
+iptables -A INPUT -p tcp --dport 5380 -j ACCEPT   # Technitium Web UI
+
+# --- Logging for all dropped/rejected packets ---
+iptables -A INPUT -j LOG --log-prefix "IPT-INPUT-REJECT: " --log-level 4
+iptables -A OUTPUT -j LOG --log-prefix "IPT-OUTPUT-REJECT: " --log-level 4
+iptables -A FORWARD -j LOG --log-prefix "IPT-FORWARD-REJECT: " --log-level 4
+
+# --- Default REJECT ---
+iptables -A INPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A FORWARD -j REJECT --reject-with icmp-port-unreachable
+
+# Suppress iptables log messages from console (send to /var/log/iptables.log only)
+log "Configuring iptables logging to file only (not console)..."
+cat > /etc/rsyslog.d/10-iptables.conf << 'RSYSLOG_EOF'
+:msg, startswith, "IPT-" /var/log/iptables.log
+& stop
+RSYSLOG_EOF
+systemctl restart rsyslog 2>/dev/null || true
+# Set kernel console log level to suppress warnings from terminal
+dmesg -n 1 2>/dev/null || true
+
+# Save rules
+log "Saving iptables rules..."
+mkdir -p /etc/iptables
+iptables-save > /etc/iptables/rules.v4
+/usr/libexec/iptables/iptables.init save 2>/dev/null || true
+systemctl enable iptables 2>/dev/null || true
+systemctl start iptables 2>/dev/null || true
+
+log "Firewall configured: Splunk(8000,9997,514), Wazuh(1514,1515,55000), Salt(4505,4506,8881,3000), DNS(53,5380)"
+
+# ============================================================================
+# PHASE 7: KERNEL HARDENING
+# ============================================================================
+phase "PHASE 7: KERNEL HARDENING"
+log "Applying sysctl kernel hardening..."
+
 SYSCTL_HARDEN="/etc/sysctl.d/99-ccdc-hardening.conf"
 [[ -f "$SYSCTL_HARDEN" ]] && cp "$SYSCTL_HARDEN" "${SYSCTL_HARDEN}.backup"
 cat > "$SYSCTL_HARDEN" << 'SYSCTL_EOF'
@@ -150,7 +443,6 @@ net.ipv4.conf.all.accept_source_route = 0
 net.ipv4.conf.default.accept_source_route = 0
 net.ipv4.conf.all.log_martians = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
-# IPv6 - DISABLE (competition is IPv4-only)
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
@@ -169,126 +461,47 @@ SYSCTL_EOF
 sysctl -p "$SYSCTL_HARDEN" >/dev/null 2>&1 || true
 log "Kernel hardening applied"
 
-# SSH hardening (always safe)
-if [[ -f "$LINUXDEV/ssh_harden.sh" ]]; then
-    run_script "$LINUXDEV/ssh_harden.sh" "SSH Hardening"
-fi
-
-# PAM audit (non-destructive)
+# PAM audit (non-destructive, read-only)
 if [[ -f "$LINUXDEV/pamManager.sh" ]]; then
     log "Running PAM audit (read-only)..."
     bash "$LINUXDEV/pamManager.sh" audit -q 2>&1 | tee -a "$LOG_FILE" || true
 fi
 
-# NOTE: We skip generalLinuxHarden.sh as it may be too aggressive for Splunk
-
 # ============================================================================
-# PHASE 4: FIREWALL CONFIGURATION
+# PHASE 8: SYSTEM BACKUPS
 # ============================================================================
-phase "PHASE 4: FIREWALL CONFIGURATION"
-log "Configuring firewall for Splunk and infrastructure services..."
-
-# Use firewalld on Oracle Linux
-if command -v firewall-cmd &>/dev/null; then
-    systemctl enable --now firewalld
-
-    ZONE=$(firewall-cmd --get-default-zone)
-
-    # Splunk ports
-    firewall-cmd --permanent --zone="$ZONE" --add-port=8000/tcp  # Splunk Web
-    firewall-cmd --permanent --zone="$ZONE" --add-port=8089/tcp  # Splunk Management
-    firewall-cmd --permanent --zone="$ZONE" --add-port=9997/tcp  # Splunk Forwarder receiving
-    firewall-cmd --permanent --zone="$ZONE" --add-port=8088/tcp  # HTTP Event Collector
-
-    # SSH
-    firewall-cmd --permanent --zone="$ZONE" --add-service=ssh
-
-    # Future services (SaltGUI, Wazuh, DNS)
-    firewall-cmd --permanent --zone="$ZONE" --add-port=4505/tcp  # Salt publish
-    firewall-cmd --permanent --zone="$ZONE" --add-port=4506/tcp  # Salt return
-    firewall-cmd --permanent --zone="$ZONE" --add-port=1514/tcp  # Wazuh agent
-    firewall-cmd --permanent --zone="$ZONE" --add-port=1515/tcp  # Wazuh registration
-    firewall-cmd --permanent --zone="$ZONE" --add-port=55000/tcp # Wazuh API
-    firewall-cmd --permanent --zone="$ZONE" --add-service=dns    # DNS
-
-    # Remove unnecessary
-    firewall-cmd --permanent --zone="$ZONE" --remove-service=cockpit 2>/dev/null || true
-
-    firewall-cmd --reload
-    log "Firewalld configured for Splunk and infrastructure services"
-else
-    # Fallback to iptables
-    iptables -F INPUT
-    iptables -P INPUT DROP
-    iptables -P FORWARD DROP
-    iptables -P OUTPUT ACCEPT
-
-    iptables -A INPUT -i lo -j ACCEPT
-    iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-    # Anti-recon
-    iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
-    iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
-    iptables -A INPUT -f -j DROP
-
-    # SSH
-    iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-
-    # Splunk
-    iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 8089 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 9997 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 8088 -j ACCEPT
-
-    # Salt
-    iptables -A INPUT -p tcp --dport 4505 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 4506 -j ACCEPT
-
-    # Wazuh
-    iptables -A INPUT -p tcp --dport 1514 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 1515 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 55000 -j ACCEPT
-
-    # DNS
-    iptables -A INPUT -p tcp --dport 53 -j ACCEPT
-    iptables -A INPUT -p udp --dport 53 -j ACCEPT
-
-    iptables-save > /etc/sysconfig/iptables
-    log "iptables configured"
-fi
-
-# ============================================================================
-# PHASE 5: SYSTEM BACKUPS
-# ============================================================================
-phase "PHASE 5: SYSTEM BACKUPS"
+phase "PHASE 8: SYSTEM BACKUPS"
 run_script "$LINUXDEV/systemBackups.sh" "System Backups"
 
-# Splunk-specific backup
-log "Backing up Splunk configuration..."
-SPLUNK_HOME="${SPLUNK_HOME:-/opt/splunk}"
-BACKUP_DIR="/root/splunk_backup_$TIMESTAMP"
-
+# Splunk-specific post-hardening backup
+log "Backing up hardened Splunk configuration..."
+SPLUNK_BACKUP="/root/splunk_backup_$TIMESTAMP"
 if [[ -d "$SPLUNK_HOME" ]]; then
-    mkdir -p "$BACKUP_DIR"
-    cp -a "$SPLUNK_HOME/etc" "$BACKUP_DIR/"
-    log "Splunk config backed up to $BACKUP_DIR"
+    mkdir -p "$SPLUNK_BACKUP"
+    cp -a "$SPLUNK_HOME/etc" "$SPLUNK_BACKUP/"
+    log "Splunk config backed up to $SPLUNK_BACKUP"
 fi
 
 # ============================================================================
-# PHASE 6: SYSTEM BASELINE
+# PHASE 9: SYSTEM BASELINE
 # ============================================================================
-phase "PHASE 6: SYSTEM BASELINE"
+phase "PHASE 9: SYSTEM BASELINE"
 log "Creating post-hardening system baseline..."
 run_script "$LINUXDEV/systemBaseline.sh" "System Baseline"
 
 # ============================================================================
-# PHASE 7: POST-HARDENING ENUMERATION
+# PHASE 10: POST-HARDENING ENUMERATION
 # ============================================================================
-phase "PHASE 7: POST-HARDENING ENUMERATION"
+phase "PHASE 10: POST-HARDENING ENUMERATION"
 
 if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
     bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_post_$TIMESTAMP.log"
 fi
+
+# ============================================================================
+# CLEANUP
+# ============================================================================
+rm -f "$SPLUNK_PKG"
 
 # ============================================================================
 # SUMMARY
@@ -300,25 +513,24 @@ echo "  SPLUNK/SIEM SERVER HARDENING COMPLETE"
 echo "========================================================"
 echo ""
 echo "Logs: $LOG_DIR/"
-echo "Splunk backup: $BACKUP_DIR"
+echo "Splunk backup (original): $BACKUP_DIR/splunkORIGINAL"
+echo "Splunk backup (hardened): $SPLUNK_BACKUP"
 echo ""
-echo "CRITICAL: This box will host:"
-echo "  - Splunk (scored service)"
+echo "This box hosts:"
+echo "  - Splunk $SPLUNK_VERSION (fresh install)"
 echo "  - SaltGUI (management)"
 echo "  - Wazuh Server (SIEM)"
-echo "  - DNS Server"
+echo "  - Technitium DNS Server"
 echo ""
 echo "NEXT STEPS:"
 echo "  1. Verify Splunk is accessible: https://localhost:8000"
 echo "  2. Install Salt master: saltServerInstall.sh"
 echo "  3. Install Wazuh server"
-echo "  4. Configure DNS server"
+echo "  4. Configure Technitium DNS"
 echo "  5. Run threat hunting tools carefully"
 echo ""
 echo "SERVICE VERIFICATION:"
-echo "  # Splunk status"
 echo "  /opt/splunk/bin/splunk status"
-echo "  # Splunk Web"
 echo "  curl -k https://localhost:8000"
 echo ""
 echo "========================================================"

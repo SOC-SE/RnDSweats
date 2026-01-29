@@ -123,21 +123,38 @@ run_script "$LINUXDEV/harden_ecom.sh" "E-Commerce Hardening (Apache/NGINX + Open
 # PHASE 4: FIREWALL CONFIGURATION
 # ============================================================================
 phase "PHASE 5: FIREWALL CONFIGURATION"
-log "Configuring firewall for e-commerce services..."
+log "Configuring iptables firewall for e-commerce services..."
 
-# Flush existing rules (careful!)
-iptables -F INPUT 2>/dev/null || true
+# Disable firewalld if present, use iptables only
+if command -v firewall-cmd &>/dev/null; then
+    systemctl stop firewalld 2>/dev/null || true
+    systemctl disable firewalld 2>/dev/null || true
+fi
 
-# Default policies
+# Install iptables persistence
+DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent 2>/dev/null || true
+
+# Flush existing rules
+iptables -F
+iptables -X
+iptables -Z
+
+# Default policies (safety net behind explicit REJECT rules)
 iptables -P INPUT DROP
 iptables -P FORWARD DROP
-iptables -P OUTPUT ACCEPT
+iptables -P OUTPUT DROP
 
 # Loopback
 iptables -A INPUT -i lo -j ACCEPT
+iptables -A OUTPUT -o lo -j ACCEPT
 
-# Established connections
+# Established/related connections
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# ICMP (all - required by CCDC rules)
+iptables -A INPUT -p icmp -j ACCEPT
+iptables -A OUTPUT -p icmp -j ACCEPT
 
 # Anti-reconnaissance: Bad TCP flags
 iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
@@ -147,31 +164,32 @@ iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
 iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
 iptables -A INPUT -f -j DROP
 
-# ICMP (limited)
-iptables -A INPUT -p icmp --icmp-type echo-request -m limit --limit 1/s --limit-burst 4 -j ACCEPT
+# --- Outbound: DNS, HTTP, HTTPS (for updates/tooling) ---
+iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 
-# SSH (restrict as needed)
-iptables -A INPUT -p tcp --dport 22 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 3 -j ACCEPT
-
-# HTTP/HTTPS (scored services)
+# --- Inbound: Scored services ---
+# HTTP (scored)
 iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-
-# MySQL (localhost only, if running)
+# MySQL (localhost only)
 iptables -A INPUT -p tcp --dport 3306 -s 127.0.0.1 -j ACCEPT
 
-# Log dropped packets
-iptables -A INPUT -j LOG --log-prefix "FW-DROP: " --log-level 4 --log-ip-options
+# --- Logging for all dropped/rejected packets ---
+iptables -A INPUT -j LOG --log-prefix "IPT-INPUT-REJECT: " --log-level 4
+iptables -A OUTPUT -j LOG --log-prefix "IPT-OUTPUT-REJECT: " --log-level 4
+iptables -A FORWARD -j LOG --log-prefix "IPT-FORWARD-REJECT: " --log-level 4
+
+# --- Default REJECT ---
+iptables -A INPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A FORWARD -j REJECT --reject-with icmp-port-unreachable
 
 # Save rules
-if command -v netfilter-persistent &>/dev/null; then
-    netfilter-persistent save
-elif command -v iptables-save &>/dev/null; then
-    iptables-save > /etc/iptables.rules
-    log "iptables rules saved to /etc/iptables.rules"
-fi
+netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables.rules
 
-log "Firewall configured: SSH(22), HTTP(80), HTTPS(443)"
+log "Firewall configured: SSH(22), HTTP(80), MySQL(3306 localhost)"
 
 # ============================================================================
 # PHASE 6: SYSTEM BACKUPS

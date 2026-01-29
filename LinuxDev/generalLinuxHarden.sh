@@ -102,60 +102,19 @@ passwd -l sync 2>/dev/null
 passwd -l games 2>/dev/null
 passwd -l lp 2>/dev/null
 
-# --- 2. SSH HARDENING ---
-echo "[+] Phase 2: SSH Hardening & Sanitization"
-
-# Ensure SSH server is installed (just in case)
-if [ "$OS_FAMILY" == "debian" ]; then
-    dpkg -s openssh-server &>/dev/null || apt-get install -y openssh-server
-elif [ "$OS_FAMILY" == "rhel" ]; then
-    rpm -q openssh-server &>/dev/null || dnf install -y openssh-server
-fi
-
-SSH_CONF="/etc/ssh/sshd_config"
-
-# Backup original config
-cp $SSH_CONF "$SSH_CONF.bak_$(date +%s)"
+# --- 2. SSH REMOVAL ---
+echo "[+] Phase 2: SSH Removal & Key Sanitization"
 
 # 1. Wipe SSH Authorized Keys (Removes Red Team Persistence)
-# We find 'authorized_keys' files and delete them, but SKIP the vagrant user
-# to avoid breaking Vagrant/development environments.
-echo "Wiping authorized_keys files (preserving vagrant user for dev environments)..."
-find / -name "authorized_keys" -type f ! -path "/home/vagrant/*" ! -path "/root/.ssh/*" -delete 2>/dev/null || true
-# Note: To also wipe root's keys in production, remove the ! -path "/root/.ssh/*" exclusion
-# Warning: This will lock out any SSH key-based access except vagrant
+echo "Wiping authorized_keys files..."
+find / -name "authorized_keys" -type f -delete 2>/dev/null || true
 
-# 2. Secure sshd_config
-# We use sed to force these values, whether they are currently commented out or set to yes.
-echo "Securing sshd_config..."
+# 2. Stop and disable SSH service
+echo "Stopping and disabling SSH..."
+systemctl stop sshd 2>/dev/null || systemctl stop ssh 2>/dev/null || true
+systemctl disable sshd 2>/dev/null || systemctl disable ssh 2>/dev/null || true
 
-# Disable Root Login
-sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' $SSH_CONF
-sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' $SSH_CONF
-
-# Disable Empty Passwords
-sed -i 's/^PermitEmptyPasswords.*/PermitEmptyPasswords no/' $SSH_CONF
-sed -i 's/^#PermitEmptyPasswords.*/PermitEmptyPasswords no/' $SSH_CONF
-
-# Force Protocol 2
-sed -i 's/^Protocol.*/Protocol 2/' $SSH_CONF
-sed -i 's/^#Protocol.*/Protocol 2/' $SSH_CONF
-
-# Disable X11 Forwarding (prevents GUI hijacking)
-sed -i 's/^X11Forwarding.*/X11Forwarding no/' $SSH_CONF
-sed -i 's/^#X11Forwarding.*/X11Forwarding no/' $SSH_CONF
-
-# Reduce Max Auth Tries (Mitigates brute force speed)
-sed -i 's/^MaxAuthTries.*/MaxAuthTries 3/' $SSH_CONF
-sed -i 's/^#MaxAuthTries.*/MaxAuthTries 3/' $SSH_CONF
-
-# Ensure settings exist if they weren't in the file at all
-grep -q "^PermitRootLogin" $SSH_CONF || echo "PermitRootLogin no" >> $SSH_CONF
-grep -q "^PermitEmptyPasswords" $SSH_CONF || echo "PermitEmptyPasswords no" >> $SSH_CONF
-grep -q "^Protocol" $SSH_CONF || echo "Protocol 2" >> $SSH_CONF
-
-echo "Restarting SSH..."
-systemctl restart sshd || systemctl restart ssh
+echo "SSH has been disabled. Use console access only."
 
 # --- 3. SYSTEM HARDENING ---
 echo "[+] Phase 3: System Hardening"

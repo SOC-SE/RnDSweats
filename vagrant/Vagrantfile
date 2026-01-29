@@ -52,31 +52,35 @@ LINUX_VMS = {
     family: "debian",
     display: "Ubuntu 24.04 LTS",
     memory: "1024",
-    autostart: true
+    autostart: true,
+    role: "ecom"
   },
   "fedora" => {
-    box: "bento/fedora-42",        # May need adjustment based on availability
+    box: "bento/fedora-42",
     ip: "#{NETWORK_PREFIX}.11",
     family: "redhat",
     display: "Fedora 42",
     memory: "1024",
-    autostart: true
+    autostart: true,
+    role: "webmail"
   },
   "oracle" => {
     box: "bento/oracle-9",
     ip: "#{NETWORK_PREFIX}.12",
     family: "redhat",
     display: "Oracle Linux 9",
-    memory: "1024",
-    autostart: true
+    memory: "2048",
+    autostart: false,
+    role: "splunk"
   },
   "rocky" => {
     box: "bento/rockylinux-9",
     ip: "#{NETWORK_PREFIX}.13",
     family: "redhat",
     display: "Rocky Linux 9",
-    memory: "1024",
-    autostart: true
+    memory: "2048",
+    autostart: true,
+    role: "splunk"
   },
   "debian" => {
     box: "bento/debian-12",
@@ -84,7 +88,8 @@ LINUX_VMS = {
     family: "debian",
     display: "Debian 12",
     memory: "1024",
-    autostart: true
+    autostart: true,
+    role: "generic"
   },
 }
 
@@ -253,6 +258,131 @@ Vagrant.configure("2") do |config|
           echo "Scripts: /vagrant/"
           echo "Test user: testuser / Changeme1!"
           echo "=========================================="
+        SHELL
+      end
+
+      # Role-based CCDC service provisioning
+      if cfg[:role] == "ecom"
+        linux.vm.provision "shell", inline: <<-SHELL
+          set -e
+          echo "=========================================="
+          echo "Installing E-Commerce Services (OpenCart)"
+          echo "=========================================="
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y -qq apache2 php libapache2-mod-php php-mysql php-curl php-gd php-zip php-xml php-mbstring mysql-server unzip
+
+          systemctl enable --now apache2 mysql
+
+          mysql -e "CREATE DATABASE IF NOT EXISTS opencart;"
+          mysql -e "CREATE USER IF NOT EXISTS 'opencart'@'localhost' IDENTIFIED BY 'CCDCtest123!';"
+          mysql -e "GRANT ALL ON opencart.* TO 'opencart'@'localhost';"
+          mysql -e "FLUSH PRIVILEGES;"
+
+          cd /tmp
+          wget -q https://github.com/opencart/opencart/releases/download/4.0.2.3/opencart-4.0.2.3.zip -O opencart.zip
+          unzip -qo opencart.zip -d opencart_extract
+          rm -rf /var/www/html/opencart
+          mkdir -p /var/www/html/opencart
+          # Handle nested directory structure in zip
+          if [ -d "opencart_extract/opencart-4.0.2.3/upload" ]; then
+            cp -r opencart_extract/opencart-4.0.2.3/upload/* /var/www/html/opencart/
+          elif [ -d "opencart_extract/upload" ]; then
+            cp -r opencart_extract/upload/* /var/www/html/opencart/
+          fi
+          cp /var/www/html/opencart/config-dist.php /var/www/html/opencart/config.php 2>/dev/null || true
+          cp /var/www/html/opencart/admin/config-dist.php /var/www/html/opencart/admin/config.php 2>/dev/null || true
+          chown -R www-data:www-data /var/www/html/opencart
+          chmod -R 755 /var/www/html/opencart
+
+          echo "E-COMMERCE SERVICES INSTALLED"
+        SHELL
+      end
+
+      if cfg[:role] == "webmail"
+        linux.vm.provision "shell", inline: <<-SHELL
+          set -e
+          echo "=========================================="
+          echo "Installing Webmail Services (Postfix/Dovecot/Roundcube)"
+          echo "=========================================="
+          dnf install -y postfix dovecot httpd mariadb-server php php-mysqlnd php-mbstring php-xml php-intl php-zip php-json php-gd unzip
+
+          systemctl enable --now postfix dovecot httpd mariadb
+
+          # Postfix
+          postconf -e "myhostname = webmail.ccdc.local"
+          postconf -e "mydomain = ccdc.local"
+          postconf -e 'mydestination = $myhostname, localhost.$mydomain, localhost, $mydomain'
+          postconf -e "home_mailbox = Maildir/"
+          systemctl restart postfix
+
+          # Dovecot
+          cat > /etc/dovecot/conf.d/10-mail.conf <<'DOVEEOF'
+mail_location = maildir:~/Maildir
+namespace inbox {
+  inbox = yes
+}
+DOVEEOF
+          cat > /etc/dovecot/conf.d/10-auth.conf <<'DOVEEOF'
+disable_plaintext_auth = no
+auth_mechanisms = plain login
+!include auth-system.conf.ext
+DOVEEOF
+          systemctl restart dovecot
+
+          # MariaDB for Roundcube
+          mysql -e "CREATE DATABASE IF NOT EXISTS roundcube CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          mysql -e "CREATE USER IF NOT EXISTS 'roundcube'@'localhost' IDENTIFIED BY 'CCDCtest123!';"
+          mysql -e "GRANT ALL ON roundcube.* TO 'roundcube'@'localhost';"
+          mysql -e "FLUSH PRIVILEGES;"
+
+          # Roundcube
+          cd /tmp
+          wget -q https://github.com/roundcube/roundcubemail/releases/download/1.6.6/roundcubemail-1.6.6-complete.tar.gz -O roundcube.tar.gz
+          tar xzf roundcube.tar.gz
+          rm -rf /var/www/html/mail
+          mv roundcubemail-1.6.6 /var/www/html/mail
+          chown -R apache:apache /var/www/html/mail
+          mysql roundcube < /var/www/html/mail/SQL/mysql.initial.sql 2>/dev/null || true
+
+          cat > /var/www/html/mail/config/config.inc.php <<'RCEOF'
+<?php
+$config['db_dsnw'] = 'mysql://roundcube:CCDCtest123!@localhost/roundcube';
+$config['imap_host'] = 'localhost:143';
+$config['smtp_host'] = 'localhost:25';
+$config['support_url'] = '';
+$config['des_key'] = 'rcmail-!24ByteDESKey*Str';
+$config['product_name'] = 'CCDC Webmail';
+$config['plugins'] = [];
+RCEOF
+          chown apache:apache /var/www/html/mail/config/config.inc.php
+
+          # Mail user
+          if ! id mailuser &>/dev/null; then
+            useradd -m -s /bin/bash mailuser
+            echo "mailuser:CCDCtest123!" | chpasswd
+          fi
+
+          # SELinux
+          setsebool -P httpd_can_network_connect 1 2>/dev/null || true
+          setsebool -P httpd_can_sendmail 1 2>/dev/null || true
+
+          systemctl restart httpd
+          echo "WEBMAIL SERVICES INSTALLED"
+        SHELL
+      end
+
+      if cfg[:role] == "splunk"
+        linux.vm.provision "shell", inline: <<-SHELL
+          set -e
+          echo "=========================================="
+          echo "Installing Splunk Enterprise"
+          echo "=========================================="
+          cd /tmp
+          wget -q -O splunk.rpm "https://download.splunk.com/products/splunk/releases/9.3.2/linux/splunk-9.3.2-d8bb32809498.x86_64.rpm"
+          rpm -i splunk.rpm 2>/dev/null || true
+          /opt/splunk/bin/splunk start --accept-license --answer-yes --no-prompt --seed-passwd 'CCDCtest123!'
+          /opt/splunk/bin/splunk enable boot-start 2>/dev/null || true
+          echo "SPLUNK INSTALLED - Web UI at https://#{cfg[:ip]}:8000"
         SHELL
       end
     end

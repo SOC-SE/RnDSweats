@@ -244,116 +244,87 @@ touch /etc/at.allow
 chmod 600 /etc/at.allow
 awk -F: '{print $1}' /etc/passwd | grep -v root > /etc/at.deny
 
-# --- 5. FIREWALL (STRICT MODE) ---
+# --- 5. FIREWALL (STRICT IPTABLES) ---
 echo "Configuring Firewall"
 
-# Install IPTables services (Oracle 9 Standard)
-dnf install -y iptables-services
-systemctl stop firewalld
-systemctl disable firewalld
+# Disable firewalld, use iptables only
+dnf install -y iptables-services 2>/dev/null || yum install -y iptables-services 2>/dev/null || true
+systemctl stop firewalld 2>/dev/null || true
+systemctl disable firewalld 2>/dev/null || true
 
 # Flush existing rules
 iptables -F
 iptables -X
 iptables -Z
 
-# Set default policies
+# Default policies (safety net behind explicit REJECT rules)
 iptables -P INPUT DROP
-iptables -P OUTPUT DROP
 iptables -P FORWARD DROP
+iptables -P OUTPUT DROP
 
-# Allow loopback traffic
+# Loopback
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
 
-# Allow established connections
+# Established/related connections
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# Allow ICMP (Ping)
-# RELAXED LIMITS: 20/s with burst of 50 to prevent blocking scoring engines
-iptables -A INPUT -p icmp --icmp-type echo-request -m length --length 0:192 -m limit --limit 20/s --limit-burst 50 -j ACCEPT
-iptables -A INPUT -p icmp --icmp-type echo-request -m length --length 0:192 -j LOG --log-prefix "Rate-limit exceeded: " --log-level 4
-iptables -A INPUT -p icmp --icmp-type echo-request -m length ! --length 0:192 -j LOG --log-prefix "Invalid size: " --log-level 4
-iptables -A INPUT -p icmp --icmp-type echo-reply -m limit --limit 20/s --limit-burst 50 -j ACCEPT
-iptables -A INPUT -p icmp -j DROP
+# ICMP (all - required by CCDC rules)
+iptables -A INPUT -p icmp -j ACCEPT
+iptables -A OUTPUT -p icmp -j ACCEPT
 
-# Allow DNS traffic (Outbound UDP/TCP 53)
-# RELAXED LIMITS: 200/min to allow dnf updates/bursts
-iptables -A OUTPUT -p udp --dport 53 -m limit --limit 200/min --limit-burst 100 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 53 -m limit --limit 200/min --limit-burst 100 -j ACCEPT
+# Anti-reconnaissance: Bad TCP flags
+iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
+iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
+iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
+iptables -A INPUT -f -j DROP
 
-# Allow HTTP/HTTPS traffic (Web Interface Access & Output for Updates)
-# RELAXED OUTPUT: 600/min to ensure package downloads don't get throttled
-iptables -A INPUT -p tcp --dport 80 -m conntrack --ctstate NEW -m limit --limit 100/min --limit-burst 200 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 80 -m conntrack --ctstate NEW -m limit --limit 600/min --limit-burst 500 -j ACCEPT
+# --- Outbound: DNS, HTTP, HTTPS (for updates/tooling) ---
+iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 
-iptables -A INPUT -p tcp --dport 443 -m conntrack --ctstate NEW -m limit --limit 100/min --limit-burst 200 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 443 -m conntrack --ctstate NEW -m limit --limit 600/min --limit-burst 500 -j ACCEPT
+# --- Inbound: Splunk services ---
+iptables -A INPUT -p tcp --dport 8000 -j ACCEPT   # Splunk Web
+iptables -A INPUT -p tcp --dport 9997 -j ACCEPT   # Splunk Forwarders
+iptables -A INPUT -p tcp --dport 514 -j ACCEPT    # Syslog
 
-# Allow Splunk-specific traffic
-# Splunk Web (8000)
-iptables -A INPUT -p tcp --dport 8000 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 8000 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+# --- Inbound: Wazuh ---
+iptables -A INPUT -p tcp --dport 1514 -j ACCEPT   # Wazuh Event
+iptables -A INPUT -p tcp --dport 1515 -j ACCEPT   # Wazuh Auth
+iptables -A INPUT -p tcp --dport 55000 -j ACCEPT  # Wazuh API
 
-# Splunk Management (8089)
-iptables -A INPUT -p tcp --dport 8089 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 8089 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+# --- Inbound: Salt ---
+iptables -A INPUT -p tcp --dport 4505 -j ACCEPT   # Salt Publish
+iptables -A INPUT -p tcp --dport 4506 -j ACCEPT   # Salt Request
+iptables -A INPUT -p tcp --dport 8881 -j ACCEPT   # Salt API
+iptables -A INPUT -p tcp --dport 3000 -j ACCEPT   # Salt Custom GUI
 
-# Splunk Forwarders (9997)
-iptables -A INPUT -p tcp --dport 9997 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 9997 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+# --- Inbound: DNS (Technitium) ---
+iptables -A INPUT -p udp --dport 53 -j ACCEPT
+iptables -A INPUT -p tcp --dport 53 -j ACCEPT
+iptables -A INPUT -p tcp --dport 5380 -j ACCEPT  # Technitium Web UI
 
-# Syslog (514)
-iptables -A INPUT -p tcp --dport 514 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 514 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+# --- Logging for all dropped/rejected packets ---
+iptables -A INPUT -j LOG --log-prefix "IPT-INPUT-REJECT: " --log-level 4
+iptables -A OUTPUT -j LOG --log-prefix "IPT-OUTPUT-REJECT: " --log-level 4
+iptables -A FORWARD -j LOG --log-prefix "IPT-FORWARD-REJECT: " --log-level 4
 
-# --- WAZUH RULES ---
-# Wazuh Agent Auth (1515) & Event (1514) & API (55000)
+# --- Default REJECT ---
+iptables -A INPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A FORWARD -j REJECT --reject-with icmp-port-unreachable
 
-# Wazuh Event
-iptables -A INPUT -p tcp --dport 1514 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 1514 -m conntrack --ctstate ESTABLISHED -j ACCEPT
-
-# Wazuh Auth
-iptables -A INPUT -p tcp --dport 1515 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 1515 -m conntrack --ctstate ESTABLISHED -j ACCEPT
-
-# Wazuh API
-iptables -A INPUT -p tcp --dport 55000 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 55000 -m conntrack --ctstate ESTABLISHED -j ACCEPT
-
-# --- SALT RULES ---
-# Salt Master (4505/4506) & API (8881) & Custom GUI (3000)
-
-# Salt Publish
-iptables -A INPUT -p tcp --dport 4505 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 4505 -m conntrack --ctstate ESTABLISHED -j ACCEPT
-
-# Salt Request
-iptables -A INPUT -p tcp --dport 4506 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 4506 -m conntrack --ctstate ESTABLISHED -j ACCEPT
-
-# Salt API
-iptables -A INPUT -p tcp --dport 8881 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 8881 -m conntrack --ctstate ESTABLISHED -j ACCEPT
-
-# Salt Custom GUI
-iptables -A INPUT -p tcp --dport 3000 -m conntrack --ctstate NEW -j ACCEPT
-iptables -A OUTPUT -p tcp --sport 3000 -m conntrack --ctstate ESTABLISHED -j ACCEPT
-
-# Log dropped packets
-iptables -A INPUT -j LOG --log-prefix "DROP-IN:" --log-level 4 --log-ip-options --log-tcp-options --log-tcp-sequence
-iptables -A OUTPUT -j LOG --log-prefix "DROP-OUT:" --log-level 4 --log-ip-options --log-tcp-options --log-tcp-sequence
-
+# Save rules
 echo "Saving IPTables rules..."
 mkdir -p /etc/iptables
 iptables-save > /etc/iptables/rules.v4
-
-# Ensure Persistence on Oracle Linux
-/usr/libexec/iptables/iptables.init save
-systemctl enable iptables
-systemctl start iptables
+/usr/libexec/iptables/iptables.init save 2>/dev/null || true
+systemctl enable iptables 2>/dev/null || true
+systemctl start iptables 2>/dev/null || true
 
 
 # --- FINAL CLEANUP ---

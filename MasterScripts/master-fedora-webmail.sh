@@ -130,73 +130,82 @@ fi
 # PHASE 4: FIREWALL CONFIGURATION
 # ============================================================================
 phase "PHASE 4: FIREWALL CONFIGURATION"
-log "Configuring firewall for mail services..."
+log "Configuring iptables firewall for mail services..."
 
-# Use firewalld on Fedora
-if command -v firewall-cmd &>/dev/null; then
-    log "Using firewalld..."
+# Disable and remove cockpit
+log "Disabling and removing cockpit..."
+systemctl stop cockpit.socket cockpit.service 2>/dev/null || true
+systemctl disable cockpit.socket cockpit.service 2>/dev/null || true
+dnf remove -y cockpit cockpit-ws cockpit-bridge cockpit-system 2>/dev/null || true
 
-    # Ensure firewalld is running
-    systemctl enable --now firewalld
+# Disable and remove firewalld (iptables only)
+log "Disabling and removing firewalld..."
+systemctl stop firewalld 2>/dev/null || true
+systemctl disable firewalld 2>/dev/null || true
+dnf remove -y firewalld 2>/dev/null || true
 
-    # Get default zone
-    ZONE=$(firewall-cmd --get-default-zone)
+# Install iptables persistence
+dnf install -y iptables-services 2>/dev/null || true
 
-    # Remove unnecessary services
-    firewall-cmd --permanent --zone="$ZONE" --remove-service=cockpit 2>/dev/null || true
-    firewall-cmd --permanent --zone="$ZONE" --remove-service=dhcpv6-client 2>/dev/null || true
+# Flush existing rules
+iptables -F
+iptables -X
+iptables -Z
 
-    # Add required services
-    firewall-cmd --permanent --zone="$ZONE" --add-service=ssh
-    firewall-cmd --permanent --zone="$ZONE" --add-service=smtp
-    firewall-cmd --permanent --zone="$ZONE" --add-service=pop3
-    firewall-cmd --permanent --zone="$ZONE" --add-service=imap
-    firewall-cmd --permanent --zone="$ZONE" --add-port=587/tcp  # Submission
+# Default policies (safety net behind explicit REJECT rules)
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT DROP
 
-    # Reload
-    firewall-cmd --reload
+# Loopback
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A OUTPUT -o lo -j ACCEPT
 
-    log "Firewalld configured: SSH, SMTP(25), POP3(110), IMAP(143), Submission(587)"
-else
-    # Fallback to iptables
-    log "Using iptables..."
+# Established/related connections
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-    iptables -F INPUT 2>/dev/null || true
-    iptables -P INPUT DROP
-    iptables -P FORWARD DROP
-    iptables -P OUTPUT ACCEPT
+# ICMP (all - required by CCDC rules)
+iptables -A INPUT -p icmp -j ACCEPT
+iptables -A OUTPUT -p icmp -j ACCEPT
 
-    iptables -A INPUT -i lo -j ACCEPT
-    iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# Anti-reconnaissance: Bad TCP flags
+iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
+iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
+iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+iptables -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
+iptables -A INPUT -f -j DROP
 
-    # Anti-reconnaissance
-    iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
-    iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP
-    iptables -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
-    iptables -A INPUT -f -j DROP
+# --- Outbound: DNS, HTTP, HTTPS (for updates/tooling) ---
+iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 
-    # ICMP
-    iptables -A INPUT -p icmp --icmp-type echo-request -m limit --limit 1/s -j ACCEPT
+# --- Inbound: Scored services ---
+# SMTP (scored)
+iptables -A INPUT -p tcp --dport 25 -j ACCEPT
+# POP3 (scored)
+iptables -A INPUT -p tcp --dport 110 -j ACCEPT
+# Submission (authenticated mail sending)
+iptables -A INPUT -p tcp --dport 587 -j ACCEPT
 
-    # SSH
-    iptables -A INPUT -p tcp --dport 22 -m conntrack --ctstate NEW -m limit --limit 3/min -j ACCEPT
+# --- Logging for all dropped/rejected packets ---
+iptables -A INPUT -j LOG --log-prefix "IPT-INPUT-REJECT: " --log-level 4
+iptables -A OUTPUT -j LOG --log-prefix "IPT-OUTPUT-REJECT: " --log-level 4
+iptables -A FORWARD -j LOG --log-prefix "IPT-FORWARD-REJECT: " --log-level 4
 
-    # Mail services (scored)
-    iptables -A INPUT -p tcp --dport 25 -j ACCEPT   # SMTP
-    iptables -A INPUT -p tcp --dport 110 -j ACCEPT  # POP3
-    iptables -A INPUT -p tcp --dport 143 -j ACCEPT  # IMAP
-    iptables -A INPUT -p tcp --dport 587 -j ACCEPT  # Submission
+# --- Default REJECT ---
+iptables -A INPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
+iptables -A FORWARD -j REJECT --reject-with icmp-port-unreachable
 
-    # Secure versions (if needed)
-    iptables -A INPUT -p tcp --dport 465 -j ACCEPT  # SMTPS
-    iptables -A INPUT -p tcp --dport 993 -j ACCEPT  # IMAPS
-    iptables -A INPUT -p tcp --dport 995 -j ACCEPT  # POP3S
+# Save rules
+iptables-save > /etc/sysconfig/iptables
+systemctl enable iptables 2>/dev/null || true
+systemctl start iptables 2>/dev/null || true
 
-    iptables -A INPUT -j LOG --log-prefix "FW-DROP: " --log-level 4
-
-    iptables-save > /etc/sysconfig/iptables
-    log "iptables configured for mail services"
-fi
+log "Firewall configured: SMTP(25), POP3(110), Submission(587)"
 
 # ============================================================================
 # PHASE 5: SYSTEM BACKUPS

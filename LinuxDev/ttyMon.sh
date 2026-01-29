@@ -10,9 +10,11 @@
 #
 # Usage:
 #   ./ttyMon.sh install     Install and start the systemd service
+#
+# Internal commands (not for direct use):
 #   ./ttyMon.sh uninstall   Stop and remove the service
 #   ./ttyMon.sh status      Show service status
-#   ./ttyMon.sh run         Run the monitor directly (used by systemd)
+#   ./ttyMon.sh run         Run monitor directly (used by systemd)
 #
 # What It Does:
 #   - Polls for active TTY/PTY sessions every 5 seconds
@@ -98,8 +100,8 @@ EOF
     systemctl start "$SERVICE_NAME"
 
     echo -e "${GREEN}[INFO]${NC} ttymon service installed and started"
+    echo -e "${GREEN}[INFO]${NC} Service name: ${YELLOW}ttymon${NC} (systemctl status ttymon)"
     echo -e "${GREEN}[INFO]${NC} Log file: $LOG_FILE"
-    echo -e "${GREEN}[INFO]${NC} Check status: systemctl status ttymon"
 }
 
 # --- Uninstall Service ---
@@ -131,11 +133,14 @@ do_status() {
 }
 
 # --- Get current sessions as a sorted unique list ---
-# Format per line: USER TTY FROM LOGIN_TIME
+# Format per line: USER TTY FROM
+# NOTE: We intentionally exclude LOGIN_TIME because the format of the login@
+# field changes as the session ages (e.g., "14:30" -> "Mon14"), causing
+# false "new session" alerts for existing sessions.
 get_sessions() {
     # w -h gives: USER TTY FROM LOGIN@ IDLE JCPU PCPU WHAT
-    # We extract USER, TTY, FROM, LOGIN@
-    w -h 2>/dev/null | awk '{print $1, $2, $3, $4}' | sort -u
+    # We extract USER, TTY, FROM only (no login time)
+    w -h 2>/dev/null | awk '{print $1, $2, $3}' | sort -u
 }
 
 # --- Run Monitor (called by systemd) ---
@@ -158,11 +163,10 @@ do_run() {
 
         if [[ -n "$new_sessions" ]]; then
             while IFS= read -r session; do
-                local user tty from login_time
+                local user tty from
                 user=$(echo "$session" | awk '{print $1}')
                 tty=$(echo "$session" | awk '{print $2}')
                 from=$(echo "$session" | awk '{print $3}')
-                login_time=$(echo "$session" | awk '{print $4}')
 
                 # Determine source description
                 local source_desc
@@ -172,7 +176,7 @@ do_run() {
                     source_desc="$from"
                 fi
 
-                local alert_msg="NEW SESSION: user=$user tty=$tty from=$source_desc login=$login_time"
+                local alert_msg="NEW SESSION: user=$user tty=$tty from=$source_desc"
                 log_msg "$alert_msg"
 
                 # Also alert via wall if this looks like a remote session
@@ -216,12 +220,12 @@ case "${1:-}" in
         do_run
         ;;
     *)
-        echo "Usage: $SCRIPT_NAME {install|uninstall|status|run}"
+        echo "Usage: $SCRIPT_NAME install"
         echo ""
-        echo "  install    Install and start the systemd service"
-        echo "  uninstall  Stop and remove the service"
-        echo "  status     Show service status and recent logs"
-        echo "  run        Run monitor directly (used by systemd)"
+        echo "  Installs the ttymon systemd service to monitor TTY/PTY sessions."
+        echo "  Service name: ttymon"
+        echo "  Check status: systemctl status ttymon"
+        echo "  View logs:    cat $LOG_FILE"
         exit 1
         ;;
 esac

@@ -126,8 +126,9 @@ gather_system_info() {
 
     echo "=== System Information ===" > "$output_dir/system_info.txt"
     echo "Hostname: $(hostname)" >> "$output_dir/system_info.txt"
-    echo "Date: $(date)" >> "$output_dir/system_info.txt"
-    uname -a >> "$output_dir/system_info.txt"
+    # NOTE: Date and uptime intentionally excluded — they are volatile and
+    # produce false diffs. Only static system identity info is captured.
+    uname -r >> "$output_dir/system_info.txt"
 
     # OS Release
     cat /etc/os-release >> "$output_dir/system_info.txt" 2>/dev/null
@@ -148,19 +149,15 @@ gather_network_info() {
         echo "=== Listening Ports ==="
         ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null
 
-        echo ""
-        echo "=== Established Connections ==="
-        ss -tnp 2>/dev/null | grep ESTAB || netstat -tnp 2>/dev/null | grep ESTABLISHED
+        # NOTE: Established connections and active sessions are excluded because
+        # they are volatile (PIDs, idle times change constantly) and produce
+        # false diffs. Only static network configuration is captured.
 
         echo ""
         echo "=== Firewall Rules ==="
         iptables-save 2>/dev/null
         echo "--- IPv6 ---"
         ip6tables-save 2>/dev/null
-
-        echo ""
-        echo "=== Active Sessions ==="
-        w 2>/dev/null
 
         echo ""
         echo "=== DNS Configuration ==="
@@ -223,14 +220,10 @@ gather_process_info() {
     local output_dir="$1"
 
     {
-        echo "=== Running Processes ==="
-        ps aux --sort=-%mem | head -50
+        # NOTE: Running processes and process tree are excluded because PIDs,
+        # memory usage, and CPU times change constantly and produce false diffs.
+        # Only persistent configuration (crontabs, enabled services) is captured.
 
-        echo ""
-        echo "=== Process Tree ==="
-        pstree -p 2>/dev/null || ps auxf
-
-        echo ""
         echo "=== Crontabs ==="
         echo "--- System crontab ---"
         cat /etc/crontab 2>/dev/null | grep -v "^#" | grep -v "^$"
@@ -247,10 +240,6 @@ gather_process_info() {
         echo ""
         echo "=== Systemd Services (enabled) ==="
         systemctl list-unit-files --type=service --state=enabled 2>/dev/null | grep -v "^UNIT"
-
-        echo ""
-        echo "=== Systemd Services (running) ==="
-        systemctl list-units --type=service --state=running 2>/dev/null | grep -v "^UNIT" | grep -v "^$"
 
     } > "$output_dir/process_info.txt"
 }
@@ -385,11 +374,19 @@ compare_snapshots() {
     local old_dir="$BASELINE_DIR/$old_num"
     local new_dir="$BASELINE_DIR/$new_num"
     local has_diff=false
+    local report_file="/var/log/syst/baseline_diff_${old_num}_vs_${new_num}.log"
+
+    mkdir -p /var/log/syst
 
     echo ""
     echo -e "${CYAN}========================================${NC}"
     echo -e "${CYAN}Comparing Snapshot #$old_num vs #$new_num${NC}"
     echo -e "${CYAN}========================================${NC}"
+
+    # Start report file
+    echo "Baseline Diff Report: Snapshot #$old_num vs #$new_num" > "$report_file"
+    echo "Generated: $(date)" >> "$report_file"
+    echo "========================================" >> "$report_file"
 
     for file in system_info.txt network_info.txt user_info.txt process_info.txt packages.txt filesystem_info.txt persistence_info.txt; do
         if [[ -f "$old_dir/$file" && -f "$new_dir/$file" ]]; then
@@ -398,13 +395,15 @@ compare_snapshots() {
 
             if [[ -n "$diff_output" ]]; then
                 has_diff=true
-                echo ""
+                echo "" | tee -a "$report_file"
                 echo -e "${YELLOW}=== Changes in $file ===${NC}"
+                echo "=== Changes in $file ===" >> "$report_file"
+                echo "$diff_output" >> "$report_file"
                 echo "$diff_output" | head -100
                 local diff_lines
                 diff_lines=$(echo "$diff_output" | wc -l)
                 if [[ $diff_lines -gt 100 ]]; then
-                    echo -e "${BLUE}... ($((diff_lines - 100)) more lines)${NC}"
+                    echo -e "${BLUE}... ($((diff_lines - 100)) more lines, see full report)${NC}"
                 fi
             fi
         fi
@@ -413,10 +412,11 @@ compare_snapshots() {
     if [[ "$has_diff" == "false" ]]; then
         echo ""
         echo -e "${GREEN}No differences found between snapshots.${NC}"
+        echo "No differences found." >> "$report_file"
         return 0
     else
         echo ""
-        echo -e "${YELLOW}Differences detected! Review changes above.${NC}"
+        echo -e "${YELLOW}Differences detected! Full report: $report_file${NC}"
         return 1
     fi
 }

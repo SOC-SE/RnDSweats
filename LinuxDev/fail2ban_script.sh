@@ -345,17 +345,7 @@ install_fail2ban() {
         echo "Backed up existing config to ${JAIL_FILE}.bak.*"
     fi
 
-    # Prompt for scoring engine IPs to whitelist
-    echo ""
-    echo "IMPORTANT: Whitelist your scoring engine and team IPs to avoid lockouts!"
-    read -r -p "Enter IPs to whitelist (comma-separated, or Enter to skip): " WHITELIST_IPS
     IGNORE_IP="127.0.0.1/8 ::1"
-    if [ -n "$WHITELIST_IPS" ]; then
-        # Convert commas to spaces
-        WHITELIST_IPS=$(echo "$WHITELIST_IPS" | tr ',' ' ')
-        IGNORE_IP="$IGNORE_IP $WHITELIST_IPS"
-        echo "Whitelisted: $WHITELIST_IPS"
-    fi
 
     # If using log files
     if [ "$SSH_LOG" != "systemd" ]; then
@@ -561,21 +551,5 @@ disable_ssh() {
 check_root
 detect_package_manager
 
-echo "=== FAIL2BAN MANAGER v4 ==="
-echo "1. Install & Configure SSH Protection Only (24hr Ban)"
-echo "2. Install Comprehensive Protection (SSH, Web, Mail, DB)"
-echo "3. Unblock an IP Address"
-echo "4. View Status & Banned IPs (All Jails)"
-echo "5. Disable SSH Service"
-echo "6. Exit"
-read -r -p "Choice: " CHOICE
-
-case $CHOICE in
-    1) install_fail2ban ;;
-    2) install_all_services ;;
-    3) unblock_ip ;;
-    4) view_all_status ;;
-    5) disable_ssh ;;
-    6) exit 0 ;;
-    *) echo "Invalid option" ;;
-esac
+# Auto-install comprehensive protection (no menu)
+install_all_services
