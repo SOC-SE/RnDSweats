@@ -35,7 +35,7 @@ LOG_FILE="/var/log/vpn_client.log"
 # --- Helper Functions ---
 log_info() { echo -e "${GREEN}[INFO] $1${NC}" | tee -a "$LOG_FILE"; }
 log_warn() { echo -e "${YELLOW}[WARN] $1${NC}" | tee -a "$LOG_FILE"; }
-log_error() { echo -e "${RED}[ERROR] $1${NC}" >&2 | tee -a "$LOG_FILE"; exit 1; }
+log_error() { echo -e "${RED}[ERROR] $1${NC}" | tee -a "$LOG_FILE" >&2; exit 1; }
 log_step() { echo -e "${BLUE}[STEP] $1${NC}"; }
 
 # --- Root Check ---
@@ -107,9 +107,21 @@ test_connectivity() {
     log_info "Testing $server_ip:$port ($protocol)..."
     local timeout_val=10  # Increased from 5s
     if [ "$protocol" = "udp" ]; then
-        nc -u -z -w "$timeout_val" "$server_ip" "$port" 2>/dev/null && log_info "UDP passed" || log_warn "UDP failed (firewall/port issue?)."
+        if nc -u -z -w "$timeout_val" "$server_ip" "$port" 2>/dev/null; then
+            log_info "UDP passed"
+            return 0
+        else
+            log_warn "UDP failed (firewall/port issue?)."
+            return 1
+        fi
     else
-        nc -z -w "$timeout_val" "$server_ip" "$port" 2>/dev/null && log_info "TCP passed" || log_warn "TCP failed (firewall/port issue?)."
+        if nc -z -w "$timeout_val" "$server_ip" "$port" 2>/dev/null; then
+            log_info "TCP passed"
+            return 0
+        else
+            log_warn "TCP failed (firewall/port issue?)."
+            return 1
+        fi
     fi
 }
 
@@ -118,10 +130,10 @@ detect_server_vpns() {
     local server_ip=$1
     log_info "Detecting services on $server_ip..."
     local available_vpns=()
-    test_connectivity "$server_ip" 1194 "udp" && available_vpns+=("OpenVPN (UDP:1194)")
-    test_connectivity "$server_ip" 51820 "udp" && available_vpns+=("WireGuard (UDP:51820)")
-    test_connectivity "$server_ip" 443 "tcp" && available_vpns+=("SoftEther (TCP:443)")
-    test_connectivity "$server_ip" 992 "tcp" && available_vpns+=("SoftEther Alt (TCP:992)")
+    if test_connectivity "$server_ip" 1194 "udp"; then available_vpns+=("OpenVPN (UDP:1194)"); fi
+    if test_connectivity "$server_ip" 51820 "udp"; then available_vpns+=("WireGuard (UDP:51820)"); fi
+    if test_connectivity "$server_ip" 443 "tcp"; then available_vpns+=("SoftEther (TCP:443)"); fi
+    if test_connectivity "$server_ip" 992 "tcp"; then available_vpns+=("SoftEther Alt (TCP:992)"); fi
     if [ ${#available_vpns[@]} -eq 0 ]; then
         log_warn "No VPN services detected. Check firewall or server status."
         return 1
@@ -238,7 +250,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 EOF
 
-    log_step "On server: Add [Peer] to wg0.conf: PublicKey=$CLIENT_PUBLIC_KEY AllowedIPs=${CLIENT_IP%/24}/32"
+    log_step "On server: Add [Peer] to wg0.conf: PublicKey=$CLIENT_PUBLIC_KEY AllowedIPs=${CLIENT_IP%%/*}/32"
     log_step "Server restart: sudo wg-quick down wg0; sudo wg-quick up wg0"
     log_step "Connect: sudo wg-quick up $CLIENT_CONFIG"
     echo "Status: wg show; ping 10.0.0.1  # Assuming server IP"
@@ -365,11 +377,8 @@ main() {
         read -p "Return to main menu? (y/n) [y]: " CONTINUE; CONTINUE=${CONTINUE:-y}
         [[ "$CONTINUE" =~ ^[nN]$ ]] && break
     done
-    # Conditional cleanup (only if WireGuard setup run)
-    if [[ -f /etc/wireguard/client_private.key ]]; then
-        rm -f /etc/wireguard/client_private.key /etc/wireguard/client_public.key 2>/dev/null || true
-        log_info "WireGuard client keys cleaned up."
-    fi
+    # Note: WireGuard keys are left in place for active connections.
+    # To clean up after disconnecting: rm -f /etc/wireguard/client_private.key /etc/wireguard/client_public.key
     log_info "Session complete. Logs in $LOG_FILE"
 }
 

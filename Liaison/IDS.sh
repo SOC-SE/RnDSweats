@@ -101,8 +101,9 @@ install_suricata() {
         ( $INSTALL_CMD epel-release >/dev/null 2>"$err_file" || true
           $INSTALL_CMD suricata >/dev/null 2>>"$err_file" ) &
     fi
-    spinner $!
-    wait
+    local install_pid=$!
+    spinner $install_pid
+    wait $install_pid
     local exit_status=$?
     local err_content=$(cat "$err_file")
     rm -f "$err_file"
@@ -113,15 +114,19 @@ install_suricata() {
         log_error "Installation failed."
     }
     echo ""
-    printf "Configuring Suricata... "
-    local err_file=$(mktemp)
-    ( suricata-update >/dev/null 2>"$err_file" || true
-      configure_suricata_initial "$mode" >/dev/null 2>>"$err_file"
-      systemctl enable suricata >/dev/null 2>>"$err_file"
-      systemctl start suricata >/dev/null 2>>"$err_file" ) &
-    spinner $!
-    wait
-    rm -f "$err_file"
+
+    # Configure interactively BEFORE backgrounding non-interactive tasks
+    configure_suricata_initial "$mode"
+
+    printf "Finalizing Suricata setup... "
+    local err_file2=$(mktemp)
+    ( suricata-update >/dev/null 2>"$err_file2" || true
+      systemctl enable suricata >/dev/null 2>>"$err_file2"
+      systemctl start suricata >/dev/null 2>>"$err_file2" ) &
+    local config_pid=$!
+    spinner $config_pid
+    wait $config_pid
+    rm -f "$err_file2"
     print_usage_instructions "$mode"
 }
 
@@ -137,7 +142,9 @@ configure_suricata_initial() {
     [[ ! $CIDR =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]] && log_error "Invalid CIDR."
     sed -i "s/^  HOME_NET: .*/  HOME_NET: \"[$CIDR]\"/; /^  EXTERNAL_NET: .*/s//  EXTERNAL_NET: \"!\$HOME_NET\"/" "$CONFIG_FILE"
     sed -i "/^af-packet:/,/^  - interface:/s/^  - interface: .*/  - interface: $INTERFACE/" "$CONFIG_FILE"
-    [[ $mode = "IPS" ]] && sed -i 's/^inline: no/inline: yes/' "$CONFIG_FILE" || echo 'inline: yes' >> "$CONFIG_FILE"
+    if [[ $mode = "IPS" ]]; then
+        sed -i 's/^inline: no/inline: yes/' "$CONFIG_FILE" || echo 'inline: yes' >> "$CONFIG_FILE"
+    fi
     systemctl restart suricata >/dev/null 2>&1
 }
 

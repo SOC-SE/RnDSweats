@@ -1,0 +1,12 @@
+{# templates/wg0.conf.j2 (WireGuard template from example) #}
+[Interface]
+Address = {{ wg_address }}
+PrivateKey = {{ server_private_key_content }}
+ListenPort = {{ wg_listen_port }}
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o $(ip route | grep default | awk '{print $5}') -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o $(ip route | grep default | awk '{print $5}') -j MASQUERADE
+{% for ip in wg_client_ips %}
+[Peer]
+# PublicKey = <add client pubkey here>
+AllowedIPs = {{ ip }}
+{% endfor %}

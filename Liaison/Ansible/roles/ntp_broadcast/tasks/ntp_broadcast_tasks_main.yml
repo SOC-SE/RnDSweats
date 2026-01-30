@@ -1,0 +1,26 @@
+---
+# NTP verification role - called from liaison_main.yml
+- name: Verify NTP sync
+  shell: chronyc sources -v || chronyc tracking
+  register: ntp_status
+  changed_when: false
+  failed_when: false
+
+- name: Ensure log directory exists
+  file:
+    path: "{{ liaison_log_dir | default('/var/log/liaison') }}"
+    state: directory
+    mode: '0755'
+
+- name: Log NTP verification
+  copy:
+    content: |
+      NTP Verification - {{ ansible_date_time.iso8601 }}
+      ================================================
+      {{ ntp_status.stdout | default('No NTP status available') }}
+    dest: "{{ liaison_log_dir | default('/var/log/liaison') }}/ntp_verify.log"
+    mode: '0644'
+
+- name: Display NTP status
+  debug:
+    msg: "{{ ntp_status.stdout_lines | default(['NTP not configured']) }}"

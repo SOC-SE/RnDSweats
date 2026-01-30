@@ -1,0 +1,37 @@
+---
+- name: Ensure backup directory exists
+  file:
+    path: "{{ backup_dir }}"
+    state: directory
+    mode: '0700'
+
+- name: Create backup script
+  copy:
+    dest: /usr/local/bin/mwccdc_backup.sh
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+      BACKUP_PATH="{{ backup_dir }}/backup_$TIMESTAMP.tar.gz"
+      echo "Starting backup to $BACKUP_PATH"
+      
+      # Directories to backup
+      DIRS="/etc /var/www /home /var/lib/mysql"
+      
+      # Filter existing dirs
+      EXISTING_DIRS=""
+      for d in $DIRS; do
+        if [ -d "$d" ]; then
+          EXISTING_DIRS="$EXISTING_DIRS $d"
+        fi
+      done
+      
+      tar -czf "$BACKUP_PATH" $EXISTING_DIRS
+      echo "Backup complete: $BACKUP_PATH"
+
+- name: Create backup cron job (daily)
+  cron:
+    name: "MWCCDC Daily Backup"
+    minute: "0"
+    hour: "2"
+    job: "/usr/local/bin/mwccdc_backup.sh >> /var/log/mwccdc_backup.log 2>&1"

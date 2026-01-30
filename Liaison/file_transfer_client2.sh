@@ -62,13 +62,13 @@ check_dependencies() {
         missing_deps+=("ftp")
     fi
     if ! command -v sftp &> /dev/null; then
-        missing_deps+=("sftp (openssh-client)")
+        missing_deps+=("openssh-client")
     fi
     if ! command -v tftp &> /dev/null; then
         missing_deps+=("tftp")
     fi
     if ! command -v nc &> /dev/null; then
-        missing_deps+=("nc (netcat)")
+        missing_deps+=("netcat")
     fi
 
     if [ ${#missing_deps[@]} -ne 0 ]; then
@@ -425,12 +425,14 @@ put "$local_file" "$remote_file"
 quit
 EOF
 
-    local output=$(tftp < "$tftp_script" 2>&1)
+    local output
+    output=$(tftp < "$tftp_script" 2>&1)
+    local tftp_status=$?
 
-    if [ $? -eq 0 ]; then
-        log_info "✅ File uploaded successfully!"
+    if [ $tftp_status -eq 0 ]; then
+        log_info "File uploaded successfully!"
     else
-        log_error "❌ Upload failed. Output: $output"
+        log_error "Upload failed. Output: $output"
     fi
 
     rm -f "$tftp_script"
@@ -458,12 +460,14 @@ get "$remote_file" "$local_dir/$(basename "$remote_file")"
 quit
 EOF
 
-    local output=$(tftp < "$tftp_script" 2>&1)
+    local output
+    output=$(tftp < "$tftp_script" 2>&1)
+    local tftp_status=$?
 
-    if [ $? -eq 0 ]; then
-        log_info "✅ File downloaded successfully!"
+    if [ $tftp_status -eq 0 ]; then
+        log_info "File downloaded successfully!"
     else
-        log_error "❌ File download failed. Output: $output"
+        log_error "File download failed. Output: $output"
     fi
 
     rm -f "$tftp_script"

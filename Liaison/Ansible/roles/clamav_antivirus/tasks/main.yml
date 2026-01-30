@@ -1,0 +1,62 @@
+---
+# ClamAV Antivirus Role
+# Compatible with Ubuntu 24.04, Fedora 42, Oracle Linux 9.2
+
+- name: Install ClamAV (Debian/Ubuntu)
+  package:
+    name:
+      - clamav
+      - clamav-daemon
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Install ClamAV (RedHat/Fedora)
+  package:
+    name:
+      - clamav
+      - clamav-update
+      - clamd
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Stop freshclam to update manually (Debian/Ubuntu)
+  service:
+    name: clamav-freshclam
+    state: stopped
+  ignore_errors: yes
+  when: ansible_os_family == "Debian"
+
+- name: Update ClamAV definitions
+  command: freshclam
+  ignore_errors: yes
+  register: freshclam_result
+  changed_when: freshclam_result.rc == 0
+
+- name: Start ClamAV Daemon (Debian/Ubuntu)
+  service:
+    name: clamav-daemon
+    state: started
+    enabled: yes
+  when: ansible_os_family == "Debian"
+
+- name: Start ClamAV Daemon (RedHat/Fedora)
+  service:
+    name: clamd@scan
+    state: started
+    enabled: yes
+  ignore_errors: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Ensure ClamAV log directory exists
+  file:
+    path: "{{ clamav_log_file | dirname }}"
+    state: directory
+    mode: '0755'
+  ignore_errors: yes
+
+- name: Create daily scan cron job
+  cron:
+    name: "Daily ClamAV Scan"
+    minute: "0"
+    hour: "3"
+    job: "/usr/bin/clamscan -r {{ clamav_scan_dir }} --log={{ clamav_log_file }} 2>/dev/null"

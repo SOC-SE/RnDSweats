@@ -1,0 +1,80 @@
+---
+# From IDS.sh: Suricata IDS/IPS
+- name: Install Suricata
+  package:
+    name: suricata
+    state: present
+  when: ids_action | default('install') == 'install'
+
+- name: Ensure suricata rules dir
+  file:
+    path: /etc/suricata/rules
+    state: directory
+    mode: '0755'
+  when: ids_action | default('install') == 'install'
+
+- name: Template config
+  template:
+    src: suricata.yaml.j2
+    dest: /etc/suricata/suricata.yaml
+    mode: '0644'
+  when: ids_action | default('install') == 'install'
+
+- name: Template custom rules
+  template:
+    src: "{{ playbook_dir }}/templates/suricata_custom.rules.j2"
+    dest: /etc/suricata/rules/custom.rules
+    mode: '0644'
+  when: ids_action | default('install') == 'install'
+
+- name: Update Suricata rules
+  shell: suricata-update 2>/dev/null || true
+  changed_when: false
+  when: ids_action | default('install') == 'install'
+
+- name: Enable and start Suricata
+  systemd:
+    name: suricata
+    enabled: true
+    state: started
+  when: ids_action | default('install') == 'install'
+
+- name: Show IDS status
+  debug:
+    msg: "Suricata {{ ids_type | default('IDS') }} started successfully"
+  when: ids_action | default('install') == 'install'
+
+- name: Remove Suricata
+  block:
+    - name: Stop Suricata service
+      systemd:
+        name: suricata
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove Suricata package
+      package:
+        name: suricata
+        state: absent
+
+    - name: Remove Suricata config
+      file:
+        path: /etc/suricata/suricata.yaml
+        state: absent
+
+    - name: Remove Suricata custom rules
+      file:
+        path: /etc/suricata/rules/custom.rules
+        state: absent
+
+    - name: Reload systemd after Suricata removal
+      systemd:
+        daemon_reload: yes
+      changed_when: false
+
+    - name: Show removal status
+      debug:
+        msg: "Suricata removed successfully"
+  when: ids_action | default('install') == 'remove'
+

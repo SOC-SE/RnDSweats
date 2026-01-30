@@ -1,0 +1,46 @@
+---
+- name: Detect PKG_MANAGER
+  set_fact:
+    pkg_manager: "{{ 'apt' if ansible_pkg_mgr == 'apt' else 'dnf' }}"
+
+- name: Install Docker (apt)
+  block:
+    - name: Update cache
+      apt:
+        update_cache: yes
+    - name: Install deps
+      apt:
+        name: ["apt-transport-https", "ca-certificates", "curl", "gnupg", "lsb-release"]
+        state: present
+    - name: Add GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+    - name: Add repo
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+    - name: Install Docker
+      apt:
+        name: ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"]
+        state: present
+  when: pkg_manager == 'apt'
+
+- name: Start Docker
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Uninstall Docker
+  block:
+    - name: Stop service
+      systemd:
+        name: docker
+        state: stopped
+    - name: Purge packages
+      apt:
+        name: ["docker-ce", "docker-ce-cli"]
+        state: absent
+        purge: yes
+  when: uninstall | default(false) | bool

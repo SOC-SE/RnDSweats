@@ -1,0 +1,2 @@
+---
+- import_tasks: honeypot_manager_tasks_main.yml

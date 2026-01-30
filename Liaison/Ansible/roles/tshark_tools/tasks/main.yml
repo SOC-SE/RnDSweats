@@ -1,0 +1,6 @@
+---
+- import_tasks: tshark_tools_tasks_scanner.yml
+  when: tshark_action | default('capture') in ['capture', 'read', 'filter']
+
+- import_tasks: tshark_tools_tasks_analyzer.yml
+  when: tshark_action | default('capture') == 'analyze'

@@ -1,0 +1,88 @@
+---
+# Firewall Hardening Role - iptables implementation
+# Compatible with Ubuntu 24.04, Fedora 42, Oracle Linux 9.2
+
+- name: Install iptables packages (Debian/Ubuntu)
+  package:
+    name:
+      - iptables
+      - iptables-persistent
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Install iptables packages (RedHat/Fedora)
+  package:
+    name:
+      - iptables
+      - iptables-services
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Flush existing rules
+  iptables:
+    flush: yes
+  when: firewall_flush_existing | default(false)
+
+- name: Set default INPUT policy to DROP
+  iptables:
+    chain: INPUT
+    policy: DROP
+
+- name: Set default FORWARD policy to DROP
+  iptables:
+    chain: FORWARD
+    policy: DROP
+
+- name: Set default OUTPUT policy to ACCEPT
+  iptables:
+    chain: OUTPUT
+    policy: ACCEPT
+
+- name: Allow loopback traffic
+  iptables:
+    chain: INPUT
+    in_interface: lo
+    jump: ACCEPT
+
+- name: Allow established and related connections
+  iptables:
+    chain: INPUT
+    ctstate: ESTABLISHED,RELATED
+    jump: ACCEPT
+
+- name: Allow SSH (port 22) - CRITICAL
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: 22
+    jump: ACCEPT
+    comment: "Allow SSH"
+
+- name: Allow defined TCP ports
+  iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item }}"
+    jump: ACCEPT
+    comment: "Allow port {{ item }}"
+  loop: "{{ allowed_ports }}"
+  when: item != 22  # SSH already allowed above
+
+- name: Save iptables rules (Debian/Ubuntu)
+  shell: iptables-save > /etc/iptables/rules.v4
+  when: ansible_os_family == "Debian"
+
+- name: Save iptables rules (RedHat/Fedora)
+  shell: iptables-save > /etc/sysconfig/iptables
+  when: ansible_os_family == "RedHat"
+
+- name: Enable iptables service (RedHat/Fedora)
+  service:
+    name: iptables
+    state: started
+    enabled: yes
+  when: ansible_os_family == "RedHat"
+
+- name: Display firewall status
+  debug:
+    msg: "iptables configured with default deny. Allowed ports: SSH (22), {{ allowed_ports | join(', ') }}"

@@ -1,0 +1,11 @@
+---
+# defaults file for firewall_hardening
+allowed_ports:
+  - 80    # HTTP
+  - 443   # HTTPS
+  - 3389  # XRDP
+  - 1194  # OpenVPN
+  - 51820 # WireGuard
+
+# Set to true to flush all existing rules before applying new ones
+firewall_flush_existing: false

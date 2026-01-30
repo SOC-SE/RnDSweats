@@ -1,0 +1,4 @@
+---
+# defaults for clamav
+clamav_scan_dir: /home
+clamav_log_file: /var/log/clamav/manual_scan.log

@@ -1,0 +1,174 @@
+---
+# NTP Hub-and-Spoke Tasks for CCDC
+# Master (ntp_servers) becomes Stratum 10 Orphan; Clients sync ONLY to Master
+
+# ============================================================================
+# INSTALL BLOCK
+# ============================================================================
+- name: NTP Installation and Configuration
+  when: ntp_action | default('install') == 'install'
+  block:
+
+    # ------------------------------------------------------------------------
+    # CONFLICT PREVENTION: Disable systemd-timesyncd
+    # ------------------------------------------------------------------------
+    - name: Stop systemd-timesyncd to prevent conflicts
+      systemd:
+        name: systemd-timesyncd
+        state: stopped
+        enabled: false
+        masked: true
+      failed_when: false
+      changed_when: false
+
+    # ------------------------------------------------------------------------
+    # INSTALL CHRONY
+    # ------------------------------------------------------------------------
+    - name: Install chrony package
+      package:
+        name: chrony
+        state: present
+
+    # ------------------------------------------------------------------------
+    # CONFIGURE MASTER (Stratum 10 Orphan Mode)
+    # ------------------------------------------------------------------------
+    - name: Deploy Master NTP server config (Orphan Mode)
+      template:
+        src: "{{ playbook_dir }}/templates/chrony_server.conf.j2"
+        dest: /etc/chrony/chrony.conf
+        owner: root
+        group: root
+        mode: '0644'
+      when: "'ntp_servers' in group_names"
+      notify: restart chrony
+
+    # ------------------------------------------------------------------------
+    # CONFIGURE CLIENTS (Point ONLY to Master)
+    # ------------------------------------------------------------------------
+    - name: Deploy NTP client config (Hub-and-Spoke)
+      template:
+        src: "{{ playbook_dir }}/templates/chrony_client.conf.j2"
+        dest: /etc/chrony/chrony.conf
+        owner: root
+        group: root
+        mode: '0644'
+      when: "'ntp_clients' in group_names"
+      notify: restart chrony
+
+    # ------------------------------------------------------------------------
+    # FIREWALL: Open UDP/123
+    # ------------------------------------------------------------------------
+    - name: Open UDP/123 firewall (UFW - Debian)
+      ufw:
+        rule: allow
+        port: '123'
+        proto: udp
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+
+    - name: Open UDP/123 firewall (firewalld - RedHat)
+      firewalld:
+        service: ntp
+        permanent: true
+        state: enabled
+        immediate: true
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+
+    # ------------------------------------------------------------------------
+    # START AND ENABLE CHRONY
+    # ------------------------------------------------------------------------
+    - name: Enable and start chrony service
+      systemd:
+        name: "{{ chrony_service_name }}"
+        enabled: true
+        state: started
+
+    # ------------------------------------------------------------------------
+    # FORCE IMMEDIATE TIME STEP
+    # ------------------------------------------------------------------------
+    - name: Force immediate time synchronization (makestep)
+      command: chronyc makestep
+      changed_when: false
+      register: makestep_result
+
+    - name: Wait for sync to stabilize
+      pause:
+        seconds: 3
+
+    # ------------------------------------------------------------------------
+    # VERIFY SYNC STATUS
+    # ------------------------------------------------------------------------
+    - name: Verify NTP synchronization
+      command: chronyc tracking
+      register: ntp_status
+      changed_when: false
+
+    - name: Display sync status
+      debug:
+        var: ntp_status.stdout_lines
+
+    - name: Log NTP verification
+      copy:
+        content: |
+          === NTP Verification Log ===
+          Timestamp: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          Role: {{ 'MASTER (Stratum 10 Orphan)' if 'ntp_servers' in group_names else 'CLIENT' }}
+          
+          {{ ntp_status.stdout }}
+        dest: "{{ liaison_log_dir | default('/var/log/liaison') }}/ntp_verify.log"
+        mode: '0644'
+
+# ============================================================================
+# REMOVE BLOCK
+# ============================================================================
+- name: NTP Removal
+  when: ntp_action | default('install') == 'remove'
+  block:
+
+    - name: Stop chrony service
+      systemd:
+        name: "{{ chrony_service_name }}"
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove chrony package
+      package:
+        name: chrony
+        state: absent
+
+    - name: Remove chrony config directory
+      file:
+        path: /etc/chrony
+        state: absent
+
+    - name: Remove NTP verification log
+      file:
+        path: "{{ liaison_log_dir | default('/var/log/liaison') }}/ntp_verify.log"
+        state: absent
+
+    - name: Close UDP/123 firewall (UFW - Debian)
+      ufw:
+        rule: allow
+        port: '123'
+        proto: udp
+        delete: true
+      when: ansible_os_family == 'Debian'
+      failed_when: false
+
+    - name: Close UDP/123 firewall (firewalld - RedHat)
+      firewalld:
+        service: ntp
+        permanent: true
+        state: disabled
+        immediate: true
+      when: ansible_os_family == 'RedHat'
+      failed_when: false
+
+    - name: Unmask systemd-timesyncd
+      systemd:
+        name: systemd-timesyncd
+        masked: false
+      failed_when: false

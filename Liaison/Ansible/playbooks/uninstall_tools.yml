@@ -1,0 +1,314 @@
+---
+# Uninstall Liaison Tools
+# Usage: ansible-playbook playbooks/uninstall_tools.yml -e tool=<tool_name>
+# Tools: docker, ids, honeypot, fim, nmap, tshark, ntp, powershell, all
+
+- name: Uninstall Liaison Tools
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    tool: ""  # Required: docker, ids, honeypot, fim, nmap, tshark, ntp, powershell, all
+
+  tasks:
+    - name: Validate tool selection
+      fail:
+        msg: "Please specify tool with -e tool=<docker|ids|honeypot|fim|nmap|tshark|ntp|powershell|all>"
+      when: tool == ""
+
+    # =========================================================================
+    # DOCKER REMOVAL
+    # =========================================================================
+    - name: Remove Docker
+      block:
+        - name: Stop Docker services
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+            enabled: no
+          loop:
+            - docker
+            - docker.socket
+            - containerd
+          ignore_errors: yes
+
+        - name: Purge Docker packages
+          apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-buildx-plugin
+              - docker-compose-plugin
+              - docker.io
+            state: absent
+            purge: yes
+            autoremove: yes
+          ignore_errors: yes
+
+        - name: WIPE Docker data (images, containers, volumes)
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /var/lib/docker
+            - /var/lib/containerd
+            - /etc/docker
+            - /var/run/docker.sock
+
+        - name: Remove Docker group (optional)
+          group:
+            name: docker
+            state: absent
+          ignore_errors: yes
+
+        - debug:
+            msg: "Docker removed successfully"
+      when: tool == "docker" or tool == "all"
+
+    # =========================================================================
+    # IDS (SURICATA) REMOVAL
+    # =========================================================================
+    - name: Remove IDS (Suricata)
+      block:
+        - name: Stop and disable Suricata
+          systemd:
+            name: suricata
+            state: stopped
+            enabled: no
+          ignore_errors: yes
+
+        - name: Purge Suricata packages
+          apt:
+            name:
+              - suricata
+              - suricata-update
+            state: absent
+            purge: yes
+            autoremove: yes
+          ignore_errors: yes
+
+        - name: WIPE Suricata config and logs
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/suricata
+            - /var/log/suricata
+            - /var/lib/suricata
+
+        - debug:
+            msg: "Suricata IDS removed successfully"
+      when: tool == "ids" or tool == "all"
+
+    # =========================================================================
+    # HONEYPOT (ENDLESSH) REMOVAL
+    # =========================================================================
+    - name: Remove Honeypot (Endlessh)
+      block:
+        - name: Stop and disable Endlessh
+          systemd:
+            name: endlessh
+            state: stopped
+            enabled: no
+          ignore_errors: yes
+
+        - name: Purge Endlessh package
+          apt:
+            name: endlessh
+            state: absent
+            purge: yes
+          ignore_errors: yes
+
+        - name: WIPE Endlessh config
+          file:
+            path: /etc/endlessh
+            state: absent
+
+        - name: Remove Endlessh firewall rule (port 2222)
+          ufw:
+            rule: allow
+            port: "2222"
+            proto: tcp
+            delete: yes
+          ignore_errors: yes
+
+        # SAFETY: Revert SSH port to 22 (in case user swapped ports)
+        - name: Check if SSH is on non-standard port
+          command: grep -E "^Port 2222" /etc/ssh/sshd_config
+          register: ssh_port_check
+          ignore_errors: yes
+          changed_when: false
+
+        - name: Revert SSH port to 22 (Safety - prevents lockout)
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: '^Port 2222'
+            line: 'Port 22'
+            state: present
+          when: ssh_port_check.rc == 0
+          notify: restart_ssh
+
+        - debug:
+            msg: "Endlessh honeypot removed. SSH port reverted to 22 if it was changed."
+      when: tool == "honeypot" or tool == "all"
+
+    # =========================================================================
+    # FIM (FILE INTEGRITY MONITOR) REMOVAL
+    # =========================================================================
+    - name: Remove FIM
+      block:
+        - name: Remove FIM cron jobs
+          cron:
+            name: "Liaison FIM Monitor"
+            state: absent
+          ignore_errors: yes
+
+        - name: Find all FIM cron entries
+          shell: crontab -l 2>/dev/null | grep -i "FIM" || true
+          register: fim_cron_check
+          changed_when: false
+
+        - name: Remove FIM cron entries manually if found
+          shell: crontab -l 2>/dev/null | grep -v "FIM" | crontab - || true
+          when: fim_cron_check.stdout != ""
+          ignore_errors: yes
+
+        - name: WIPE FIM session data
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /var/log/liaison/fim
+            - /tmp/fim_sessions
+
+        - debug:
+            msg: "FIM removed successfully"
+      when: tool == "fim" or tool == "all"
+
+    # =========================================================================
+    # NETWORK TOOLS (NMAP, TSHARK) REMOVAL
+    # =========================================================================
+    - name: Remove Nmap
+      block:
+        - name: Purge Nmap package
+          apt:
+            name: nmap
+            state: absent
+            purge: yes
+          ignore_errors: yes
+
+        - name: WIPE Nmap logs
+          file:
+            path: /var/log/liaison/nmap_logs
+            state: absent
+
+        - debug:
+            msg: "Nmap removed successfully"
+      when: tool == "nmap" or tool == "all"
+
+    - name: Remove TShark
+      block:
+        - name: Purge TShark packages
+          apt:
+            name:
+              - tshark
+              - wireshark-common
+            state: absent
+            purge: yes
+            autoremove: yes
+          ignore_errors: yes
+
+        - name: WIPE TShark captures
+          file:
+            path: /var/log/liaison/captures
+            state: absent
+
+        - debug:
+            msg: "TShark removed successfully"
+      when: tool == "tshark" or tool == "all"
+
+    # =========================================================================
+    # NTP (CHRONY) REMOVAL
+    # =========================================================================
+    - name: Remove NTP (Chrony)
+      block:
+        - name: Stop and disable Chrony
+          systemd:
+            name: chrony
+            state: stopped
+            enabled: no
+          ignore_errors: yes
+
+        - name: Purge Chrony package
+          apt:
+            name: chrony
+            state: absent
+            purge: yes
+          ignore_errors: yes
+
+        - name: WIPE Chrony config
+          file:
+            path: /etc/chrony
+            state: absent
+
+        - debug:
+            msg: "Chrony NTP removed successfully"
+      when: tool == "ntp" or tool == "all"
+
+    # =========================================================================
+    # POWERSHELL REMOVAL
+    # =========================================================================
+    - name: Remove PowerShell
+      block:
+        - name: Purge PowerShell package
+          apt:
+            name: powershell
+            state: absent
+            purge: yes
+          ignore_errors: yes
+
+        - name: Remove Microsoft apt source
+          file:
+            path: /etc/apt/sources.list.d/microsoft-prod.list
+            state: absent
+
+        - name: Remove Microsoft GPG key
+          file:
+            path: /etc/apt/trusted.gpg.d/microsoft.gpg
+            state: absent
+          ignore_errors: yes
+
+        - debug:
+            msg: "PowerShell removed successfully"
+      when: tool == "powershell" or tool == "all"
+
+    # =========================================================================
+    # CLEANUP LIAISON LOG DIRECTORY (only with 'all')
+    # =========================================================================
+    - name: Cleanup Liaison logs (when removing all)
+      block:
+        - name: Check if liaison log dir is empty
+          find:
+            paths: /var/log/liaison
+            file_type: any
+          register: liaison_dir_contents
+          ignore_errors: yes
+
+        - name: Remove liaison log directory if empty
+          file:
+            path: /var/log/liaison
+            state: absent
+          when: liaison_dir_contents.matched == 0
+          ignore_errors: yes
+
+        - debug:
+            msg: "All tools removed successfully!"
+      when: tool == "all"
+
+  handlers:
+    - name: restart_ssh
+      service:
+        name: sshd
+        state: restarted

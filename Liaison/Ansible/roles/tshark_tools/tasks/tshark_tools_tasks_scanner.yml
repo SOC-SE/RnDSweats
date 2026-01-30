@@ -1,0 +1,42 @@
+---
+# From Network_Scanner_Tshark.sh: Capture/read/filter
+- name: Ensure tshark installed
+  package:
+    name: "{{ tshark_package | default('tshark') }}"
+    state: present
+
+- name: Ensure log dir
+  file:
+    path: "{{ liaison_log_dir }}"
+    state: directory
+
+- name: Basic live capture
+  shell: timeout 30 tshark -i {{ tshark_interface | default('any') }} -c 100 -w {{ liaison_log_dir }}/capture.pcap 2>/dev/null || true
+  register: capture_result
+  when: tshark_action | default('capture') == 'capture'
+
+- name: Show capture status
+  debug:
+    msg: "Captured packets to {{ liaison_log_dir }}/capture.pcap"
+  when: tshark_action | default('capture') == 'capture'
+
+- name: Read PCAP
+  shell: tshark -r {{ pcap_file | default(liaison_log_dir ~ '/capture.pcap') }} -c 50 2>/dev/null || echo "No PCAP file found or empty"
+  register: pcap_read
+  changed_when: false
+  when: tshark_action | default('capture') == 'read'
+
+- name: Show PCAP content
+  debug:
+    msg: "{{ pcap_read.stdout_lines[:20] | default(['No data']) }}"
+  when: tshark_action | default('capture') == 'read'
+
+- name: Filter capture
+  shell: timeout 30 tshark -i {{ tshark_interface | default('any') }} -f "{{ tshark_filter | default('tcp') }}" -c 50 2>/dev/null || true
+  register: filter_out
+  when: tshark_action | default('capture') == 'filter'
+
+- name: Show filter results
+  debug:
+    msg: "{{ filter_out.stdout_lines[:20] | default(['No packets captured']) }}"
+  when: tshark_action | default('capture') == 'filter'

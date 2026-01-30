@@ -1,0 +1,12 @@
+# MWCCDC Suricata Config
+%YAML 1.1
+---
+vars:
+  address-groups:
+    HOME_NET: "[{{ home_net | default('172.20.242.0/24') }}]"
+    EXTERNAL_NET: "any"
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - custom.rules
+logging:
+  default-log-level: {{ suricata_log_level | default('info') }}

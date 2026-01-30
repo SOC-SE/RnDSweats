@@ -1,0 +1,75 @@
+---
+- name: Ensure session directory
+  file:
+    path: /tmp/fim_sessions
+    state: directory
+    mode: '0700'
+
+- name: Generate session ID
+  shell: echo -n "{{ fim_path | join(' ') }}" | sha256sum | cut -d' ' -f1
+  register: session_id
+  changed_when: false
+
+- name: Create session directory
+  file:
+    path: "/tmp/fim_sessions/{{ session_id.stdout }}"
+    state: directory
+    mode: '0700'
+
+- name: Create baseline
+  shell: |
+    find {{ fim_path | join(' ') }} -type f -exec md5sum {} + 2>/dev/null > "/tmp/fim_sessions/{{ session_id.stdout }}/baseline.txt" || true
+  args:
+    creates: "/tmp/fim_sessions/{{ session_id.stdout }}/baseline.txt"
+  when: fim_choice | default(1) | int == 1
+
+- name: Install FIM cron job (persistent monitoring)
+  cron:
+    name: "FIM monitor {{ session_id.stdout }}"
+    minute: "*/5"
+    hour: "*"
+    job: >-
+      find {{ fim_path | join(' ') }} -type f -exec md5sum {} + 2>/dev/null > /tmp/current_hash.txt;
+      diff /tmp/fim_sessions/{{ session_id.stdout }}/baseline.txt /tmp/current_hash.txt >>
+      /tmp/fim_sessions/{{ session_id.stdout }}/changes.log 2>&1 || true;
+      cp /tmp/current_hash.txt /tmp/fim_sessions/{{ session_id.stdout }}/baseline.txt
+  when: fim_choice | default(1) | int == 1
+
+- name: Show FIM status
+  debug:
+    msg: "FIM monitoring started for: {{ fim_path | join(', ') }}"
+  when: fim_choice | default(1) | int == 1
+
+- name: List monitors
+  shell: ls -la /tmp/fim_sessions 2>/dev/null || echo "No FIM sessions found"
+  register: monitor_list
+  changed_when: false
+  when: fim_choice | default(1) | int == 2
+
+- name: Debug monitor list
+  debug:
+    msg: "{{ monitor_list.stdout_lines }}"
+  when: fim_choice | default(1) | int == 2
+
+- name: Stop/remove monitor
+  block:
+    - name: Remove cron
+      cron:
+        name: "FIM monitor {{ session_id.stdout }}"
+        state: absent
+    - name: Remove session
+      file:
+        path: "/tmp/fim_sessions/{{ session_id.stdout }}"
+        state: absent
+  when: fim_choice | default(1) | int == 3
+
+- name: View changes log
+  shell: cat /tmp/fim_sessions/{{ session_id.stdout }}/changes.log 2>/dev/null || echo "No changes logged yet"
+  register: fim_changes
+  changed_when: false
+  when: fim_choice | default(1) | int == 4
+
+- name: Show changes
+  debug:
+    msg: "{{ fim_changes.stdout_lines | default(['No changes']) }}"
+  when: fim_choice | default(1) | int == 4

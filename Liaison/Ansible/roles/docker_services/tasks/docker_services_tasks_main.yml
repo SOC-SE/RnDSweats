@@ -1,0 +1,55 @@
+---
+- name: Gather service facts
+  service_facts:
+
+- name: Detect active native services
+  set_fact:
+    active_services: "{{ docker_services | selectattr('host_svc', 'defined') | map(attribute='key') | list }}"
+
+- name: Prompt/Select service to dockerize
+  set_fact:
+    selected_service: "{{ service_key | default('vpn') }}"
+
+- name: Dockerize selected service
+  block:
+    - name: Pull image
+      community.docker.docker_image:
+        name: "{{ item.image }}"
+        source: pull
+        state: present
+      loop: "{{ docker_services | selectattr('key', 'equalto', selected_service) | list }}"
+      loop_control:
+        label: "{{ item.image }}"
+
+    - name: Stop native service if active
+      systemd:
+        name: "{{ item.host_svc }}"
+        state: stopped
+      when: item.host_svc is defined and ansible_facts.services[item.host_svc | default('') + '.service'] is defined
+      loop: "{{ docker_services | selectattr('key', 'equalto', selected_service) | list }}"
+      loop_control:
+        label: "{{ item.key }}"
+      failed_when: false
+
+    - name: Run container
+      community.docker.docker_container:
+        name: "{{ selected_service }}-container"
+        image: "{{ item.image }}"
+        ports: "{{ omit if (item.ports is not defined or item.ports == '' or item.ports == []) else ([item.ports] if item.ports is string else item.ports) }}"
+        capabilities: "{{ item.caps.split() if item.caps is defined and item.caps is string else item.caps | default(omit) }}"
+        state: started
+        detach: yes
+        restart_policy: unless-stopped
+      loop: "{{ docker_services | selectattr('key', 'equalto', selected_service) | list }}"
+      loop_control:
+        label: "{{ item.key }}"
+  when: docker_action | default('install') == 'install'
+
+- name: Show containers
+  shell: docker ps -a --filter "name={{ selected_service }}-container"
+  register: container_status
+  changed_when: false
+
+- name: Debug container status
+  debug:
+    var: container_status.stdout_lines

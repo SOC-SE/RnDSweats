@@ -1,0 +1,18 @@
+---
+- name: Audit UID 0 users
+  shell: "awk -F: '($3 == 0) {print $1}' /etc/passwd"
+  register: uid_zero_users
+  changed_when: false
+
+- name: Audit empty password users
+  shell: "awk -F: '($2 == \"\" ) {print $1}' /etc/shadow"
+  become: true
+  register: empty_pass_users
+  changed_when: false
+  ignore_errors: yes # Might fail if shadow permissions are strict/weird
+
+- name: Display User Audit Report
+  debug:
+    msg:
+      - "UID 0 Users: {{ uid_zero_users.stdout_lines }}"
+      - "Empty Password Users: {{ empty_pass_users.stdout_lines }}"

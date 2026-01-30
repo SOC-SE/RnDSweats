@@ -1,0 +1,73 @@
+---
+- name: MWCCDC Liaison Ultimate Toolkit
+  hosts: all
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Ensure liaison_log_dir has a default
+      set_fact:
+        liaison_log_dir: "{{ liaison_log_dir | default('/var/log/liaison') }}"
+
+    - name: Prompt for tool when not provided
+      pause:
+        prompt: "Select tool (vpn/docker/subnet/nmap/fim/ntp/powershell/tshark/system/honeypot/ids/firewall/xrdp/clamav/backup/audit/rootkit/all)"
+      register: tool_prompt
+      when: tool is not defined
+
+    - name: Set tool from prompt
+      set_fact:
+        tool: "{{ tool_prompt.user_input | default('all') }}"
+      when: tool is not defined
+
+    - name: Ensure liaison log dir
+      file:
+        path: "{{ liaison_log_dir }}"
+        state: directory
+        mode: '0755'
+
+  roles:
+    - role: docker_install
+      when: tool | default('all') in ['docker', 'all']
+    - role: docker_services
+      when: tool | default('all') in ['docker', 'all']
+    - role: vpn_manager
+      when: tool | default('all') in ['vpn', 'all']
+    - role: subnet_ping
+      when: tool | default('all') in ['subnet', 'all']
+    - role: nmap_scanner
+      when: tool | default('all') in ['nmap', 'all']
+    - role: fim_monitor
+      when: tool | default('all') in ['fim', 'all']
+    - role: ntp_broadcast
+      when: tool | default('all') in ['ntp', 'all']
+    - role: powershell_install
+      when: tool | default('all') in ['powershell', 'all']
+    - role: tshark_tools
+      when: tool | default('all') in ['tshark', 'all']
+    - role: system_enum
+      when: tool | default('all') in ['system', 'all']
+    - role: honeypot_manager
+      when: tool | default('all') in ['honeypot', 'all']
+    - role: ids_manager
+      when: tool | default('all') in ['ids', 'all']
+    - role: firewall_hardening
+      when: tool | default('all') in ['firewall', 'all']
+    - role: xrdp_server
+      when: tool | default('all') in ['xrdp', 'all']
+    - role: clamav_antivirus
+      when: tool | default('all') in ['clamav', 'all']
+    - role: backup_restore
+      when: tool | default('all') in ['backup', 'all']
+    - role: user_audit
+      when: tool | default('all') in ['audit', 'all']
+    - role: rootkit_scanner
+      when: tool | default('all') in ['rootkit', 'all']
+
+
+  post_tasks:
+    - name: Summary log
+      lineinfile:
+        path: "{{ liaison_log_dir }}/summary.log"
+        line: "{{ ansible_date_time.date }}: Ran {{ tool | default('all') }} on {{ inventory_hostname }} (MWCCDC Liaison)"
+        create: true

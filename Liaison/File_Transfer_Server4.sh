@@ -254,7 +254,7 @@ install_ftp() {
     fi
 
     # Basic config: disable anonymous, local users only
-    cat > /etc/vsftpd.conf << 'EOF'
+    cat > /etc/vsftpd.conf << 'VSFTPD_EOF'
 listen=YES
 anonymous_enable=NO
 local_enable=YES
@@ -280,7 +280,7 @@ chroot_list_enable=NO
 chroot_list_file=/etc/vsftpd.chroot_list
 user_sub_token=$USER
 local_root=/srv/ftp/$USER
-EOF
+VSFTPD_EOF
 
     systemctl enable --now vsftpd >/dev/null 2>&1
     log_info "FTP installed and configured."
@@ -523,7 +523,7 @@ prompt_mode() {
         1) install_mode ;;
         2) uninstall_mode ;;
         3) view_mode ;;
-        *) log_error "Invalid choice. Please select 1, 2, or 3." ;;
+        *) log_warn "Invalid choice. Please select 1, 2, or 3." ;;
     esac
 }
 
@@ -665,8 +665,7 @@ prompt_choice() {
     fi
     
     local func="${func_prefix}install_${service,,}"
-    $func
-    if [ $? -eq 0 ]; then
+    if $func; then
         log_info "Service ${action}ed successfully."
     else
         log_warn "Selected service could not be ${action}ed (e.g., already in state for some services)."
@@ -679,7 +678,7 @@ main() {
     detect_pkg_manager
     detect_nologin_shell
     prompt_mode
-    log_info "${GREEN}--- Script Complete ---${NC}"
+    log_info "--- Script Complete ---"
     log_info "Remember to configure firewall rules and harden services."
 }
 

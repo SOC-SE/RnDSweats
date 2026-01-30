@@ -1,0 +1,30 @@
+{# roles/vpn_manager/templates/wg0.conf.j2 #}
+[Interface]
+Address = {{ wg_address }}
+PrivateKey = {{ server_private_key_content }}
+ListenPort = {{ wg_listen_port }}
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o {{ ansible_default_ipv4.interface | default('eth0') }} -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o {{ ansible_default_ipv4.interface | default('eth0') }} -j MASQUERADE
+
+# Server public key (for client configs): {{ server_public_key_content | default('Generate with: cat /etc/wireguard/private.key | wg pubkey') }}
+# Endpoint for clients: {{ ansible_default_ipv4.address | default(ansible_host) }}:{{ wg_listen_port }}
+
+# Peers - add client public keys below
+# Example client peer:
+# [Peer]
+# PublicKey = <client_public_key>
+# AllowedIPs = 10.0.0.2/32
+{% if wg_peers is defined and wg_peers | length > 0 %}
+{% for peer in wg_peers %}
+
+[Peer]
+PublicKey = {{ peer.public_key }}
+AllowedIPs = {{ peer.allowed_ips }}
+{% if peer.endpoint is defined %}
+Endpoint = {{ peer.endpoint }}
+{% endif %}
+{% if peer.persistent_keepalive is defined %}
+PersistentKeepalive = {{ peer.persistent_keepalive }}
+{% endif %}
+{% endfor %}
+{% endif %}

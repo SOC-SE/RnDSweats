@@ -1,0 +1,9 @@
+---
+- name: restart endlessh
+  systemd:
+    name: endlessh
+    state: restarted
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes

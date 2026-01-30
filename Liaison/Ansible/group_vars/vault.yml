@@ -1,0 +1,3 @@
+---
+# Encrypt this file with ansible-vault for competition use.
+softether_server_password: CHANGE_ME_SOFTETHER  # set then `ansible-vault encrypt group_vars/vault.yml`

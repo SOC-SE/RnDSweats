@@ -1,0 +1,6 @@
+---
+# TShark Vars
+tshark_action: capture  # capture/read/filter
+tshark_filter: http
+pcap_file: "{{ liaison_log_dir }}/capture.pcap"
+port: 80

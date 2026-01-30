@@ -1,0 +1,2 @@
+---
+enum_output_dir: "{{ liaison_log_dir | default('/var/log/liaison') }}/enum"

@@ -1,0 +1,26 @@
+---
+# NTP Hub-and-Spoke Configuration for CCDC
+# Master server becomes Stratum 10 Orphan when internet is cut
+
+# Service name (Debian=chrony, RedHat=chronyd)
+chrony_service_name: "{{ 'chrony' if ansible_os_family == 'Debian' else 'chronyd' }}"
+
+# Action: install or remove
+ntp_action: install
+
+# Master NTP server IP (Hub)
+ntp_master_ip: 172.20.242.104
+
+# Subnet allowed to query the Master
+ntp_allow_network: 172.20.0.0/16
+
+# Orphan stratum level (becomes authoritative when upstreams fail)
+ntp_stratum: 10
+
+# Makestep: threshold (seconds) and limit (-1 = unlimited)
+ntp_makestep_threshold: 1.0
+ntp_makestep_limit: -1
+
+# Upstream pools (used by Master when internet is available)
+ntp_pools:
+  - pool.ntp.org

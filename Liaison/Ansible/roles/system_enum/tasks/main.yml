@@ -1,0 +1,45 @@
+---
+- name: Ensure enum log dir
+  file:
+    path: "{{ enum_output_dir }}"
+    state: directory
+
+- name: Capture listening ports
+  command: ss -tulnp
+  register: enum_ports
+  changed_when: false
+  failed_when: false
+
+- name: Capture running processes
+  command: ps aux --sort=-%mem
+  register: enum_procs
+  changed_when: false
+  failed_when: false
+
+- name: Capture last logins
+  command: last -n 10
+  register: enum_last
+  changed_when: false
+  failed_when: false
+
+- name: Capture cron
+  command: crontab -l
+  register: enum_cron
+  changed_when: false
+  failed_when: false
+
+- name: Write enum report
+  copy:
+    dest: "{{ enum_output_dir }}/report-{{ ansible_date_time.epoch }}.txt"
+    content: |
+      === Ports ===
+      {{ enum_ports.stdout | default('') }}
+
+      === Processes ===
+      {{ enum_procs.stdout | default('') }}
+
+      === Last Logins ===
+      {{ enum_last.stdout | default('') }}
+
+      === Cron ===
+      {{ enum_cron.stdout | default('none') }}

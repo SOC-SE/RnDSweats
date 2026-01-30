@@ -1,0 +1,7 @@
+---
+fim_path:
+  - /etc
+  - /var/log
+  - /root
+fim_choice: 1
+fim_check_interval: 5

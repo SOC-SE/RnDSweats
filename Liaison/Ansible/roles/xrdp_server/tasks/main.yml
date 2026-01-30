@@ -1,0 +1,53 @@
+---
+# XRDP Server Role
+# Compatible with Ubuntu 24.04, Fedora 42, Oracle Linux 9.2
+
+- name: Install XRDP and XFCE4 (Debian/Ubuntu)
+  package:
+    name:
+      - xrdp
+      - xfce4
+      - xfce4-goodies
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Install XRDP and XFCE4 (RedHat/Fedora)
+  package:
+    name:
+      - xrdp
+      - xfce4-session
+      - xfwm4
+      - xfce4-panel
+      - xfce4-terminal
+      - xfdesktop
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Get target user for .xsession
+  set_fact:
+    xrdp_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) | default('sysadmin') }}"
+
+- name: Get home directory for target user
+  shell: "getent passwd {{ xrdp_user }} | cut -d: -f6"
+  register: user_home
+  changed_when: false
+
+- name: Configure .xsession for XFCE4
+  copy:
+    content: |
+      #!/bin/bash
+      exec startxfce4
+    dest: "{{ user_home.stdout }}/.xsession"
+    owner: "{{ xrdp_user }}"
+    mode: '0755'
+  when: user_home.stdout | length > 0
+
+- name: Ensure XRDP is running
+  service:
+    name: xrdp
+    state: started
+    enabled: yes
+
+- name: Display XRDP status
+  debug:
+    msg: "XRDP installed for user {{ xrdp_user }}. Connect via RDP to port 3389."

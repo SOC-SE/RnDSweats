@@ -331,7 +331,7 @@ main() {
     check_root
     detect_pkg_manager
     prompt_mode
-    log_info "${GREEN}--- Script Complete ---${NC}"
+    log_info "--- Script Complete ---"
     log_info "Use this report for incident reporting or threat hunting. Review for anomalies like unknown users, open ports, or suspicious processes."
 }
 

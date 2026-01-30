@@ -1,0 +1,21 @@
+---
+# Role version of vpn_install.yml
+- include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ vpn_type }}.yml"  # e.g., openvpn.yml with tasks
+
+- name: Install OpenVPN block (example)
+  block:
+    # ... (full tasks from provided vpn_install.yml, e.g., apt install, easy-rsa, etc.)
+    - name: Template server.conf
+      template:
+        src: openvpn_server.conf.j2
+        dest: /etc/openvpn/server.conf
+      notify: restart openvpn
+  when: vpn_type == 'openvpn'
+
+  handlers:
+    - name: restart openvpn
+      systemd:
+        name: openvpn@server
+        state: restarted

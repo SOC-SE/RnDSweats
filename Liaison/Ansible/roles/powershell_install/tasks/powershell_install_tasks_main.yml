@@ -1,0 +1,69 @@
+---
+# From InstallPowerShell.sh: Install/verify/uninstall
+- name: Detect distro
+  set_fact:
+    powershell_distro: "{{ ansible_distribution | lower }}"
+
+- name: Set repo path
+  set_fact:
+    powershell_repo_path: "{{ 'ubuntu/' ~ ansible_distribution_version if powershell_distro in ['ubuntu', 'pop!_os'] else 'debian/' ~ ansible_distribution_major_version }}"
+
+- name: Assert supported distro
+  assert:
+    that:
+      - powershell_distro in ['ubuntu', 'debian']
+    fail_msg: "powershell_install supports Ubuntu/Debian only in this role."
+
+- name: Try apt-based install
+  block:
+    - name: Download Microsoft repo package
+      get_url:
+        url: "https://packages.microsoft.com/config/{{ powershell_repo_path }}/packages-microsoft-prod.deb"
+        dest: /tmp/packages-microsoft-prod.deb
+        timeout: 30
+      retries: 3
+      delay: 5
+      register: repo_download
+      until: repo_download is succeeded
+
+    - name: Install repo
+      command: dpkg -i /tmp/packages-microsoft-prod.deb
+      args:
+        creates: /etc/apt/sources.list.d/microsoft-prod.list
+
+    - name: Update and install via apt
+      apt:
+        name: powershell
+        update_cache: yes
+        state: present
+  rescue:
+    - name: Fallback to snap install
+      community.general.snap:
+        name: powershell
+        classic: yes
+        state: present
+  when:
+    - powershell_distro in ['ubuntu', 'debian']
+    - powershell_action | default('install') == 'install'
+
+- name: Verify
+  shell: pwsh -c '$PSVersionTable.PSVersion'
+  register: ps_version
+  changed_when: false
+  failed_when: false
+  when: powershell_action | default('install') == 'install'
+
+- name: Uninstall apt package
+  apt:
+    name: powershell
+    state: absent
+    purge: yes
+  failed_when: false
+  when: powershell_action | default('install') == 'remove' or uninstall | default(false) | bool
+
+- name: Uninstall snap package
+  community.general.snap:
+    name: powershell
+    state: absent
+  failed_when: false
+  when: powershell_action | default('install') == 'remove' or uninstall | default(false) | bool

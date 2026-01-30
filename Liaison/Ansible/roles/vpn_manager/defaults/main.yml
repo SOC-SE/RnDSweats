@@ -1,0 +1,29 @@
+---
+vpn_action: install
+vpn_type: wireguard  # wireguard|openvpn|softether
+
+# OpenVPN defaults
+openvpn_port: 1194
+openvpn_proto: udp
+openvpn_dev: tun
+openvpn_bind_ip: 0.0.0.0
+openvpn_server_net: 10.8.0.0 255.255.255.0
+vpn_internal_net: 10.8.0.0
+dns_server: 1.1.1.1
+
+# WireGuard defaults
+wg_interface: wg0
+wg_address: 10.0.0.1/24
+wg_listen_port: 51820
+wg_client_ips:
+  - 10.0.0.2/32
+
+# SoftEther defaults
+softether_tag: v4.44-9807-rtm
+softether_version: v4.44-9807-rtm-2025.04.16
+softether_url: "https://github.com/SoftEtherVPN/SoftEtherVPN_Stable/releases/download/{{ softether_tag }}/softether-vpnserver-{{ softether_version }}-linux-x64-64bit.tar.gz"
+softether_ports:
+  - 443/tcp
+  - 992/tcp
+  - 1194/tcp
+  - 5555/tcp

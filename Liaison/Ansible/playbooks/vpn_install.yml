@@ -1,0 +1,249 @@
+---
+- name: Install VPN Server
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  vars:
+    softether_download_url: "https://github.com/SoftEtherVPN/SoftEtherVPN_Stable/releases/download/v4.44-9807-rtm/softether-vpnserver-v4.44-9807-rtm-2025.04.16-linux-x64-64bit.tar.gz"
+    softether_ports: [443, 992, 1194, 5555]
+
+  vars_prompt:
+    - name: vpn_type
+      prompt: "Enter VPN type to install (openvpn, wireguard, softether)"
+      private: no
+      default: wireguard
+
+  tasks:
+    - name: Common setup
+      block:
+        - name: Update cache
+          apt:
+            update_cache: yes
+          when: ansible_os_family == "Debian"
+
+        - name: Install firewall tools
+          package:
+            name:
+              - ufw
+              - iptables-persistent
+              - wget
+              - ca-certificates
+            state: present
+          when: ufw_enabled | default(false)
+
+    - block:  # OpenVPN
+        - name: Install packages
+          package:
+            name: [openvpn, easy-rsa]
+            state: present
+
+        - name: Setup Easy-RSA
+          shell: |
+            make-cadir /etc/openvpn/easy-rsa
+            cd /etc/openvpn/easy-rsa
+            ln -s openssl-1.0.0.cnf openssl.cnf || true
+          args:
+            creates: /etc/openvpn/easy-rsa/easyrsa
+
+        - name: Init PKI & build CA/server/DH/TA
+          shell: |
+            ./easyrsa init-pki
+            echo -e "\n" | ./easyrsa build-ca nopass
+            ./easyrsa build-server-full server nopass
+            ./easyrsa gen-dh
+            openvpn --genkey secret ta.key
+          args:
+            chdir: /etc/openvpn/easy-rsa
+            creates: /etc/openvpn/easy-rsa/pki/dh.pem
+
+        - name: Copy keys/certs
+          copy:
+            src: "/etc/openvpn/easy-rsa/pki/{{ item }}"
+            dest: "/etc/openvpn/{{ item }}"
+            remote_src: yes
+          loop:
+            - ca.crt
+            - issued/server.crt
+            - private/server.key
+            - dh.pem
+            - ta.key
+
+        - name: Template config
+          template:
+            src: openvpn_server.conf.j2
+            dest: /etc/openvpn/server.conf
+
+        - name: Enable forwarding & NAT
+          block:
+            - sysctl:
+                name: net.ipv4.ip_forward
+                value: '1'
+                state: present
+                reload: yes
+            - iptables:
+                table: nat
+                chain: POSTROUTING
+                out_interface: "{{ ansible_default_ipv4.interface }}"
+                jump: MASQUERADE
+                state: present
+            - shell: netfilter-persistent save
+
+        - name: Firewall rule
+          ufw:
+            rule: allow
+            port: "{{ openvpn_port | default('1194') }}/{{ openvpn_proto | default('udp') }}"
+
+        - name: Start service
+          systemd:
+            name: openvpn@server
+            enabled: yes
+            state: started
+
+      when: vpn_type == "openvpn"
+
+    - block:  # WireGuard
+        - name: Install
+          package:
+            name: wireguard
+            state: present
+
+        - name: Generate keys
+          shell: |
+            umask 077
+            wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
+          args:
+            creates: /etc/wireguard/private.key
+
+        - name: Load private key
+          slurp:
+            path: /etc/wireguard/private.key
+          register: priv_b64
+
+        - name: Set private key fact
+          set_fact:
+            server_private_key_content: "{{ priv_b64.content | b64decode | trim }}"
+
+        - name: Template config
+          template:
+            src: wg0.conf.j2
+            dest: /etc/wireguard/{{ wg_interface | default('wg0') }}.conf
+            mode: '0600'
+
+        - name: Firewall rule
+          ufw:
+            rule: allow
+            port: "{{ wg_listen_port | default('51820') }}/udp"
+
+        - name: Start service
+          systemd:
+            name: "wg-quick@{{ wg_interface | default('wg0') }}"
+            enabled: yes
+            state: started
+
+      when: vpn_type == "wireguard"
+
+    - block:  # SoftEther
+        - name: Install build deps
+          package:
+            name:
+              - build-essential
+              - libreadline-dev
+              - libssl-dev
+              - libncurses5-dev
+              - libncursesw5-dev
+              - zlib1g-dev
+              - wget
+              - tar
+              - make
+              - gcc
+              - ca-certificates
+            state: present
+
+        - name: Download & extract
+          block:
+            # Run as regular user to avoid 'sudo password required' error
+            - name: Download source (wget)
+              command: >
+                wget -4 --no-check-certificate --no-verbose -O /tmp/vpnserver.tar.gz "{{ softether_download_url }}"
+              args:
+                creates: /tmp/vpnserver.tar.gz
+              become: no
+              register: dl_cmd
+              until: dl_cmd.rc == 0
+              retries: 5
+              delay: 5
+
+            - file:
+                path: /tmp/vpnserver_extract
+                state: directory
+              become: no
+
+            - unarchive:
+                src: /tmp/vpnserver.tar.gz
+                dest: /tmp/vpnserver_extract
+                remote_src: yes
+              become: no
+
+            - shell: find /tmp/vpnserver_extract -maxdepth 2 -type d -name "vpnserver" | head -1
+              register: softether_dir
+              become: no
+
+        - name: Compile (User Mode)
+          shell: |
+            cd {{ softether_dir.stdout }}
+            echo -e "1\n1\n1" | make
+          become: no
+
+        - name: Install Binaries (Root Mode)
+          shell: |
+            mkdir -p /opt/vpnserver
+            cp -r {{ softether_dir.stdout }}/* /opt/vpnserver/
+            chmod 755 /opt/vpnserver/vpnserver /opt/vpnserver/vpncmd
+          args:
+            creates: /opt/vpnserver/vpnserver
+          become: yes
+
+        - name: Create Systemd Service
+          copy:
+            dest: /etc/systemd/system/vpnserver.service
+            content: |
+              [Unit]
+              Description=SoftEther VPN Server
+              After=network.target auditd.service
+              ConditionPathExists=!/opt/vpnserver/do_not_run
+
+              [Service]
+              Type=forking
+              ExecStart=/opt/vpnserver/vpnserver start
+              ExecStop=/opt/vpnserver/vpnserver stop
+              KillMode=process
+              Restart=on-failure
+              WorkingDirectory=/opt/vpnserver
+
+              [Install]
+              WantedBy=multi-user.target
+          become: yes
+
+        - name: Reload & start
+          systemd:
+            daemon_reload: yes
+            name: vpnserver
+            enabled: yes
+            state: started
+          become: yes
+
+        - name: Firewall rules
+          ufw:
+            rule: allow
+            port: "{{ item }}"
+          loop: "{{ softether_ports }}"
+          when: ufw_enabled | default(false)
+          become: yes
+
+      when: vpn_type == "softether"
+
+  handlers:
+    - name: restart wireguard
+      systemd:
+        name: "wg-quick@{{ wg_interface | default('wg0') }}"
+        state: restarted

@@ -58,12 +58,12 @@ detect_pkg_manager() {
         REMOVE_CMD="apt-get purge -y"
     elif command -v dnf &> /dev/null; then
         PKG_MANAGER="dnf"
-        UPDATE_CMD="dnf check-update -y"
+        UPDATE_CMD="dnf makecache -y"
         INSTALL_CMD="dnf install -y"
         REMOVE_CMD="dnf remove -y"
     elif command -v yum &> /dev/null; then
         PKG_MANAGER="yum"
-        UPDATE_CMD="yum check-update -y"
+        UPDATE_CMD="yum makecache"
         INSTALL_CMD="yum install -y"
         REMOVE_CMD="yum remove -y"
     else
@@ -225,7 +225,9 @@ MaxLineLength 32
 LogLevel 2
 EOF
     command -v rsyslogd &> /dev/null && {
-        echo "local0.* /var/log/endlessh.log" >> /etc/rsyslog.d/10-endlessh.conf
+        if ! grep -q 'endlessh.log' /etc/rsyslog.d/10-endlessh.conf 2>/dev/null; then
+            echo "local0.* /var/log/endlessh.log" >> /etc/rsyslog.d/10-endlessh.conf
+        fi
         systemctl restart rsyslog >/dev/null 2>&1 || log_warn "rsyslog restart failed."
     }
     command -v ufw &> /dev/null && {
@@ -279,7 +281,7 @@ apply_config() {
     case "$conf" in
         "Increase delay to 5000ms") echo "Delay 5000" >> "$CONFIG_FILE" ;;
         "Set max clients to 32") echo "MaxClients 32" >> "$CONFIG_FILE" ;;
-        "Enable verbose logging") echo "LogLevel 2" >> "$CONFIG_FILE" ;;
+        "Enable verbose logging") sed -i 's/^LogLevel .*/LogLevel 3/' "$CONFIG_FILE" ;;
         "Bind to specific IP")
             read -p "IP: " IP
             [[ ! $IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && log_error "Invalid IP."
@@ -293,7 +295,7 @@ revert_config() {
     case "$conf" in
         "Increase delay to 5000ms") sed -i '/Delay 5000/d' "$CONFIG_FILE" ;;
         "Set max clients to 32") sed -i '/MaxClients 32/d' "$CONFIG_FILE" ;;
-        "Enable verbose logging") sed -i '/LogLevel 2/d' "$CONFIG_FILE" ;;
+        "Enable verbose logging") sed -i 's/^LogLevel .*/LogLevel 2/' "$CONFIG_FILE" ;;
         "Bind to specific IP") sed -i '/BindHost /d' "$CONFIG_FILE" ;;
     esac
     sed -i "/^$conf$/d" "$STATE_FILE"
@@ -312,13 +314,15 @@ export_logs() {
     local timestamp=$(date +%Y%m%d_%H%M)
     local output_file="$export_dir/endlessh_logs_${timestamp}.txt"
     if $use_journal; then
-        local cmd="journalctl -u endlessh --since '$start_time' --until '$end_time'"
-        [[ -n $keyword ]] && cmd+=" | grep -i '$keyword'"
-        eval "$cmd" > "$output_file"
+        if [[ -n $keyword ]]; then
+            journalctl -u endlessh --since "$start_time" --until "$end_time" | grep -i "$keyword" > "$output_file"
+        else
+            journalctl -u endlessh --since "$start_time" --until "$end_time" > "$output_file"
+        fi
     else
         awk -v start="$start_time" -v end="$end_time" -v kw="$keyword" '
-            $1" "$2 >= start && $1" "$2 <= end {print}
-            kw && /kw/ {print}' "$log_file" > "$output_file"
+            {ts = $1 " " $2}
+            ts >= start && ts <= end { if (kw == "" || index($0, kw) > 0) print }' "$log_file" > "$output_file"
     fi
     log_info "Exported to $output_file"
 }

@@ -68,7 +68,7 @@ run_nmap() {
     local cmd="$1" desc="$2" log_suffix="${3:-general}" log_file="${LOG_DIR}/nmap_${log_suffix}_${TIMESTAMP}.log"
     log_info "Running: $cmd ($desc)"
     echo "Command: $cmd" >> "$log_file"
-    { nmap "$cmd" -oN "$log_file" 2>&1 | tee -a "$log_file"; } &
+    { nmap $cmd -oN "$log_file" 2>&1 | tee -a "$log_file"; } &
     progress_bar $!
     wait $!
     [[ -f $log_file && $(grep -c "Nmap done" "$log_file") -gt 0 ]] && {
@@ -95,7 +95,7 @@ while true; do
             target=$(get_target)
             case $choice in
                 1) cmd="-sn"; desc="Host discovery" ;;
-                2) read -p "Timing (T4): " timing; timing=${timing:-T4}; cmd="-p- -T$timing"; desc="Port scan" ;;
+                2) read -p "Timing (0-5, default 4): " timing; timing=${timing:-4}; cmd="-p- -T$timing"; desc="Port scan" ;;
                 3) read -p "Ports: " ports; cmd="-sV ${ports:+-p $ports}"; desc="Service version" ;;
                 4) cmd="-O"; desc="OS detection" ;;
                 5) cmd="--script vuln"; desc="Vuln scan" ;;

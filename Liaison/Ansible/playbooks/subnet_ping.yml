@@ -1,0 +1,71 @@
+---
+# From SubnetAndPingConfigs.sh: Subnet calc/configure/remove/view for IPv4/IPv6 ping
+- name: Subnet and Ping Configurator
+  hosts: linux_servers
+  become: yes
+  vars_prompt:
+    - name: subnet_mode
+      prompt: "Mode (calculate/configure/remove/view)"
+      default: "{{ subnet_mode }}"
+    - name: subnet_proto
+      prompt: "Protocol (ipv4/ipv6)"
+      default: "{{ subnet_proto }}"
+  tasks:
+    - name: Install tools (ipcalc/sipcalc)
+      package:
+        name:
+          - ipcalc  # IPv4
+          - sipcalc  # IPv6
+        state: present
+
+    - name: Calculate subnets (IPv4)
+      shell: ipcalc {{ vpn_internal_net }} | grep -E "Network|HostMin|HostMax|Broadcast"
+      register: ipv4_calc
+      when: subnet_proto == 'ipv4' and subnet_mode == 'calculate'
+      changed_when: false
+
+    - name: Calculate subnets (IPv6)
+      shell: sipcalc {{ vpn_internal_net }} | grep -E "Network|HostMin|HostMax"
+      register: ipv6_calc
+      when: subnet_proto == 'ipv6' and subnet_mode == 'calculate'
+      changed_when: false
+
+    - name: Configure IPv4 ping (assign IP, UFW ICMP)
+      block:
+        - name: Assign temp IP (e.g., 172.20.242.105/24)
+          shell: ip addr add 172.20.242.105/24 dev {{ ansible_default_ipv4.interface }}
+        - name: Allow ICMP
+          ufw:
+            rule: allow
+            proto: icmp
+          when: ufw_enabled
+        - name: Test ping to DNS
+          shell: ping -c 3 {{ dns_server }}
+          register: ping_test
+          changed_when: false
+      when: subnet_mode == 'configure' and subnet_proto == 'ipv4'
+
+    - name: Remove config (del IP, deny ICMP)
+      block:
+        - name: Del temp IP
+          shell: ip addr del 172.20.242.105/24 dev {{ ansible_default_ipv4.interface }}
+        - name: Deny ICMP
+          ufw:
+            rule: deny
+            proto: icmp
+      when: subnet_mode == 'remove'
+
+    - name: View current configs
+      shell: ip addr show | grep 172.20.242
+      register: current_ip
+      changed_when: false
+      when: subnet_mode == 'view'
+
+  post_tasks:
+    - name: Log results
+      copy:
+        content: |
+          Mode: {{ subnet_mode }}, Proto: {{ subnet_proto }}
+          {{ (ipv4_calc.stdout | default('N/A') if subnet_proto == 'ipv4' else ipv6_calc.stdout | default('N/A')) if subnet_mode == 'calculate' else (ping_test.stdout | default('N/A') if subnet_mode == 'configure' else current_ip.stdout | default('N/A')) }}
+        dest: "{{ liaison_log_dir }}/subnet_ping.log"
+        backup: yes

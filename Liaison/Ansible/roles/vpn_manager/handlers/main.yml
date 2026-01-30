@@ -1,0 +1,10 @@
+---
+- name: restart wireguard
+  systemd:
+    name: "wg-quick@{{ wg_interface }}"
+    state: restarted
+
+- name: restart openvpn
+  systemd:
+    name: openvpn@server
+    state: restarted

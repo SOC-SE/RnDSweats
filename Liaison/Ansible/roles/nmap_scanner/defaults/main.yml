@@ -1,0 +1,4 @@
+---
+nmap_package: nmap
+nmap_target: "{{ vpn_internal_net | default('192.168.1.0/24') }}"
+nmap_type: sn

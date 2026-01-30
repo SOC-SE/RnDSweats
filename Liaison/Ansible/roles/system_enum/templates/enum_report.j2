@@ -1,0 +1,41 @@
+MWCCDC System Enumeration Report - {{ ansible_date_time.date }}
+Category: {{ enum_category }}
+Hostname: {{ inventory_hostname }}
+IP: {{ ansible_default_ipv4.address | default('N/A') }}
+
+{% if enum_category in ['1', '8'] %}
+=== System Overview ===
+{{ overview.stdout | default('No data collected') }}
+
+{% endif %}
+{% if enum_category in ['2', '8'] %}
+=== Users & Authentication ===
+{{ users.stdout | default('No data collected') }}
+
+{% endif %}
+{% if enum_category in ['3', '8'] %}
+=== Network ===
+{{ network.stdout | default('No data collected') }}
+
+{% endif %}
+{% if enum_category in ['4', '8'] %}
+=== Processes ===
+{{ processes.stdout | default('No data collected') }}
+
+{% endif %}
+{% if enum_category in ['5', '8'] %}
+=== Logs (auth.log last 50) ===
+{{ logs.stdout | default('No log data available') }}
+
+{% endif %}
+{% if enum_category in ['6', '8'] %}
+=== Filesystem ===
+{{ fs.stdout | default('No data collected') }}
+
+{% endif %}
+{% if enum_category in ['7', '8'] %}
+=== Security Scan ===
+{{ security.stdout | default('No data collected') }}
+
+{% endif %}
+Report generated for inject/threat hunting. Review anomalies.

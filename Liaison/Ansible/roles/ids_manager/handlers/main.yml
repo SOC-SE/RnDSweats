@@ -1,0 +1,8 @@
+---
+- name: restart suricata
+  systemd:
+    name: suricata
+    state: restarted
+
+- name: update rules
+  shell: suricata-update

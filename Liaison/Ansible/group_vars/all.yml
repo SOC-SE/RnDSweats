@@ -1,0 +1,116 @@
+---
+# MWCCDC Common Vars (2025 Midwest Invitational Team Pack)
+vpn_internal_net: 172.20.242.0/24
+dns_server: 172.20.242.20           # Splunk (Oracle Linux)
+ufw_enabled: true
+liaison_log_dir: /var/log/liaison
+
+# NTP Hub-and-Spoke Architecture
+ntp_master_ip: 172.20.242.104       # Ubuntu Ecom (NTP Master)
+ntp_allow_network: 172.20.0.0/16    # All CCDC subnets can sync
+
+# VPN
+openvpn_port: 1194
+openvpn_proto: udp
+openvpn_dev: tun
+openvpn_server_net: 10.8.0.0 255.255.255.0
+openvpn_bind_ip: 172.20.242.104     # Ubuntu Ecom hosts VPN
+
+wg_interface: wg0
+wg_address: 10.0.0.1/24
+wg_listen_port: 51820
+wg_client_ips:
+  - 10.0.0.2/32
+
+# SoftEther defaults now live in role defaults; secrets move to vault/prompt.
+
+# NTP
+ntp_broadcast_ip: 224.0.1.1
+ntp_pools:
+  - pool.ntp.org iburst
+
+# Docker Services
+docker_services:
+  - key: vpn
+    name: OpenVPN
+    image: kylemanna/openvpn
+    ports: 1194:1194/udp
+    host_svc: openvpn@server
+  - key: honeypot
+    name: Cowrie SSH Honeypot
+    image: cowrie/cowrie
+    ports: 2222:2222
+    caps: NET_ADMIN
+  - key: ids
+    name: Suricata
+    image: jasonish/suricata
+    ports: ""
+    caps: NET_ADMIN NET_RAW
+  - key: filebrowser
+    name: Filebrowser
+    image: filebrowser/filebrowser
+    ports: "8080:80"
+  - key: owncloud
+    name: ownCloud
+    image: owncloud/server
+    ports: "8081:8080"
+  - key: tftp
+    name: TFTP Server
+    image: pghalliday/tftp
+    ports: "69:69/udp"
+    caps: NET_ADMIN
+
+
+# Scanning/Enum
+nmap_target: "{{ vpn_internal_net }}"
+nmap_type: aggressive
+
+# Firewall
+allowed_ports:
+  - 22
+  - 80
+  - 443
+  - 3389  # XRDP
+  - 1194  # OpenVPN
+  - 51820 # WireGuard
+
+# Backup
+backup_dir: /var/backups/mwccdc
+
+# FIM
+fim_path: /etc /var/log /root
+fim_check_interval: "*/5"  # Cron schedule
+
+# ClamAV
+clamav_scan_dir: /home
+clamav_log_file: /var/log/clamav/manual_scan.log
+
+# XRDP
+xrdp_port: 3389
+
+# TShark
+
+tshark_interface: any
+tshark_filter: http
+tshark_action: capture
+
+# System Enum
+enum_category: all
+
+# Honeypot
+honeypot_port: 2222
+honeypot_adjust: verbose
+
+# IDS
+ids_type: IDS
+ids_adjust: ssh_rule
+
+# Selection defaults
+service_key: vpn
+
+# Rootkit Scanner
+rootkit_action: scan
+rootkit_scan_dir: /
+rootkit_tools:
+  - rkhunter
+  - chkrootkit

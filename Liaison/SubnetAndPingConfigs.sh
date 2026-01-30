@@ -308,7 +308,7 @@ main() {
     detect_pkg_manager
     install_tools
     prompt_mode
-    log_info "${GREEN}--- Script Complete ---${NC}"
+    log_info "--- Script Complete ---"
     log_info "Remember to verify configurations."
 }
 

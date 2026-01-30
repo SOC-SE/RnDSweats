@@ -1,0 +1,37 @@
+---
+# From Network_Scanner_Nmap.sh: Nmap scans with logging
+- name: Ensure nmap installed
+  package:
+    name: "{{ nmap_package | default('nmap') }}"
+    state: present
+
+- name: Ensure log dir
+  file:
+    path: "{{ liaison_log_dir | default('/var/log/liaison') }}/nmap_logs"
+    state: directory
+    mode: '0755'
+
+- name: Set scan target
+  set_fact:
+    scan_target: "{{ nmap_target | default('127.0.0.1') }}"
+    scan_type: "{{ nmap_type | default('ping') }}"
+
+- name: Run Nmap scan
+  shell: |
+    nmap {{ nmap_cmd }} -oA {{ liaison_log_dir | default('/var/log/liaison') }}/nmap_logs/scan-{{ ansible_date_time.epoch }}
+  register: nmap_out
+  vars:
+    nmap_cmd: >-
+      {% if scan_type == 'port' %}-p- -T4 {{ scan_target }}
+      {% elif scan_type == 'service' %}-sV {{ scan_target }}
+      {% elif scan_type == 'os' %}-O {{ scan_target }}
+      {% elif scan_type == 'vuln' %}--script vuln {{ scan_target }}
+      {% elif scan_type == 'aggressive' %}-A {{ scan_target }}
+      {% else %}-sn {{ scan_target }}{% endif %}
+  async: 300
+  poll: 5
+  changed_when: false
+
+- name: Display results
+  debug:
+    msg: "{{ nmap_out.stdout_lines[:10] | default(['No results']) }}"

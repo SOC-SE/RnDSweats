@@ -1,0 +1,16 @@
+---
+# From PCAP_Analyzer_Tshark.sh: Advanced filters
+- name: Filter HTTP/DNS/Port/IP/TCP_SYN/Creds
+  shell: |
+    tshark -r {{ pcap_file }} -Y "{{ filter_expr }}" -T fields -e frame.time -e ip.src -e ip.dst -e {{ tshark_filter == 'creds' | ternary('http.request.uri', 'tcp.srcport') }}
+  vars:
+    filter_expr: >-
+      {% if tshark_filter == 'http' %}http
+      {% elif tshark_filter == 'dns' %}dns
+      {% elif tshark_filter == 'port' %}'tcp.port == {{ port | default(80) }}'
+      {% elif tshark_filter == 'tcp_syn' %}'tcp.flags.syn == 1'
+      {% elif tshark_filter == 'creds' %}'http contains "password"'
+      {% else %}{{ tshark_filter }}{% endif %}
+  register: analysis
+  loop: "{{ pcap_files | default([liaison_log_dir ~ '/capture.pcap']) }}"
+  changed_when: false

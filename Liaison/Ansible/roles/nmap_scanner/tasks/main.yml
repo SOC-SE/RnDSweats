@@ -1,0 +1,2 @@
+---
+- import_tasks: nmap_scanner_tasks_main.yml

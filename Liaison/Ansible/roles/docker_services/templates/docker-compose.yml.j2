@@ -1,0 +1,11 @@
+# Docker Compose for MWCCDC Services
+version: '3'
+services:
+{% for service in docker_services %}
+  {{ service.key }}:
+    image: {{ service.image }}
+    ports:
+      - "{{ service.ports }}"
+    cap_add:
+      - {{ service.caps | default('NET_ADMIN') }}
+{% endfor %}

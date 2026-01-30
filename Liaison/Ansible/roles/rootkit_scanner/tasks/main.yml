@@ -1,0 +1,175 @@
+---
+# Rootkit Scanner Role
+# Compatible with Ubuntu 24.04, Fedora 42, Oracle Linux 9.2
+# Tools: rkhunter, chkrootkit
+
+# ============================================================
+# INSTALLATION
+# ============================================================
+
+- name: Install rkhunter (Debian/Ubuntu)
+  package:
+    name: rkhunter
+    state: present
+  when:
+    - ansible_os_family == "Debian"
+    - "'rkhunter' in rootkit_tools"
+    - rootkit_action in ['install', 'scan', 'update']
+
+- name: Install rkhunter (RedHat/Fedora)
+  package:
+    name: rkhunter
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+    - "'rkhunter' in rootkit_tools"
+    - rootkit_action in ['install', 'scan', 'update']
+
+- name: Install chkrootkit (Debian/Ubuntu)
+  package:
+    name: chkrootkit
+    state: present
+  when:
+    - ansible_os_family == "Debian"
+    - "'chkrootkit' in rootkit_tools"
+    - rootkit_action in ['install', 'scan', 'update']
+
+- name: Install chkrootkit (RedHat/Fedora via EPEL)
+  block:
+    - name: Enable EPEL repository
+      package:
+        name: epel-release
+        state: present
+      when: ansible_distribution != "Fedora"
+
+    - name: Install chkrootkit
+      package:
+        name: chkrootkit
+        state: present
+  when:
+    - ansible_os_family == "RedHat"
+    - "'chkrootkit' in rootkit_tools"
+    - rootkit_action in ['install', 'scan', 'update']
+
+# ============================================================
+# LOG DIRECTORY SETUP
+# ============================================================
+
+- name: Ensure rootkit log directory exists
+  file:
+    path: "{{ rootkit_log_dir }}"
+    state: directory
+    mode: '0750'
+    owner: root
+    group: root
+
+# ============================================================
+# DATABASE UPDATE (rkhunter)
+# ============================================================
+
+- name: Update rkhunter database
+  command: rkhunter --update
+  register: rkhunter_update
+  changed_when: "'Update' in rkhunter_update.stdout"
+  failed_when: false
+  when:
+    - "'rkhunter' in rootkit_tools"
+    - rootkit_action in ['update', 'scan']
+
+- name: Update rkhunter file properties database
+  command: rkhunter --propupd
+  register: rkhunter_propupd
+  changed_when: rkhunter_propupd.rc == 0
+  when:
+    - "'rkhunter' in rootkit_tools"
+    - rootkit_action in ['update', 'install']
+
+# ============================================================
+# SCANNING
+# ============================================================
+
+- name: Run rkhunter scan
+  shell: |
+    rkhunter --check --skip-keypress --report-warnings-only \
+      --logfile {{ rootkit_log_dir }}/rkhunter-{{ ansible_date_time.date }}.log \
+      {{ '--rootdir ' + rootkit_scan_dir if rootkit_scan_dir != '/' else '' }}
+  register: rkhunter_scan
+  failed_when: false
+  changed_when: false
+  when:
+    - "'rkhunter' in rootkit_tools"
+    - rootkit_action == 'scan'
+
+- name: Run chkrootkit scan
+  shell: |
+    chkrootkit {% if rootkit_scan_dir != '/' %}-r {{ rootkit_scan_dir }}{% endif %} \
+      2>&1 | tee {{ rootkit_log_dir }}/chkrootkit-{{ ansible_date_time.date }}.log
+  register: chkrootkit_scan
+  failed_when: false
+  changed_when: false
+  when:
+    - "'chkrootkit' in rootkit_tools"
+    - rootkit_action == 'scan'
+
+# ============================================================
+# SCHEDULED SCANNING (CRON)
+# ============================================================
+
+- name: Create daily rkhunter scan cron job
+  cron:
+    name: "Daily rkhunter rootkit scan"
+    minute: "{{ rootkit_scan_minute }}"
+    hour: "{{ rootkit_scan_hour }}"
+    job: "/usr/bin/rkhunter --check --skip-keypress --report-warnings-only --logfile {{ rootkit_log_dir }}/rkhunter-$(date +\\%Y-\\%m-\\%d).log 2>/dev/null"
+    user: root
+  when:
+    - rootkit_schedule_scan | bool
+    - "'rkhunter' in rootkit_tools"
+
+- name: Create daily chkrootkit scan cron job
+  cron:
+    name: "Daily chkrootkit rootkit scan"
+    minute: "{{ rootkit_scan_minute | int + 15 }}"
+    hour: "{{ rootkit_scan_hour }}"
+    job: "/usr/bin/chkrootkit > {{ rootkit_log_dir }}/chkrootkit-$(date +\\%Y-\\%m-\\%d).log 2>&1"
+    user: root
+  when:
+    - rootkit_schedule_scan | bool
+    - "'chkrootkit' in rootkit_tools"
+
+# ============================================================
+# SCAN RESULTS SUMMARY
+# ============================================================
+
+- name: Display rkhunter scan summary
+  debug:
+    msg: |
+      === RKHUNTER SCAN COMPLETE ===
+      Directory scanned: {{ rootkit_scan_dir }}
+      Log file: {{ rootkit_log_dir }}/rkhunter-{{ ansible_date_time.date }}.log
+      Return code: {{ rkhunter_scan.rc | default('N/A') }}
+      {% if rkhunter_scan.rc | default(0) != 0 %}
+      ⚠️  WARNINGS DETECTED - Review log file for details
+      {% else %}
+      ✅ No warnings detected
+      {% endif %}
+  when:
+    - "'rkhunter' in rootkit_tools"
+    - rootkit_action == 'scan'
+    - rkhunter_scan is defined
+
+- name: Display chkrootkit scan summary
+  debug:
+    msg: |
+      === CHKROOTKIT SCAN COMPLETE ===
+      Directory scanned: {{ rootkit_scan_dir }}
+      Log file: {{ rootkit_log_dir }}/chkrootkit-{{ ansible_date_time.date }}.log
+      {% if 'INFECTED' in chkrootkit_scan.stdout | default('') %}
+      🚨 INFECTED FILES DETECTED - Review log file immediately!
+      {% else %}
+      ✅ No infections detected
+      {% endif %}
+  when:
+    - "'chkrootkit' in rootkit_tools"
+    - rootkit_action == 'scan'
+    - chkrootkit_scan is defined

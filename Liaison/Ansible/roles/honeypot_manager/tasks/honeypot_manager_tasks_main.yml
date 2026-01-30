@@ -1,0 +1,107 @@
+---
+# From Honeypot.sh: Endlessh (SSH honeypot)
+- name: Install Endlessh dependencies
+  package:
+    name:
+      - git
+      - build-essential
+      - libc6-dev
+    state: present
+  when: honeypot_action | default('install') == 'install'
+
+- name: Check if endlessh is installed
+  stat:
+    path: /usr/local/bin/endlessh
+  register: endlessh_installed
+
+- name: Clone Endlessh repo
+  git:
+    repo: https://github.com/skeeto/endlessh.git
+    dest: /tmp/endlessh
+    version: master
+  when:
+    - honeypot_action | default('install') == 'install'
+    - not endlessh_installed.stat.exists
+
+- name: Build Endlessh
+  shell: make && make install
+  args:
+    chdir: /tmp/endlessh
+    creates: /usr/local/bin/endlessh
+  when:
+    - honeypot_action | default('install') == 'install'
+    - not endlessh_installed.stat.exists
+
+- name: Ensure endlessh config dir
+  file:
+    path: /etc/endlessh
+    state: directory
+    mode: '0755'
+  when: honeypot_action | default('install') == 'install'
+
+- name: Template config
+  template:
+    src: "{{ playbook_dir }}/templates/endlessh_config.j2"
+    dest: /etc/endlessh/config
+    mode: '0644'
+  when: honeypot_action | default('install') == 'install'
+
+- name: Systemd unit
+  template:
+    src: endlessh.service.j2
+    dest: /etc/systemd/system/endlessh.service
+    mode: '0644'
+  notify: reload systemd
+  when: honeypot_action | default('install') == 'install'
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes
+  when: honeypot_action | default('install') == 'install'
+
+- name: Start Endlessh service
+  systemd:
+    name: endlessh
+    enabled: true
+    state: started
+  when: honeypot_action | default('install') == 'install'
+
+- name: Show honeypot status
+  debug:
+    msg: "Endlessh honeypot started on port {{ honeypot_port | default(2222) }}"
+  when: honeypot_action | default('install') == 'install'
+
+- name: Remove Endlessh
+  block:
+    - name: Stop Endlessh service
+      systemd:
+        name: endlessh
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove Endlessh binary
+      file:
+        path: /usr/local/bin/endlessh
+        state: absent
+
+    - name: Remove Endlessh unit
+      file:
+        path: /etc/systemd/system/endlessh.service
+        state: absent
+
+    - name: Remove Endlessh config
+      file:
+        path: /etc/endlessh
+        state: absent
+
+    - name: Reload systemd after removal
+      systemd:
+        daemon_reload: yes
+      changed_when: false
+
+    - name: Show removal status
+      debug:
+        msg: "Endlessh honeypot removed"
+  when: honeypot_action | default('install') == 'remove'
+

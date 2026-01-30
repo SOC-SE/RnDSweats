@@ -1,0 +1,5 @@
+---
+docker_package_debian: docker.io
+docker_package_redhat: docker
+docker_service_name: docker
+docker_action: install

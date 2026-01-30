@@ -1,0 +1,62 @@
+---
+# From system_enumerator.sh: Enum categories
+- name: System Enumeration
+  hosts: linux_servers
+  become: yes
+  vars_prompt:
+    - name: enum_category
+      prompt: "Category (1=overview,2=users,3=network,4=processes,5=logs,6=filesystem,7=security,8=all)"
+      default: "{{ enum_category | default('8') }}"
+  tasks:
+    - name: Overview
+      shell: |
+        uname -a; cat /etc/os-release; df -h; free -h
+      register: overview
+      changed_when: false
+      when: enum_category in ['1', '8']
+
+    - name: Users/Auth
+      shell: |
+        cat /etc/passwd | cut -d: -f1; lastlog | tail -5
+      register: users
+      changed_when: false
+      when: enum_category in ['2', '8']
+
+    - name: Network
+      shell: ss -tuln | grep LISTEN
+      register: network
+      changed_when: false
+      when: enum_category in ['3', '8']
+
+    - name: Processes
+      shell: ps aux | wc -l; top -b -n1 | head -20
+      register: processes
+      changed_when: false
+      when: enum_category in ['4', '8']
+
+    - name: Logs
+      shell: tail -n 50 /var/log/auth.log
+      register: logs
+      changed_when: false
+      failed_when: false
+      when: enum_category in ['5', '8']
+
+    - name: Filesystem/Integrity
+      shell: ls -la /etc | wc -l; aide --check 2>/dev/null || echo 'AIDE not installed'
+      register: fs
+      changed_when: false
+      failed_when: false
+      when: enum_category in ['6', '8']
+
+    - name: Security (chkrootkit if avail)
+      shell: chkrootkit || echo "Not installed"
+      register: security
+      changed_when: false
+      failed_when: false
+      when: enum_category in ['7', '8']
+
+  post_tasks:
+    - name: Generate report
+      template:
+        src: "{{ playbook_dir }}/../roles/system_enum/templates/enum_report.j2"
+        dest: "{{ liaison_log_dir }}/enum_report.txt"

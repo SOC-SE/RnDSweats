@@ -1,0 +1,4 @@
+---
+start_now: false
+uninstall: false
+powershell_action: install

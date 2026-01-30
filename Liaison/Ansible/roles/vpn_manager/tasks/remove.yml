@@ -1,0 +1,41 @@
+---
+- name: Stop VPN services if present
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  ignore_errors: true
+  loop:
+    - "wg-quick@{{ wg_interface }}"
+    - "openvpn@server"
+    - vpnserver
+
+- name: Remove VPN packages
+  package:
+    name:
+      - wireguard
+      - wireguard-tools
+      - openvpn
+      - easy-rsa
+    state: absent
+  failed_when: false
+
+- name: Purge VPN configs and data
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/wireguard
+    - /etc/openvpn
+    - /opt/vpnserver
+    - /tmp/vpnserver
+    - /tmp/vpnserver.tar.gz
+    - /etc/systemd/system/vpnserver.service
+
+- name: Reload systemd after removal
+  systemd:
+    daemon_reload: yes
+
+- name: Show removal status
+  debug:
+    msg: "VPN components removed successfully from {{ inventory_hostname }}"

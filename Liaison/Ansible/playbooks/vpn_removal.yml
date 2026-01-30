@@ -1,0 +1,163 @@
+---
+- name: Remove VPN Server
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  vars_prompt:
+    - name: vpn_type
+      prompt: "Enter VPN type to remove (openvpn, wireguard, softether)"
+      private: no
+      default: wireguard
+
+  tasks:
+    - block:  # OpenVPN
+        - name: Stop service
+          systemd:
+            name: openvpn@server
+            state: stopped
+            enabled: no
+          ignore_errors: yes
+
+        - name: Remove OpenVPN NAT Masquerade rule
+          iptables:
+            table: nat
+            chain: POSTROUTING
+            out_interface: "{{ ansible_default_ipv4.interface }}"
+            jump: MASQUERADE
+            state: absent
+          ignore_errors: yes
+
+        - name: Remove files
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/openvpn/easy-rsa
+            - /etc/openvpn/server.conf
+            - /etc/openvpn/ta.key
+            - /etc/openvpn/ca.crt
+            - /etc/openvpn/server.crt
+            - /etc/openvpn/server.key
+            - /etc/openvpn/dh.pem
+            - /var/log/openvpn
+
+        - name: Purge OpenVPN packages
+          apt:
+            name:
+              - openvpn
+              - easy-rsa
+            state: absent
+            purge: yes
+          ignore_errors: yes
+
+        - name: Remove firewall rule
+          ufw:
+            rule: allow
+            port: "{{ openvpn_port | default('1194') }}/{{ openvpn_proto | default('udp') }}"
+            delete: yes
+          ignore_errors: yes
+
+      when: vpn_type == "openvpn"
+
+    - block:  # WireGuard
+        - name: Stop service
+          systemd:
+            name: "wg-quick@{{ wg_interface | default('wg0') }}"
+            state: stopped
+            enabled: no
+          ignore_errors: yes
+
+        - name: Remove config/keys
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "/etc/wireguard/{{ wg_interface | default('wg0') }}.conf"
+            - /etc/wireguard/private.key
+            - /etc/wireguard/public.key
+            - /etc/wireguard/server_private.key
+            - /etc/wireguard/server_public.key
+            - /etc/wireguard/client_private.key
+            - /etc/wireguard/client_public.key
+
+        - name: Purge WireGuard packages
+          apt:
+            name:
+              - wireguard
+              - wireguard-tools
+            state: absent
+            purge: yes
+          ignore_errors: yes
+
+        - name: Remove firewall rule
+          ufw:
+            rule: allow
+            port: "{{ wg_listen_port | default('51820') }}"
+            proto: udp
+            delete: yes
+          ignore_errors: yes
+
+      when: vpn_type == "wireguard"
+
+    - block:  # SoftEther
+        - name: Stop service
+          systemd:
+            name: vpnserver
+            state: stopped
+            enabled: no
+          failed_when: false
+          ignore_errors: yes
+
+        - name: Force Kill SoftEther Process (if stuck)
+          shell: pkill -9 -f vpnserver || true
+          failed_when: false
+          ignore_errors: yes
+
+        - name: Remove files
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /opt/vpnserver
+            - /usr/bin/vpnserver
+            - /usr/bin/vpncmd
+            - /etc/systemd/system/vpnserver.service
+            - /var/log/vpnserver
+
+        - name: Remove artifacts
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /tmp/vpnserver.tar.gz
+            - /tmp/vpnserver
+            - /tmp/softether_extract
+            - /tmp/vpnserver_extract
+
+        - name: Remove firewall rules
+          ufw:
+            rule: allow
+            port: "{{ item }}"
+            delete: yes
+          loop: "{{ softether_ports | default(['443', '992', '1194', '5555']) }}"
+          ignore_errors: yes
+
+        - name: Purge build deps (optional)
+          apt:
+            name:
+              - build-essential
+              - libreadline-dev
+              - libssl-dev
+              - libncurses5-dev
+              - libncursesw5-dev
+            state: absent
+            purge: yes
+            autoremove: yes
+          ignore_errors: yes
+          when: softether_purge_build_deps | default(false)
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: yes
+
+      when: vpn_type == "softether"

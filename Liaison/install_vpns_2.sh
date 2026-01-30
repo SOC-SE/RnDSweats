@@ -505,8 +505,13 @@ EOF
     spinner "$pid"
     wait "$pid"
     local exit_status=$?
+    if [ $exit_status -ne 0 ]; then
+        echo -e "${RED}Error during WireGuard installation:${NC}"
+        cat "$err_file" 2>/dev/null
+        rm -f "$err_file"
+        log_error "WireGuard installation failed."
+    fi
     rm -f "$err_file"
-    [ $exit_status -ne 0 ] && log_error "WireGuard installation failed."
     log_info "WireGuard installed and running (wg0). Update /etc/wireguard/wg0.conf with peers and rotate keys regularly."
 }
 

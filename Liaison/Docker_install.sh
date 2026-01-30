@@ -361,7 +361,7 @@ main() {
     check_root
     detect_pkg_manager
     prompt_mode
-    log_info "${GREEN}--- Script Complete ---${NC}"
+    log_info "--- Script Complete ---"
 }
 
 main "$@"

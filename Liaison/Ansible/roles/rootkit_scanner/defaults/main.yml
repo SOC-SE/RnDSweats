@@ -1,0 +1,25 @@
+---
+# Rootkit Scanner Defaults
+# Compatible with Ubuntu 24.04, Fedora 42, Oracle Linux 9.2
+
+# Action: install, scan, update
+rootkit_action: scan
+
+# Directory to scan (default: root filesystem for comprehensive scan)
+# User can specify any path, e.g., /home, /etc, /var
+rootkit_scan_dir: /
+
+# Which tools to use
+rootkit_tools:
+  - rkhunter
+  - chkrootkit
+
+# Log directory (under liaison standard location)
+rootkit_log_dir: "{{ liaison_log_dir }}/rootkit"
+
+# Enable daily scheduled scan via cron
+rootkit_schedule_scan: true
+
+# Time for scheduled scan (24hr format)
+rootkit_scan_hour: "4"
+rootkit_scan_minute: "0"

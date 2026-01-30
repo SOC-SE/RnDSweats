@@ -1,0 +1,126 @@
+---
+- block:
+    - name: Install WireGuard packages
+      package:
+        name:
+          - wireguard
+          - wireguard-tools
+        state: present
+
+    - name: Ensure key dir
+      file:
+        path: /etc/wireguard
+        state: directory
+        mode: '0700'
+
+    - name: Check if private key exists
+      stat:
+        path: /etc/wireguard/private.key
+      register: wg_priv_exists
+
+    - name: Generate server private key if missing
+      shell: wg genkey | tee /etc/wireguard/private.key
+      args:
+        creates: /etc/wireguard/private.key
+      register: wg_priv_gen
+      when: not wg_priv_exists.stat.exists
+
+    - name: Set private key permissions
+      file:
+        path: /etc/wireguard/private.key
+        mode: '0600'
+
+    - name: Read private key
+      slurp:
+        path: /etc/wireguard/private.key
+      register: wg_priv_file
+
+    - name: Set server private key fact
+      set_fact:
+        server_private_key_content: "{{ wg_priv_file.content | b64decode | trim }}"
+
+    - name: Generate server public key
+      shell: cat /etc/wireguard/private.key | wg pubkey
+      register: wg_pub_gen
+      changed_when: false
+
+    - name: Store public key
+      copy:
+        dest: /etc/wireguard/public.key
+        content: "{{ wg_pub_gen.stdout }}"
+        mode: '0644'
+
+    - name: Set server public key fact
+      set_fact:
+        server_public_key_content: "{{ wg_pub_gen.stdout | trim }}"
+
+    - name: Enable IPv4 forwarding
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+
+    - name: Render WireGuard config
+      template:
+        src: "{{ role_path }}/templates/wg0.conf.j2"
+        dest: "/etc/wireguard/{{ wg_interface }}.conf"
+        mode: '0600'
+
+    - name: Allow WireGuard port
+      ufw:
+        rule: allow
+        port: "{{ wg_listen_port }}"
+        proto: udp
+      when: ufw_enabled | default(false)
+
+    - name: Stop WireGuard if running (for config reload)
+      systemd:
+        name: "wg-quick@{{ wg_interface }}"
+        state: stopped
+      failed_when: false
+
+    - name: Enable and start WireGuard
+      systemd:
+        name: "wg-quick@{{ wg_interface }}"
+        enabled: true
+        state: started
+      register: wg_start_result
+
+    - name: Show server public key for client config
+      debug:
+        msg: |
+          WireGuard server started successfully!
+          Server Public Key: {{ server_public_key_content }}
+          Server Endpoint: {{ ansible_default_ipv4.address | default(ansible_host) }}:{{ wg_listen_port }}
+          
+          Add this to your client config:
+          [Peer]
+          PublicKey = {{ server_public_key_content }}
+          Endpoint = {{ ansible_default_ipv4.address | default(ansible_host) }}:{{ wg_listen_port }}
+          AllowedIPs = 0.0.0.0/0
+
+  rescue:
+    - name: Get WireGuard service status
+      shell: systemctl status wg-quick@{{ wg_interface }} 2>&1 || true
+      register: wg_status
+      changed_when: false
+
+    - name: Get WireGuard journal logs
+      shell: journalctl -xeu wg-quick@{{ wg_interface }} --no-pager -n 20 2>&1 || true
+      register: wg_journal
+      changed_when: false
+
+    - name: Show debug info
+      debug:
+        msg: |
+          WireGuard service status:
+          {{ wg_status.stdout }}
+          
+          Journal logs:
+          {{ wg_journal.stdout }}
+
+    - name: WireGuard install failed
+      fail:
+        msg: "WireGuard install failed on {{ inventory_hostname }}. Check debug output above."

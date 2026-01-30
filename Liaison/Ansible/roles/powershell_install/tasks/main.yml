@@ -1,0 +1,3 @@
+---
+- import_tasks: powershell_install_tasks_main.yml
+  when: ansible_connection == 'local' or inventory_hostname in (groups['liaison_local'] | default([]))

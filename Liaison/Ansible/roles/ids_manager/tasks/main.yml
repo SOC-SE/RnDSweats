@@ -1,0 +1,2 @@
+---
+- import_tasks: ids_manager_tasks_main.yml

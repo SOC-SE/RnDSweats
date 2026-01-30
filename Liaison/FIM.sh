@@ -175,7 +175,7 @@ prompt_menu() {
             3) stop_monitor ;;
             4) view_logs ;;
             5) log_info "Exiting FIM script."; exit 0 ;;
-            *) log_error "Invalid choice. Please select 1-5." ;;
+            *) log_warn "Invalid choice. Please select 1-5." ;;
         esac
         echo ""  # Spacer for readability
     done
