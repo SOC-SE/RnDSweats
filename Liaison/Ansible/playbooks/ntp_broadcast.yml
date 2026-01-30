@@ -1,5 +1,5 @@
 ---
-- name: NTP Broadcast Setup (MWCCDC Segments)
+- name: NTP Broadcast Setup (Network Segments)
   hosts: ntp_servers
   become: yes
   vars:

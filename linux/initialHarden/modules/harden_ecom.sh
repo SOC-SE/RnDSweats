@@ -41,7 +41,10 @@
 # PHP:
 # Disables expose_php to hide PHP version
 # Turns off display_errors and enables log_errors
-# Sets session.cookie_httponly for session security
+# Sets disable_functions to block dangerous calls (exec, system, passthru, shell_exec, etc.)
+# Sets open_basedir to restrict filesystem access to the web root
+# Disables allow_url_fopen and allow_url_include to prevent remote file inclusion
+# Enables session.cookie_httponly, session.cookie_secure, and session.use_strict_mode
 
 # Database (MySQL/MariaDB):
 # Binds database to localhost only (127.0.0.1) to prevent remote access
@@ -371,23 +374,45 @@ harden_php() {
             ;;
     esac
 
+    # Dangerous functions to disable — these are commonly abused by webshells.
+    # proc_open is needed by some frameworks (e.g., Composer), but not by OpenCart at runtime.
+    local disable_funcs="exec,passthru,shell_exec,system,proc_open,popen,curl_exec,curl_multi_exec"
+    disable_funcs+=",parse_ini_file,show_source,eval,assert,create_function,call_user_func_with_array"
+
+    # Detect web root for open_basedir
+    local web_root="/var/www/html"
+    [[ -n "${OPENCART_ROOT:-}" && -d "$OPENCART_ROOT" ]] && web_root="$OPENCART_ROOT"
+    local open_basedir="${web_root}:/tmp:/usr/share/php"
+
     for ini in "${ini_files[@]}"; do
         [[ -f "$ini" ]] || continue
         log_info "Hardening $ini"
 
+        # --- Replace existing directives ---
         sed -i 's/^\s*expose_php\s*=.*/expose_php = Off/' "$ini" || true
         sed -i 's/^\s*display_errors\s*=.*/display_errors = Off/' "$ini" || true
         sed -i 's/^\s*log_errors\s*=.*/log_errors = On/' "$ini" || true
+        sed -i 's/^\s*allow_url_fopen\s*=.*/allow_url_fopen = Off/' "$ini" || true
+        sed -i 's/^\s*allow_url_include\s*=.*/allow_url_include = Off/' "$ini" || true
+        sed -i "s|^\s*disable_functions\s*=.*|disable_functions = ${disable_funcs}|" "$ini" || true
+        sed -i "s|^\s*open_basedir\s*=.*|open_basedir = ${open_basedir}|" "$ini" || true
 
-        # Add if missing
+        # --- Add if missing ---
         grep -q '^expose_php' "$ini" || echo "expose_php = Off" >> "$ini"
         grep -q '^display_errors' "$ini" || echo "display_errors = Off" >> "$ini"
         grep -q '^log_errors' "$ini" || echo "log_errors = On" >> "$ini"
+        grep -q '^allow_url_fopen' "$ini" || echo "allow_url_fopen = Off" >> "$ini"
+        grep -q '^allow_url_include' "$ini" || echo "allow_url_include = Off" >> "$ini"
+        grep -q '^disable_functions' "$ini" || echo "disable_functions = ${disable_funcs}" >> "$ini"
+        grep -q '^open_basedir' "$ini" || echo "open_basedir = ${open_basedir}" >> "$ini"
 
         # Session security
+        sed -i 's/^\s*session\.cookie_httponly\s*=.*/session.cookie_httponly = 1/' "$ini" || true
+        sed -i 's/^\s*session\.cookie_secure\s*=.*/session.cookie_secure = 1/' "$ini" || true
+        sed -i 's/^\s*session\.use_strict_mode\s*=.*/session.use_strict_mode = 1/' "$ini" || true
         grep -q '^session.cookie_httponly' "$ini" || echo "session.cookie_httponly = 1" >> "$ini"
-        # Only set cookie_secure if HTTPS is used; we can't reliably detect here, so we leave commented:
-        grep -q '^;session.cookie_secure' "$ini" || echo ";session.cookie_secure = 1 ; enable if site is HTTPS-only" >> "$ini"
+        grep -q '^session.cookie_secure' "$ini" || echo "session.cookie_secure = 1" >> "$ini"
+        grep -q '^session.use_strict_mode' "$ini" || echo "session.use_strict_mode = 1" >> "$ini"
     done
 
     # Reload PHP services

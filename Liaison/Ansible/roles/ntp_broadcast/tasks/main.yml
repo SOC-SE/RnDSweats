@@ -1,5 +1,5 @@
 ---
-# NTP Hub-and-Spoke Tasks for CCDC
+# NTP Hub-and-Spoke Tasks
 # Master (ntp_servers) becomes Stratum 10 Orphan; Clients sync ONLY to Master
 
 # ============================================================================

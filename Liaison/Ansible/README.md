@@ -1,4 +1,4 @@
-# liaison-ansible-mwccdc
+# liaison-ansible
 
 ## Quick start
 Run commands from the repo root so `ansible.cfg` is picked up (roles_path + inventory). If you must run elsewhere, set `ANSIBLE_CONFIG=/path/to/ansible.cfg`.

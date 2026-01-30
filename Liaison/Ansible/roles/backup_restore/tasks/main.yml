@@ -7,7 +7,7 @@
 
 - name: Create backup script
   copy:
-    dest: /usr/local/bin/mwccdc_backup.sh
+    dest: /usr/local/bin/backup.sh
     mode: '0755'
     content: |
       #!/bin/bash
@@ -31,7 +31,7 @@
 
 - name: Create backup cron job (daily)
   cron:
-    name: "MWCCDC Daily Backup"
+    name: "Daily Backup"
     minute: "0"
     hour: "2"
-    job: "/usr/local/bin/mwccdc_backup.sh >> /var/log/mwccdc_backup.log 2>&1"
+    job: "/usr/local/bin/backup.sh >> /var/log/backup.log 2>&1"

@@ -1,4 +1,4 @@
-MWCCDC System Enumeration Report - {{ ansible_date_time.date }}
+System Enumeration Report - {{ ansible_date_time.date }}
 Category: {{ enum_category }}
 Hostname: {{ inventory_hostname }}
 IP: {{ ansible_default_ipv4.address | default('N/A') }}

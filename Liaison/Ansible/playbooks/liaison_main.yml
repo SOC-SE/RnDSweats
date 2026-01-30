@@ -1,5 +1,5 @@
 ---
-- name: MWCCDC Liaison Ultimate Toolkit
+- name: Liaison Ultimate Toolkit
   hosts: all
   become: true
   gather_facts: true
@@ -69,5 +69,5 @@
     - name: Summary log
       lineinfile:
         path: "{{ liaison_log_dir }}/summary.log"
-        line: "{{ ansible_date_time.date }}: Ran {{ tool | default('all') }} on {{ inventory_hostname }} (MWCCDC Liaison)"
+        line: "{{ ansible_date_time.date }}: Ran {{ tool | default('all') }} on {{ inventory_hostname }} (Liaison)"
         create: true

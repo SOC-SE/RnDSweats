@@ -1,6 +1,6 @@
 # Liaison Service Guide
 
-Post-installation usage guide for all services deployed by the MWCCDC Liaison Ansible playbook.
+Post-installation usage guide for all services deployed by the Liaison Ansible playbook.
 
 ---
 
@@ -863,7 +863,7 @@ crontab -l | grep -v "rkhunter\|chkrootkit" | crontab -
 
 ### NTP (Chrony) - Hub-and-Spoke Architecture
 
-> **CCDC Resilience:** Master server (172.20.242.104) becomes Stratum 10 Orphan when internet is cut, ensuring all clients continue to sync time even during Red Team attacks.
+> **Resilience:** Master server (172.20.242.104) becomes Stratum 10 Orphan when internet is cut, ensuring all clients continue to sync time even during Red Team attacks.
 
 **Architecture:**
 - **Master:** Ubuntu Ecom (172.20.242.104) — Syncs to internet when available, becomes authoritative when disconnected
@@ -1164,19 +1164,19 @@ ansible-playbook playbooks/liaison_main.yml -e tool=backup
 
 **Run Backup Manually:**
 ```bash
-sudo /usr/local/bin/mwccdc_backup.sh
+sudo /usr/local/bin/backup.sh
 ```
 
 **View Backups:**
 ```bash
-ls -la /var/backups/mwccdc/
+ls -la /var/backups/liaison/
 ```
 
 **Restore from Backup:**
 ```bash
 # Extract backup
 cd /
-sudo tar -xzf /var/backups/mwccdc/backup_YYYYMMDD_HHMMSS.tar.gz
+sudo tar -xzf /var/backups/liaison/backup_YYYYMMDD_HHMMSS.tar.gz
 ```
 
 **What Gets Backed Up:**
@@ -1187,7 +1187,7 @@ sudo tar -xzf /var/backups/mwccdc/backup_YYYYMMDD_HHMMSS.tar.gz
 
 **Cron Job:**
 - Runs daily at 2:00 AM
-- Logs to `/var/log/mwccdc_backup.log`
+- Logs to `/var/log/backup.log`
 
 ---
 

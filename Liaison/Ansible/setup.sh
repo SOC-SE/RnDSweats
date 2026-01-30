@@ -1,5 +1,5 @@
 #!/bin/bash
-# MWCCDC Liaison Ansible Setup Script
+# Liaison Ansible Setup Script
 # Installs Ansible and required collections
 
 set -euo pipefail

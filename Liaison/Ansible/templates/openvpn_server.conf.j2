@@ -9,7 +9,7 @@ key /etc/openvpn/server.key
 dh /etc/openvpn/dh.pem
 server {{ openvpn_server_net }}
 push "redirect-gateway def1 bypass-dhcp"
-push "route {{ vpn_internal_net }} 255.255.255.0"  {# Route to CCDC Linux LAN #}
+push "route {{ vpn_internal_net }} 255.255.255.0"  {# Route to internal Linux LAN #}
 push "dhcp-option DNS {{ dns_server }}"
 keepalive 10 120
 tls-auth /etc/openvpn/ta.key 0

@@ -1,6 +1,6 @@
 ---
 name: liaison-architect
-description: The ultimate controller for the MWCCDC Ansible Liaison project. Use this to deploy tools, audit configs, generating new roles, or troubleshooting services based on the repository standards.
+description: The ultimate controller for the Ansible Liaison project. Use this to deploy tools, audit configs, generating new roles, or troubleshooting services based on the repository standards.
 ---
 
 # 🧠 Project Context & Architecture
@@ -30,7 +30,7 @@ When the user asks to "deploy," "install," or "run" a tool, generate the exact `
 # 🛡️ Capability 2: Configuration & Template Auditor
 When the user asks to check or generate configuration files, validate against these specific constraints found in `templates/`:
 1.  **WireGuard**: Ensure `PostUp`/`PostDown` rules reference the correct interface (default `ansible_default_ipv4.interface`) to avoid NAT breakage.
-2.  **OpenVPN**: Must include `push "route {{ vpn_internal_net }} ..."` to ensure clients can reach the CCDC network.
+2.  **OpenVPN**: Must include `push "route {{ vpn_internal_net }} ..."` to ensure clients can reach the internal network.
 3.  **Suricata**: Custom rules must be appended to `suricata_custom.rules.j2` with a unique `sid` (start at 1000003).
 4.  **Chrony**: Must use the `ntp_servers` group for peers and `allow {{ vpn_internal_net }}` for clients.
 

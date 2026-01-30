@@ -2,7 +2,7 @@
 # =============================================================================
 # NTP Manager - Interactive Hub-and-Spoke Configuration Tool
 # =============================================================================
-# Manages NTP Master/Client roles for CCDC Ansible deployment
+# Manages NTP Master/Client roles for Ansible deployment
 # =============================================================================
 
 set -e
@@ -29,7 +29,7 @@ show_header() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${NC}          ${GREEN}NTP Hub-and-Spoke Manager${NC}                           ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}          ${YELLOW}MWCCDC Ansible Toolkit${NC}                              ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}          ${YELLOW}Ansible Toolkit${NC}                              ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }

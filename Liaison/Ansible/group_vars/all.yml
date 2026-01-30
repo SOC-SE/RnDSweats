@@ -1,5 +1,5 @@
 ---
-# MWCCDC Common Vars (2025 Midwest Invitational Team Pack)
+# Common Vars
 vpn_internal_net: 172.20.242.0/24
 dns_server: 172.20.242.20           # Splunk (Oracle Linux)
 ufw_enabled: true
@@ -7,7 +7,7 @@ liaison_log_dir: /var/log/liaison
 
 # NTP Hub-and-Spoke Architecture
 ntp_master_ip: 172.20.242.104       # Ubuntu Ecom (NTP Master)
-ntp_allow_network: 172.20.0.0/16    # All CCDC subnets can sync
+ntp_allow_network: 172.20.0.0/16    # All subnets can sync
 
 # VPN
 openvpn_port: 1194
@@ -75,7 +75,7 @@ allowed_ports:
   - 51820 # WireGuard
 
 # Backup
-backup_dir: /var/backups/mwccdc
+backup_dir: /var/backups/liaison
 
 # FIM
 fim_path: /etc /var/log /root

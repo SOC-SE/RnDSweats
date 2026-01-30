@@ -258,7 +258,7 @@ apply_rules() {
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-    # 3a. ICMP — Always allowed (CCDC requirement: must respond to ping)
+    # 3a. ICMP — Always allowed (requirement: must respond to ping)
     iptables -A INPUT -p icmp -j ACCEPT
     iptables -A OUTPUT -p icmp -j ACCEPT
 

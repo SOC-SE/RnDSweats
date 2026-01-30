@@ -1,4 +1,4 @@
-liaison-ansible-mwccdc/
+liaison-ansible/
 ├── README.md                          # Setup: ansible-galaxy install collections; ansible-playbook liaison_main.yml -i inventory.ini
 ├── SERVICE_GUIDE.md
 ├── ansible.cfg
@@ -7,7 +7,7 @@ liaison-ansible-mwccdc/
 ├── inventory/
 │   └── inventory.ini                  # Hosts/groups: localhost (local), linux_servers (172.20.242.*), ntp_servers/clients
 ├── group_vars/
-│   ├── all.yml                        # MWCCDC vars: nets (172.20.242.0/24), DNS (172.20.242.102), ports, etc.
+│   ├── all.yml                        # Common vars: nets (172.20.242.0/24), DNS (172.20.242.102), ports, etc.
 │   └── vault.yml
 ├── host_vars/
 │   └── localhost.yml                  # Local overrides (e.g., ansible_python_interpreter=/usr/bin/python3)
