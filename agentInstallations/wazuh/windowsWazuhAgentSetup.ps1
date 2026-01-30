@@ -63,7 +63,7 @@ if ([string]::IsNullOrEmpty($AgentGroup)) {
 }
 
 # Wazuh version and download URL
-$WazuhVersion = "4.9.0-1"
+$WazuhVersion = "4.14.2-1"
 $WazuhMsiUrl = "https://packages.wazuh.com/4.x/windows/wazuh-agent-$WazuhVersion.msi"
 $WazuhMsiPath = "$env:TEMP\wazuh-agent.msi"
 
@@ -163,12 +163,12 @@ function Get-WazuhInstaller {
     }
 
     try {
-        # Use TLS 1.2
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        # Enable TLS 1.3 with TLS 1.2 fallback
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls13 -bor [Net.SecurityProtocolType]::Tls12
 
-        # Download with progress
-        $webClient = New-Object System.Net.WebClient
-        $webClient.DownloadFile($WazuhMsiUrl, $WazuhMsiPath)
+        # Download using Invoke-WebRequest (WebClient is deprecated)
+        Write-Log "Downloading (this may take a moment)..."
+        Invoke-WebRequest -Uri $WazuhMsiUrl -OutFile $WazuhMsiPath -UseBasicParsing -ErrorAction Stop
 
         if (-not (Test-Path $WazuhMsiPath)) {
             throw "Download failed - file not found"
@@ -229,23 +229,35 @@ function Set-WazuhConfiguration {
         throw "Configuration file missing"
     }
 
-    # Read and verify manager IP is set
-    $configContent = Get-Content $configFile -Raw
-    if ($configContent -match "<address>$ManagerIP</address>") {
-        Write-Log "Manager IP correctly configured: $ManagerIP"
-    }
-    else {
-        Write-Log "Manager IP may not be correctly set. Updating configuration..." -Level "WARN"
+    # Read and verify manager IP is set using XML parsing
+    try {
+        [xml]$config = Get-Content $configFile
+        $currentAddress = $config.ossec_config.client.server.address
+        if ($currentAddress -eq $ManagerIP) {
+            Write-Log "Manager IP correctly configured: $ManagerIP"
+        }
+        else {
+            Write-Log "Manager IP is '$currentAddress', updating to '$ManagerIP'..." -Level "WARN"
 
-        # Backup original config
+            # Backup original config
+            $backupPath = "$configFile.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+            Copy-Item -Path $configFile -Destination $backupPath
+            Write-Log "Configuration backed up to $backupPath"
+
+            # Update via XML DOM
+            $config.ossec_config.client.server.address = $ManagerIP
+            $config.Save($configFile)
+            Write-Log "Configuration updated with manager IP: $ManagerIP"
+        }
+    }
+    catch {
+        Write-Log "XML parsing failed, falling back to regex replacement..." -Level "WARN"
+        $configContent = Get-Content $configFile -Raw
         $backupPath = "$configFile.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
         Copy-Item -Path $configFile -Destination $backupPath
-        Write-Log "Configuration backed up to $backupPath"
-
-        # Update manager address
         $configContent = $configContent -replace '<address>[^<]+</address>', "<address>$ManagerIP</address>"
         Set-Content -Path $configFile -Value $configContent -Encoding UTF8
-        Write-Log "Configuration updated with manager IP: $ManagerIP"
+        Write-Log "Configuration updated with manager IP: $ManagerIP (regex fallback)"
     }
 }
 
@@ -308,13 +320,17 @@ function Show-AgentStatus {
             Write-Log "Could not retrieve agent info" -Level "WARN"
         }
     }
+    else {
+        Write-Log "agent-control.exe not found at $agentControl" -Level "WARN"
+    }
 }
 
 function Add-FirewallRules {
     Write-Log "Configuring Windows Firewall rules for Wazuh..."
 
-    # Remove existing rules first
-    Get-NetFirewallRule -DisplayName "Wazuh*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    # Remove only our specific rules (not all Wazuh* rules)
+    Get-NetFirewallRule -DisplayName "Wazuh Agent - Outbound" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    Get-NetFirewallRule -DisplayName "Wazuh Agent Enrollment - Outbound" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 
     # Add outbound rule for agent communication (port 1514)
     New-NetFirewallRule -DisplayName "Wazuh Agent - Outbound" `

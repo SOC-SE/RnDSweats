@@ -62,11 +62,11 @@ protect=1
 EOF
     check_success
 
-    info "Installing the Wazuh agent package..."
+    info "Installing the Wazuh agent package (4.14.2)..."
     if command -v dnf &> /dev/null; then
-        WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" dnf install -y wazuh-agent
+        WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" dnf install -y wazuh-agent-4.14.2
     else
-        WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" yum install -y wazuh-agent
+        WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" yum install -y wazuh-agent-4.14.2
     fi
     check_success
 }
@@ -76,13 +76,15 @@ install_on_debian() {
     info "Detected Debian-based distribution."
 
     info "Installing prerequisites..."
-    apt-get update
+    apt-get update || { error "apt-get update failed. Check network or sources."; }
     apt-get install -y curl apt-transport-https lsb-release gnupg2
     check_success
 
     info "Adding the Wazuh GPG key..."
-    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
+    mkdir -p /usr/share/keyrings
+    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
     check_success
+    chmod 644 /usr/share/keyrings/wazuh.gpg
 
     info "Adding the Wazuh APT repository..."
     cat > /etc/apt/sources.list.d/wazuh.list <<EOF
@@ -90,9 +92,9 @@ deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt
 EOF
     check_success
 
-    info "Installing the Wazuh agent package..."
+    info "Installing the Wazuh agent package (4.14.2)..."
     apt-get update
-    WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" apt-get install -y wazuh-agent
+    WAZUH_MANAGER="$WAZUH_MANAGER_IP" WAZUH_AGENT_GROUP="$WAZUH_AGENT_GROUP_NAME" apt-get install -y wazuh-agent=4.14.2-1
     check_success
 }
 
@@ -125,7 +127,7 @@ configure_yara() {
         chown -R root:wazuh /opt/yara-rules
         info "Yara rules permissions set."
     else
-        log_msg "[WARN] /opt/yara-rules not found. Run yaraConfigure.sh first."
+        info "Yara rules not found at /opt/yara-rules. Skipping — run yaraConfigure.sh to set up."
     fi
 
     # Create quarantine directory
@@ -135,8 +137,7 @@ configure_yara() {
 
 # --- Main Execution ---
 main() {
-    # Start logging
-    rm -f "$LOG_FILE"
+    # Start logging (append to existing log)
     info "Starting Wazuh Agent Universal Installer..."
 
     # Check for root privileges

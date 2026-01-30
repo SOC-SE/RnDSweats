@@ -2,13 +2,17 @@
 set -euo pipefail
 
 # Wazuh Master Installation Script for Oracle Linux 9 (FINAL + OFFLINE FALLBACK)
-# Target Version: 4.14.1
+# Target Version: 4.14.2
 
 # --- Configuration ---
 WAZUH_MAJOR="4.14"
-WAZUH_VERSION="4.14.1"
+WAZUH_VERSION="4.14.2"
 INSTALL_DIR="/root/wazuh-install-temp"
-CURRENT_DIR=$(pwd) # Saved to find local files if downloads fail
+CURRENT_DIR="$(pwd)" # Saved to find local files if downloads fail
+
+# Cleanup temp files on exit/error
+cleanup() { rm -f /tmp/hash.txt; }
+trap cleanup EXIT
 
 # Prompt for Wazuh password if not set via environment
 if [[ -z "${WAZUH_PASSWORD:-}" ]]; then
@@ -63,9 +67,9 @@ protect=1
 EOF
 
 # --- [3/8] Certificates ---
-cd $INSTALL_DIR
-curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/wazuh-certs-tool.sh
-curl -sO https://packages.wazuh.com/$WAZUH_MAJOR/config.yml
+cd "$INSTALL_DIR"
+curl --connect-timeout 15 -sO "https://packages.wazuh.com/$WAZUH_MAJOR/wazuh-certs-tool.sh"
+curl --connect-timeout 15 -sO "https://packages.wazuh.com/$WAZUH_MAJOR/config.yml"
 
 cat > config.yml <<EOF
 nodes:
@@ -128,8 +132,11 @@ export JAVA_HOME
   -cacert /etc/wazuh-indexer/certs/root-ca.pem -cert /etc/wazuh-indexer/certs/admin.pem \
   -key /etc/wazuh-indexer/certs/admin-key.pem -p 9200 -icl -h 127.0.0.1
 
-/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$WAZUH_PASSWORD" | tail -n 1 > /tmp/hash.txt
-HASH=$(cat /tmp/hash.txt)
+HASH=$(/usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "$WAZUH_PASSWORD" | grep '^\$' | head -n 1)
+if [[ -z "$HASH" ]]; then
+    echo "ERROR: Failed to generate password hash."
+    exit 1
+fi
 sed -i "0,/hash:.*/s|hash:.*|hash: \"$HASH\"|" /etc/wazuh-indexer/opensearch-security/internal_users.yml
 
 /usr/share/wazuh-indexer/plugins/opensearch-security/tools/securityadmin.sh \
@@ -155,7 +162,9 @@ EOF
 /var/ossec/bin/wazuh-keystore -f indexer -k username -v admin
 /var/ossec/bin/wazuh-keystore -f indexer -k password -v "$WAZUH_PASSWORD"
 
+# Update indexer host — try both common default values
 sed -i "s|<host>https://0.0.0.0:9200</host>|<host>https://127.0.0.1:9200</host>|g" /var/ossec/etc/ossec.conf
+sed -i "s|<host>https://localhost:9200</host>|<host>https://127.0.0.1:9200</host>|g" /var/ossec/etc/ossec.conf
 
 echo "Applying correct permissions to Wazuh Manager files..."
 # CRITICAL FIX 1: Ensure wazuh user owns its config and keystore
@@ -321,6 +330,29 @@ chown -R wazuh-dashboard:wazuh-dashboard /usr/share/wazuh-dashboard/data/wazuh
 echo "Starting wazuh dashboard"
 systemctl enable wazuh-dashboard
 systemctl start wazuh-dashboard
+
+# --- [8/8] Apply Group Configurations ---
+echo "--- [8/8] Setting up agent group configurations ---"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GROUP_CONFIG_SCRIPT="${SCRIPT_DIR}/../Configs/setGroupConfigs.sh"
+if [[ -x "$GROUP_CONFIG_SCRIPT" ]]; then
+    bash "$GROUP_CONFIG_SCRIPT"
+elif [[ -f "$GROUP_CONFIG_SCRIPT" ]]; then
+    chmod +x "$GROUP_CONFIG_SCRIPT"
+    bash "$GROUP_CONFIG_SCRIPT"
+else
+    echo "[WARN] setGroupConfigs.sh not found at ${GROUP_CONFIG_SCRIPT}. Skipping group setup."
+    echo "[WARN] Run it manually after installation: bash /vagrant/linux/securityInfrastructure/Wazuh/Configs/setGroupConfigs.sh"
+fi
+
+# --- Install SOCFortress rules if vendored ---
+SOCFORTRESS_SCRIPT="${SCRIPT_DIR}/../../../../vendor/socfortress-wazuh-rules/source/wazuh_socfortress_rules.sh"
+if [[ -f "$SOCFORTRESS_SCRIPT" ]]; then
+    echo "Installing SOCFortress detection rules..."
+    bash "$SOCFORTRESS_SCRIPT" || echo "[WARN] SOCFortress rule installation had errors. Check output above."
+else
+    echo "[INFO] SOCFortress rules not found at vendor path. Skipping."
+fi
 
 echo "--- COMPLETE ---"
 systemctl restart wazuh-manager

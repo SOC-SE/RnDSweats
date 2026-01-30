@@ -43,6 +43,9 @@ WAZUH_PATH="/var/ossec"
 AGENT_GROUPS_TOOL="${WAZUH_PATH}/bin/agent_groups"
 SHARED_CONF_DIR="${WAZUH_PATH}/etc/shared"
 
+# Track failures across group configurations
+FAILURES=0
+
 # --- Script Functions ---
 
 # Function to print a formatted info message
@@ -73,11 +76,21 @@ configure_wazuh_group() {
     log_info "--- Starting Configuration for Group: '${GROUP_NAME}' (Using ${LOCAL_CONF_FILE}) ---"
 
     # 1. Verify Local Configuration File Exists (resolve relative to script directory)
-    LOCAL_CONF_FILE="${SCRIPT_DIR}/${LOCAL_CONF_FILE}"
+    # Only prepend SCRIPT_DIR if the path isn't already absolute
+    if [[ "$LOCAL_CONF_FILE" != /* ]]; then
+        LOCAL_CONF_FILE="${SCRIPT_DIR}/${LOCAL_CONF_FILE}"
+    fi
     log_info "Looking for configuration file: '${LOCAL_CONF_FILE}'..."
     if [ ! -f "${LOCAL_CONF_FILE}" ]; then
         echo "[WARN] Configuration file not found: '${LOCAL_CONF_FILE}'. Skipping group '${GROUP_NAME}'." >&2
         return 1
+    fi
+    # Basic XML validation — config must be parseable
+    if command -v xmllint &>/dev/null; then
+        if ! xmllint --noout "${LOCAL_CONF_FILE}" 2>/dev/null; then
+            echo "[WARN] Configuration file '${LOCAL_CONF_FILE}' is not valid XML. Skipping group '${GROUP_NAME}'." >&2
+            return 1
+        fi
     fi
     log_success "Local configuration file found."
 
@@ -99,15 +112,18 @@ configure_wazuh_group() {
     # Ensure the target directory exists
     mkdir -p "${GROUP_CONF_DIR}"
     # Copy the file to the required 'agent.conf' name within the group directory
-    if ! cp "${LOCAL_CONF_FILE}" "${GROUP_AGENT_CONF}"; then
+    # Use temp file + mv for atomic write
+    if ! cp "${LOCAL_CONF_FILE}" "${GROUP_AGENT_CONF}.tmp"; then
+        rm -f "${GROUP_AGENT_CONF}.tmp"
         log_error "Failed to copy configuration file for group '${GROUP_NAME}'."
     fi
+    mv "${GROUP_AGENT_CONF}.tmp" "${GROUP_AGENT_CONF}"
     log_success "Configuration file copied to '${GROUP_AGENT_CONF}'."
 
     # 4. Set Ownership and Permissions
     log_info "Setting correct ownership and permissions for '${GROUP_NAME}'..."
-    # Set ownership to wazuh:wazuh
-    chown -R wazuh:wazuh "${GROUP_CONF_DIR}"
+    # Set ownership to wazuh:wazuh (no symlink traversal)
+    chown -RP wazuh:wazuh "${GROUP_CONF_DIR}"
     # Set directory permissions to 750 and file permissions to 640.
     chmod 750 "${GROUP_CONF_DIR}"
     chmod 640 "${GROUP_AGENT_CONF}"
@@ -125,17 +141,31 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 log_success "Root privileges confirmed."
 
-# 2. Loop through the groups and configure them
+# 2. Validate Wazuh installation
+if [ ! -d "$WAZUH_PATH" ]; then
+    log_error "Wazuh installation not found at ${WAZUH_PATH}. Is Wazuh Manager installed?"
+fi
+
+if [ ! -x "$AGENT_GROUPS_TOOL" ]; then
+    log_error "agent_groups tool not found at ${AGENT_GROUPS_TOOL}. Wazuh Manager may need reinstalling."
+fi
+
+# 3. Loop through the groups and configure them
 for GROUP_ENTRY in "${GROUPS[@]}"; do
     # Extract Group Name and Configuration File Name from the entry (e.g., 'linux-default:linux-default.conf')
     GROUP_NAME="${GROUP_ENTRY%%:*}"
     LOCAL_CONF_FILE="${GROUP_ENTRY#*:}"
 
     # Execute the configuration logic for the current group
-    configure_wazuh_group "$GROUP_NAME" "$LOCAL_CONF_FILE"
+    if ! configure_wazuh_group "$GROUP_NAME" "$LOCAL_CONF_FILE"; then
+        FAILURES=$((FAILURES + 1))
+    fi
 done
 
-# 3. Final Restart Instruction
+# 4. Final Restart Instruction
 echo
-log_success "All Wazuh groups are configured. Wazuh-manager must be restarted for changes to take place across all groups."
+if [ "$FAILURES" -gt 0 ]; then
+    echo "[WARN] ${FAILURES} group(s) had errors. Review output above." >&2
+fi
+log_success "Group configuration complete. Wazuh-manager must be restarted for changes to take effect."
 log_info "Run: systemctl restart wazuh-manager"
