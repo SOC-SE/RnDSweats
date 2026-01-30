@@ -215,12 +215,17 @@ log "Installing AVML memory acquisition tool..."
 
 if [[ ! -f /usr/local/bin/avml ]]; then
     AVML_URL="https://github.com/microsoft/avml/releases/latest/download/avml"
+    AVML_VENDOR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/avml/avml"
     if wget -q -O /tmp/avml "$AVML_URL" 2>/dev/null; then
         mv /tmp/avml /usr/local/bin/avml
         chmod +x /usr/local/bin/avml
         log "AVML installed to /usr/local/bin/avml"
+    elif [[ -f "$AVML_VENDOR" ]]; then
+        cp "$AVML_VENDOR" /usr/local/bin/avml
+        chmod +x /usr/local/bin/avml
+        log "AVML installed from vendored local copy"
     else
-        warn "AVML download failed (non-fatal, may need manual install)"
+        warn "AVML download failed and no vendor copy found (non-fatal, may need manual install)"
     fi
 else
     log "AVML already installed."

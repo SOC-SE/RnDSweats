@@ -56,11 +56,19 @@ echo "--- Starting SOCFortress Custom Wazuh Rules Installation (v2) ---"
 echo "[1/5] Cleaning up old temporary directories..."
 rm -rf "$TEMP_DIR"
 
-# 2. Clone Repository
+# 2. Clone Repository (or use vendored local copy)
 echo "[2/5] Cloning the entire repository to a temporary location..."
-if ! git clone --depth 1 "$REPO_URL" "$TEMP_DIR"; then
-    echo "Error: Failed to clone the repository. Please check your connection and the URL."
-    exit 1
+if git clone --depth 1 "$REPO_URL" "$TEMP_DIR" 2>/dev/null; then
+    echo "Repository cloned successfully."
+else
+    VENDOR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../vendor/socfortress-wazuh-rules/source"
+    if [[ -d "$VENDOR_DIR" ]]; then
+        echo "Git clone failed. Using vendored local copy..."
+        cp -r "$VENDOR_DIR" "$TEMP_DIR"
+    else
+        echo "Error: Failed to clone the repository and no vendor copy found."
+        exit 1
+    fi
 fi
 
 # 3. Copy Files to Wazuh Directories

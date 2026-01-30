@@ -250,8 +250,14 @@ elif [ -f "$CURRENT_DIR/wazuh-template.json" ]; then
     echo "Download failed. Found local wazuh-template.json, using it."
     cp "$CURRENT_DIR/wazuh-template.json" /etc/filebeat/wazuh-template.json
 else
-    echo "ERROR: Download failed and no local wazuh-template.json found in $CURRENT_DIR."
-    exit 1
+    VENDOR_TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../vendor/wazuh-template/wazuh-template.json"
+    if [ -f "$VENDOR_TEMPLATE" ]; then
+        echo "Download failed. Using vendored wazuh-template.json."
+        cp "$VENDOR_TEMPLATE" /etc/filebeat/wazuh-template.json
+    else
+        echo "ERROR: Download failed and no local or vendor wazuh-template.json found."
+        exit 1
+    fi
 fi
 
 chmod go+r /etc/filebeat/wazuh-template.json

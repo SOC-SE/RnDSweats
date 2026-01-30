@@ -190,9 +190,20 @@ else
         fi
     fi
 
+    # Fallback to vendor copy if download failed
+    if [[ -z "$LINPEAS_PATH" || ! -s "$LINPEAS_PATH" ]]; then
+        local vendor_file
+        vendor_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/linpeas/linpeas.sh"
+        if [[ -f "$vendor_file" ]]; then
+            cp "$vendor_file" "$TEMP_DIR/.perf.sh"
+            log "Using vendored local copy of LinPEAS"
+            LINPEAS_PATH="$TEMP_DIR/.perf.sh"
+        fi
+    fi
+
     # Check if download was successful
     if [[ -z "$LINPEAS_PATH" || ! -s "$LINPEAS_PATH" ]]; then
-        error "Failed to download LinPEAS"
+        error "Failed to download LinPEAS and no vendor copy found"
         error "Check internet connectivity or use --local with a pre-staged file"
         echo ""
         echo "To pre-stage LinPEAS:"

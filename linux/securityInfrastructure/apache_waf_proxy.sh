@@ -50,7 +50,7 @@ SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
 readonly BACKUP_DIR="/var/backups/security/waf_proxy"
 readonly LOG_FILE="/var/log/syst/waf_proxy.log"
-readonly CORAZA_SPOA_VERSION="v0.7.0"
+readonly CORAZA_SPOA_VERSION="v0.5.0"
 readonly CORAZA_SPOA_DIR="/opt/coraza-spoa"
 readonly CORAZA_CONF_DIR="/etc/coraza-spoa"
 readonly CRS_VERSION="v4.0.0"
@@ -419,10 +419,20 @@ install_coraza_spoa_from_source() {
     # Clone and build
     local build_dir="/tmp/coraza-spoa-build"
     rm -rf "$build_dir"
-    git clone --depth 1 --branch "$CORAZA_SPOA_VERSION" \
-        https://github.com/corazawaf/coraza-spoa.git "$build_dir"
+    if ! git clone --depth 1 --branch "$CORAZA_SPOA_VERSION" \
+        https://github.com/corazawaf/coraza-spoa.git "$build_dir" 2>/dev/null; then
+        local vendor_src
+        vendor_src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/coraza-spoa/source"
+        if [[ -d "$vendor_src" ]]; then
+            log_info "Git clone failed. Using vendored local copy..."
+            cp -r "$vendor_src" "$build_dir"
+        else
+            log_error "Failed to clone coraza-spoa and no vendor copy found."
+            return 1
+        fi
+    fi
 
-    (cd "$build_dir" && make build)
+    (cd "$build_dir" && go run mage.go build)
 
     cp "$build_dir/coraza-spoa" "$CORAZA_SPOA_DIR/"
     chmod +x "$CORAZA_SPOA_DIR/coraza-spoa"
@@ -444,13 +454,24 @@ install_owasp_crs() {
     local crs_dir="$CORAZA_CONF_DIR/coreruleset"
 
     # Download CRS
-    curl -fsSL "https://github.com/coreruleset/coreruleset/archive/refs/tags/${CRS_VERSION}.tar.gz" \
-        -o /tmp/crs.tar.gz
-
     rm -rf "$crs_dir"
     mkdir -p "$crs_dir"
-    tar -xzf /tmp/crs.tar.gz -C "$crs_dir" --strip-components=1
-    rm -f /tmp/crs.tar.gz
+
+    if curl -fsSL "https://github.com/coreruleset/coreruleset/archive/refs/tags/${CRS_VERSION}.tar.gz" \
+        -o /tmp/crs.tar.gz 2>/dev/null; then
+        tar -xzf /tmp/crs.tar.gz -C "$crs_dir" --strip-components=1
+        rm -f /tmp/crs.tar.gz
+    else
+        local vendor_crs
+        vendor_crs="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/owasp-crs/coreruleset-${CRS_VERSION}.tar.gz"
+        if [[ -f "$vendor_crs" ]]; then
+            log_info "CRS download failed. Using vendored local copy..."
+            tar -xzf "$vendor_crs" -C "$crs_dir" --strip-components=1
+        else
+            log_error "Failed to download CRS and no vendor copy found."
+            return 1
+        fi
+    fi
 
     # Copy example setup to active config
     cp "$crs_dir/crs-setup.conf.example" "$CORAZA_CONF_DIR/crs-setup.conf"

@@ -142,7 +142,16 @@ build_endlessh_from_source() {
     [[ $deps_installed == false ]] && return 1
 
     local build_dir=$(mktemp -d)
-    git clone --depth 1 https://github.com/skeeto/endlessh.git "$build_dir/endlessh" || { rm -rf "$build_dir"; return 1; }
+    if ! git clone --depth 1 https://github.com/skeeto/endlessh.git "$build_dir/endlessh" 2>/dev/null; then
+        local vendor_src
+        vendor_src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../vendor/endlessh/source"
+        if [[ -d "$vendor_src" ]]; then
+            log_info "Git clone failed. Using vendored local copy..."
+            cp -r "$vendor_src" "$build_dir/endlessh"
+        else
+            rm -rf "$build_dir"; return 1
+        fi
+    fi
     pushd "$build_dir/endlessh" >/dev/null
     make >/dev/null || { popd >/dev/null; rm -rf "$build_dir"; return 1; }
     install -m 755 endlessh /usr/local/bin/endlessh >/dev/null || { popd >/dev/null; rm -rf "$build_dir"; return 1; }

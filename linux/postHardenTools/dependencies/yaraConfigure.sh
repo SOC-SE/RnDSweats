@@ -83,8 +83,20 @@ install_deps() {
 download_rules() {
     log "Downloading Yara rules from ${REPO_URL}..."
     rm -rf "$CLONE_DIR"
-    git clone "$REPO_URL" "$CLONE_DIR"
-    log "Rules downloaded successfully to ${CLONE_DIR}."
+    if git clone "$REPO_URL" "$CLONE_DIR" 2>/dev/null; then
+        log "Rules downloaded successfully to ${CLONE_DIR}."
+    else
+        local vendor_dir
+        vendor_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../vendor/yara-rules/source"
+        if [[ -d "$vendor_dir" ]]; then
+            log "Git clone failed. Using vendored local copy..."
+            cp -r "$vendor_dir" "$CLONE_DIR"
+            log "Rules copied from vendor to ${CLONE_DIR}."
+        else
+            log "ERROR: Git clone failed and no vendor copy found."
+            exit 1
+        fi
+    fi
 }
 
 # Function to remove problematic rules at the source (Using find -delete)

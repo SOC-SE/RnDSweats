@@ -710,7 +710,17 @@ download_opencart() {
     apt-get update
     apt-get install -y unzip curl
 
-    curl -L "$url" -o "$tmp_zip"
+    if ! curl -fsSL "$url" -o "$tmp_zip" 2>/dev/null; then
+        local vendor_zip
+        vendor_zip="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../vendor/opencart/opencart-4.0.2.3.zip"
+        if [[ -f "$vendor_zip" ]]; then
+            log_info "Download failed. Using vendored local copy..."
+            cp "$vendor_zip" "$tmp_zip"
+        else
+            log_warn "Failed to download OpenCart and no vendor copy found."
+            return 1
+        fi
+    fi
     rm -rf "${OPENCART_DIR:?}/"*
     unzip -q "$tmp_zip" -d /tmp/opencart_extract
     # Adjust if structure changes; many releases have "upload" dir
