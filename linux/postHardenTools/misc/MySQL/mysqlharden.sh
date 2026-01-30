@@ -67,12 +67,6 @@ critical() {
     echo -e "${RED}[CRITICAL]${NC} $1"
 }
 
-# --- Root Check ---
-if [[ $EUID -ne 0 ]]; then
-    error "This script must be run as root (needed for config file changes)"
-    exit 1
-fi
-
 # --- Parse Arguments ---
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -101,6 +95,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --- Root Check ---
+if [[ $EUID -ne 0 ]]; then
+    error "This script must be run as root (needed for config file changes)"
+    exit 1
+fi
 
 # --- Build MySQL command ---
 build_mysql_cmd() {

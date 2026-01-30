@@ -67,12 +67,6 @@ critical() {
     echo -e "${RED}[CRITICAL]${NC} $1"
 }
 
-# --- Root Check ---
-if [[ $EUID -ne 0 ]]; then
-    error "This script must be run as root (needed for config file changes)"
-    exit 1
-fi
-
 # --- Parse Arguments ---
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -105,6 +99,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --- Root Check ---
+if [[ $EUID -ne 0 ]]; then
+    error "This script must be run as root (needed for config file changes)"
+    exit 1
+fi
 
 # --- Build psql command ---
 PSQL_CMD="psql -h $PSQL_HOST -p $PSQL_PORT -U $PSQL_USER"
@@ -216,15 +216,24 @@ fi
 
 # --- 6. Revoke PUBLIC from default databases ---
 log "Revoking PUBLIC privileges from template databases..."
-$PSQL_CMD -c "REVOKE ALL ON DATABASE template1 FROM PUBLIC;" 2>/dev/null && \
-    log "Revoked PUBLIC from template1" || warn "Could not revoke PUBLIC from template1"
+if $PSQL_CMD -c "REVOKE ALL ON DATABASE template1 FROM PUBLIC;" 2>/dev/null; then
+    log "Revoked PUBLIC from template1"
+else
+    warn "Could not revoke PUBLIC from template1"
+fi
 
-$PSQL_CMD -c "REVOKE ALL ON DATABASE template0 FROM PUBLIC;" 2>/dev/null && \
-    log "Revoked PUBLIC from template0" || warn "Could not revoke PUBLIC from template0"
+if $PSQL_CMD -c "REVOKE ALL ON DATABASE template0 FROM PUBLIC;" 2>/dev/null; then
+    log "Revoked PUBLIC from template0"
+else
+    warn "Could not revoke PUBLIC from template0"
+fi
 
 # Also revoke from postgres database
-$PSQL_CMD -c "REVOKE ALL ON DATABASE postgres FROM PUBLIC;" 2>/dev/null && \
-    log "Revoked PUBLIC from postgres database" || warn "Could not revoke PUBLIC from postgres"
+if $PSQL_CMD -c "REVOKE ALL ON DATABASE postgres FROM PUBLIC;" 2>/dev/null; then
+    log "Revoked PUBLIC from postgres database"
+else
+    warn "Could not revoke PUBLIC from postgres"
+fi
 
 # --- 7. Check for extra superusers ---
 log "Checking for extra superusers..."
@@ -238,8 +247,11 @@ if [[ -n "$extra_supers" ]]; then
         echo -e "  ${YELLOW}→${NC} $role"
         read -rp "  Revoke superuser from '$role'? (y/N): " answer
         if [[ "$answer" =~ ^[Yy]$ ]]; then
-            $PSQL_CMD -c "ALTER ROLE \"$role\" NOSUPERUSER;" 2>/dev/null && \
-                log "Revoked superuser from $role" || warn "Failed to revoke superuser from $role"
+            if $PSQL_CMD -c "ALTER ROLE \"$role\" NOSUPERUSER;" 2>/dev/null; then
+                log "Revoked superuser from $role"
+            else
+                warn "Failed to revoke superuser from $role"
+            fi
         else
             warn "Keeping superuser for $role"
         fi
@@ -250,8 +262,11 @@ fi
 
 # --- 9. Reload config ---
 log "Reloading PostgreSQL configuration..."
-$PSQL_CMD -c "SELECT pg_reload_conf();" &>/dev/null && \
-    log "Configuration reloaded" || warn "Could not reload config - restart PostgreSQL manually"
+if $PSQL_CMD -c "SELECT pg_reload_conf();" &>/dev/null; then
+    log "Configuration reloaded"
+else
+    warn "Could not reload config - restart PostgreSQL manually"
+fi
 
 echo ""
 echo "========================================"

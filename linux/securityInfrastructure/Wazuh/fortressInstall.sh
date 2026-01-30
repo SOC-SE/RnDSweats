@@ -112,7 +112,7 @@ for src_path in "${!files_to_copy[@]}"; do
     esac
 
     if [ -f "$full_src_path" ]; then
-        local dest_file="$dest_dir/$(basename "$full_src_path")"
+        dest_file="$dest_dir/$(basename "$full_src_path")"
         echo "  - Copying $(basename "$full_src_path") to $dest_dir/"
         cp "$full_src_path" "$dest_file"
 
