@@ -228,6 +228,9 @@ fi
 log "Initializing Splunk (first start)..."
 $SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
 
+$SPLUNK_HOME/bin/splunk add index linux -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
+$SPLUNK_HOME/bin/splunk add index windows -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
+
 # ============================================================================
 # PHASE 4: SPLUNK CONFIGURATION
 # ============================================================================
@@ -245,7 +248,7 @@ host = $(hostname)
 
 [tcp://514]
 sourcetype = syslog
-index = main
+index = linux
 disabled = 0
 
 # =============================================================================
@@ -255,25 +258,25 @@ disabled = 0
 # --- System logs ---
 
 [monitor:///var/log/auth.log]
-index = main
+index = linux
 sourcetype = linux_secure
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/secure]
-index = main
+index = linux
 sourcetype = linux_secure
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/messages]
-index = main
+index = linux
 sourcetype = syslog
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/audit/audit.log]
-index = main
+index = linux
 sourcetype = linux:audit
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
@@ -281,68 +284,68 @@ blacklist = \.(gz|bz2|zip)$|\.\d$
 # --- Custom scripts (syst) ---
 
 [monitor:///var/log/syst/*audit*]
-index = main
+index = linux
 sourcetype = linux_enume
 crcSalt = <SOURCE>
 
 [monitor:///var/log/syst/security_scan_*.log]
-index = main
+index = linux
 sourcetype = linux_security_scan
 crcSalt = <SOURCE>
 
 [monitor:///var/log/syst/linpeas_findings_*.log]
-index = main
+index = linux
 sourcetype = linpeas
 crcSalt = <SOURCE>
 
 [monitor:///var/log/syst/integrity_scan.log]
-index = main
+index = linux
 sourcetype = linux_rootkit
 crcSalt = <SOURCE>
 
 [monitor:///var/log/syst/pre_install_compromise.log]
-index = main
+index = linux
 sourcetype = linux_rootkit
 crcSalt = <SOURCE>
 
 # --- LMD (Linux Malware Detect) ---
 
 [monitor:///usr/local/maldetect/logs/event_log]
-index = main
+index = linux
 sourcetype = linux_av:events
 crcSalt = <SOURCE>
 
 [monitor:///usr/local/maldetect/logs/scan_log]
-index = main
+index = linux
 sourcetype = linux_av:scan_summaries
 crcSalt = <SOURCE>
 
 [monitor:///usr/local/maldetect/logs/error_log]
-index = main
+index = linux
 sourcetype = linux_av:errors
 crcSalt = <SOURCE>
 
 [monitor:///usr/local/maldetect/sess/*]
-index = main
+index = linux
 sourcetype = linux_av:full_reports
 crcSalt = <SOURCE>
 
 # --- Wazuh (local manager logs) ---
 
 [monitor:///var/ossec/logs/ossec.log]
-index = main
+index = linux
 sourcetype = wazuh:agent
 crcSalt = <SOURCE>
 
 [monitor:///var/ossec/logs/api.log]
-index = main
+index = linux
 sourcetype = wazuh:api
 crcSalt = <SOURCE>
 
 # --- Salt Master ---
 
 [monitor:///var/log/salt/master]
-index = main
+index = linux
 sourcetype = salt:master
 crcSalt = <SOURCE>
 
@@ -351,7 +354,7 @@ crcSalt = <SOURCE>
 #       Settings > Logging > Enable "Log all queries"
 
 [monitor:///opt/technitium-dns/config/logs/*.log]
-index = main
+index = linux
 sourcetype = technitium:querylog
 crcSalt = <SOURCE>
 EOF

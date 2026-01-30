@@ -170,6 +170,9 @@ fi
 echo "Starting Splunk and accepting license..."
 $SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
 
+$SPLUNK_HOME/bin/splunk add index linux -auth "admin:$SPLUNK_PASS"
+$SPLUNK_HOME/bin/splunk add index windows -auth "admin:$SPLUNK_PASS"
+
 echo "Enabling boot start..."
 $SPLUNK_HOME/bin/splunk enable boot-start --accept-license --answer-yes --no-prompt
 

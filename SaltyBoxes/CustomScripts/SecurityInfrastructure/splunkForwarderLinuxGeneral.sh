@@ -254,54 +254,54 @@ setup_monitors() {
   MONITOR_CONFIG="$INSTALL_DIR/etc/system/local/inputs.conf"
   
   # Consolidated list of monitors. Splunk will gracefully ignore files that do not exist on the host.
-  MONITORS="
+  cat > "$MONITOR_CONFIG" << 'MONITORS_EOF'
 # -----------------------------------------------------------------------------
 # System, Kernel, & Package Management
 # -----------------------------------------------------------------------------
 
 [monitor:///var/log/auth.log]
-index = main
+index = linux
 sourcetype = linux_secure
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/secure]
-index = main
+index = linux
 sourcetype = linux_secure
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/messages]
-index = main
+index = linux
 sourcetype = syslog
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/syslog]
-index = main
+index = linux
 sourcetype = syslog
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/kern.log]
-index = main
+index = linux
 sourcetype = linux_kernel
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/cron]
-index = main
+index = linux
 sourcetype = cron
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/yum.log]
-index = main
+index = linux
 sourcetype = package
 crcSalt = <SOURCE>
 
 [monitor:///var/log/apt/history.log]
-index = main
+index = linux
 sourcetype = package
 crcSalt = <SOURCE>
 
@@ -311,41 +311,41 @@ crcSalt = <SOURCE>
 # -----------------------------------------------------------------------------
 
 [monitor:///var/log/audit/audit.log]
-index = main
+index = linux
 sourcetype = linux:audit
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/fail2ban.log]
-index = main
+index = linux
 sourcetype = fail2ban
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/ufw.log]
-index = main
+index = linux
 sourcetype = ufw
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/firewalld]
-index = main
+index = linux
 sourcetype = firewalld
 crcSalt = <SOURCE>
 
 [monitor:///var/log/suricata/fast.log]
-index = main
+index = linux
 sourcetype = suricata:fast
 crcSalt = <SOURCE>
 
 [monitor:///var/log/suricata/eve.json]
-index = main
+index = linux
 sourcetype = suricata:eve
 crcSalt = <SOURCE>
 
 # For cron-driven YARA scans. The path may need to be adjusted.
 [monitor:///var/log/yara_scans.log]
-index = main
+index = linux
 sourcetype = yara
 crcSalt = <SOURCE>
 
@@ -356,32 +356,32 @@ crcSalt = <SOURCE>
 
 #General logs
 [monitor:///usr/local/maldetect/logs/event_log]
-index = main
+index = linux
 sourcetype = linux_av:events
 crcSalt = <SOURCE>
 
 #scan summaries
 [monitor:///usr/local/maldetect/logs/scan_log]
-index = main
+index = linux
 sourcetype = linux_av:scan_summaries
 crcSalt = <SOURCE>
 
 #errors
 [monitor:///usr/local/maldetect/logs/error_log]
-index = main
+index = linux
 sourcetype = linux_av:errors
 crcSalt = <SOURCE>
 
 #full detailed reports
 [monitor:///usr/local/maldetect/sess/*]
-index = main
+index = linux
 sourcetype = linux_av:full_reports
 crcSalt = <SOURCE>
 
 [monitor:///var/log/falco/falco_alerts.log]
 disabled = false
 sourcetype = falco:alerts
-index = security
+index = linux
 host_segment = 3
 
 # -----------------------------------------------------------------------------
@@ -389,19 +389,19 @@ host_segment = 3
 # -----------------------------------------------------------------------------
 
 [monitor:///var/ossec/logs/ossec.log]
-index = main
+index = linux
 sourcetype = wazuh:agent
 crcSalt = <SOURCE>
 
 # The following monitors are for a Wazuh MANAGER host.
 [monitor:///var/ossec/logs/api.log]
-index = main
+index = linux
 sourcetype = wazuh:api
 crcSalt = <SOURCE>
 
 # archives.log can be very high volume. Enable with caution.
 # [monitor:///var/ossec/logs/archives.log]
-# index = main
+# index = linux
 # sourcetype = wazuh:archives
 # crcSalt = <SOURCE>
 
@@ -411,66 +411,66 @@ crcSalt = <SOURCE>
 # -----------------------------------------------------------------------------
 
 [monitor:///var/log/nginx/access.log]
-index = main
+index = linux
 sourcetype = nginx:access
 crcSalt = <SOURCE>
 
 [monitor:///var/log/nginx/error.log]
-index = main
+index = linux
 sourcetype = nginx:error
 crcSalt = <SOURCE>
 
 [monitor:///var/log/haproxy.log]
-index = main
+index = linux
 sourcetype = haproxy:log
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/httpd/access_log]
-index = main
+index = linux
 sourcetype = apache:access
 crcSalt = <SOURCE>
 
 [monitor:///var/log/httpd/error_log]
-index = main
+index = linux
 sourcetype = apache:error
 crcSalt = <SOURCE>
 
 [monitor:///var/log/apache2/access.log]
-index = main
+index = linux
 sourcetype = apache:access
 crcSalt = <SOURCE>
 
 [monitor:///var/log/apache2/error.log]
-index = main
+index = linux
 sourcetype = apache:error
 crcSalt = <SOURCE>
 
 [monitor:///var/log/mariadb/mariadb.log]
-index = main
+index = linux
 sourcetype = mysql:error
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/postgresql/*.log]
-index = main
+index = linux
 sourcetype = postgresql:log
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/redis/redis-server.log]
-index = main
+index = linux
 sourcetype = redis
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/apache2/modsec_audit.log]
-index = main
+index = linux
 sourcetype = modsecurity
 crcSalt = <SOURCE>
 
 [monitor:///var/log/nginx/modsec_audit.log]
-index = main
+index = linux
 sourcetype = modsecurity
 crcSalt = <SOURCE>
 
@@ -480,12 +480,12 @@ crcSalt = <SOURCE>
 # -----------------------------------------------------------------------------
 
 [monitor:///var/log/salt/master]
-index = main
+index = linux
 sourcetype = salt:master
 crcSalt = <SOURCE>
 
 [monitor:///var/log/salt/minion]
-index = main
+index = linux
 sourcetype = salt:minion
 crcSalt = <SOURCE>
 
@@ -493,7 +493,7 @@ crcSalt = <SOURCE>
 # NOTE: Query logging must be enabled in Technitium Web UI:
 #       Settings > Logging > Enable "Log all queries"
 [monitor:///opt/technitium-dns/config/logs/*.log]
-index = main
+index = linux
 sourcetype = technitium:querylog
 crcSalt = <SOURCE>
 
@@ -502,13 +502,13 @@ crcSalt = <SOURCE>
 # -----------------------------------------------------------------------------
 
 [monitor:///var/log/pveproxy/access.log]
-index = main
+index = linux
 sourcetype = proxmox:access
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/lib/docker/containers/*/*.log]
-index = main
+index = linux
 sourcetype = docker:json
 crcSalt = <SOURCE>
 
@@ -518,25 +518,25 @@ crcSalt = <SOURCE>
 # -----------------------------------------------------------------------------
 
 [monitor:///var/log/tomcat*/catalina.out]
-index = main
+index = linux
 sourcetype = tomcat:catalina
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/maillog]
-index = main
+index = linux
 sourcetype = postfix
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/dovecot.log]
-index = main
+index = linux
 sourcetype = dovecot
 crcSalt = <SOURCE>
 blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/dns/queries]
-index = main
+index = linux
 sourcetype = bind:query
 recursive = true
 crcSalt = <SOURCE>
@@ -548,19 +548,19 @@ crcSalt = <SOURCE>
 
 #Linux masterEnum logs
 [monitor:///var/log/syst/*audit*]
-index = main
+index = linux
 sourcetype = linux_enum
 crcSalt = <SOURCE>
 
 #Security scanner reports (securityScannerSetup.sh)
 [monitor:///var/log/syst/security_scan_*.log]
-index = main
+index = linux
 sourcetype = linux_security_scan
 crcSalt = <SOURCE>
 
 #LinPEAS findings (filtered to actual results only)
 [monitor:///var/log/syst/linpeas_findings_*.log]
-index = main
+index = linux
 sourcetype = linpeas
 crcSalt = <SOURCE>
 
@@ -569,27 +569,22 @@ crcSalt = <SOURCE>
 # -----------------------------------------------------------------------------
 
 [monitor:///opt/cowrie/var/log/cowrie/cowrie.json]
-index = main
+index = linux
 sourcetype = cowrie
 crcSalt = <SOURCE>
 
 [monitor:///opt/cowrie/var/log/cowrie/cowrie.log]
-index = main
+index = linux
 sourcetype = cowrie:text
 crcSalt = <SOURCE>
 
 
 #Test log
 [monitor:///tmp/test.log]
-index = main
+index = linux
 sourcetype = test
 crcSalt = <SOURCE>
-"
-
-  # Write the configuration
-  sudo bash -c "cat > $MONITOR_CONFIG" <<EOL
-$MONITORS
-EOL
+MONITORS_EOF
 
   sudo chown splunk:splunk "$MONITOR_CONFIG"
   echo "${GREEN}Monitors configured.${NC}"
