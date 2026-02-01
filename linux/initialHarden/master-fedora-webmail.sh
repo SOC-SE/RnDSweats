@@ -197,6 +197,24 @@ iptables -A INPUT -p tcp --dport 110 -j ACCEPT
 # Submission (authenticated mail sending)
 iptables -A INPUT -p tcp --dport 587 -j ACCEPT
 
+#Test - Daut - WindowsAD Fix
+#iptables -A INPUT -p tcp --dport 464 -j ACCEPT
+#iptables -A INPUT -p udp --dport 464 -j ACCEPT
+#iptables -A INPUT -p tcp --dport 88 -j ACCEPT
+#iptables -A INPUT -p udp --dport 88 -j ACCEPT
+#iptables -A INPUT -p tcp --dport 389 -j ACCEPT
+#iptables -A INPUT -p udp --dport 389 -j ACCEPT
+#iptables -A INPUT -p tcp --dport 636 -j ACCEPT
+#iptables -A INPUT -p udp --dport 636 -j ACCEPT
+#iptables -A OUTPUT -p tcp --dport 464 -j ACCEPT
+#iptables -A OUTPUT -p udp --dport 464 -j ACCEPT
+#iptables -A OUTPUT -p tcp --dport 88 -j ACCEPT
+#iptables -A OUTPUT -p udp --dport 88 -j ACCEPT
+#iptables -A OUTPUT -p tcp --dport 389 -j ACCEPT
+#iptables -A OUTPUT -p udp --dport 389 -j ACCEPT
+#iptables -A OUTPUT -p tcp --dport 636 -j ACCEPT
+#iptables -A OUTPUT -p udp --dport 636 -j ACCEPT
+
 # --- Outbound: Salt Minion (connects to Salt Master) ---
 iptables -A OUTPUT -p tcp --dport 4505 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 4506 -j ACCEPT
