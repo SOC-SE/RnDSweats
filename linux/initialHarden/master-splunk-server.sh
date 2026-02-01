@@ -502,7 +502,7 @@ iptables -A INPUT -p tcp --dport 55000 -j ACCEPT  # Wazuh API
 # --- Inbound: Salt ---
 iptables -A INPUT -p tcp --dport 4505 -j ACCEPT   # Salt Publish
 iptables -A INPUT -p tcp --dport 4506 -j ACCEPT   # Salt Request
-iptables -A INPUT -p tcp --dport 8881 -j ACCEPT   # Salt API
+iptables -A INPUT -p tcp --dport 8001 -j ACCEPT   # Salt API
 iptables -A INPUT -p tcp --dport 3000 -j ACCEPT   # Salt Custom GUI
 
 # --- Inbound: DNS (Technitium) ---

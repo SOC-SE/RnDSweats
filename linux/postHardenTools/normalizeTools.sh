@@ -216,7 +216,7 @@ log "Installing AVML memory acquisition tool..."
 if [[ ! -f /usr/local/bin/avml ]]; then
     AVML_URL="https://github.com/microsoft/avml/releases/latest/download/avml"
     AVML_VENDOR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/avml/avml"
-    if wget -q -O /tmp/avml "$AVML_URL" 2>/dev/null; then
+    if wget -q --timeout=15 --tries=2 -O /tmp/avml "$AVML_URL" 2>/dev/null; then
         mv /tmp/avml /usr/local/bin/avml
         chmod +x /usr/local/bin/avml
         log "AVML installed to /usr/local/bin/avml"
@@ -248,7 +248,7 @@ else
         # Use distro ID (ubuntu or debian) for correct Docker repo
         docker_distro="$DISTRO_ID"
         [[ "$docker_distro" == "debian" || "$docker_distro" == "ubuntu" ]] || docker_distro="ubuntu"
-        curl -fsSL "https://download.docker.com/linux/${docker_distro}/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        curl -fsSL --connect-timeout 15 --max-time 30 "https://download.docker.com/linux/${docker_distro}/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
         echo \
           "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${docker_distro} \
@@ -290,8 +290,11 @@ if command_exists systemctl && command_exists docker; then
 fi
 
 if getent group docker > /dev/null 2>&1; then
-    usermod -aG docker "$(whoami)" 2>/dev/null || true
-    [[ -n "${SUDO_USER:-}" ]] && usermod -aG docker "$SUDO_USER" 2>/dev/null || true
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        usermod -aG docker "$SUDO_USER" 2>/dev/null || true
+    else
+        usermod -aG docker "$(whoami)" 2>/dev/null || true
+    fi
 fi
 
 log "Docker installation stage done."
