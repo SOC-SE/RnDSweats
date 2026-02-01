@@ -1,0 +1,31 @@
+name: "Quick: Hidden Files in Temp Dirs"
+description: Find hidden files in /tmp, /dev/shm, /var/tmp, /opt and other suspicious locations
+
+steps:
+  - name: Hidden files in temp directories
+    type: command
+    command: "find /tmp /dev/shm /var/tmp /var/spool -name '.*' -type f 2>/dev/null"
+    target: "*"
+    timeout: 15
+    on_failure: continue
+
+  - name: Hidden directories in temp/opt
+    type: command
+    command: "find /tmp /dev/shm /var/tmp /opt -name '.*' -type d 2>/dev/null"
+    target: "*"
+    timeout: 15
+    on_failure: continue
+
+  - name: Executable files in /tmp and /dev/shm
+    type: command
+    command: "find /tmp /dev/shm -type f -executable 2>/dev/null"
+    target: "*"
+    timeout: 15
+    on_failure: continue
+
+  - name: Recently modified files in /usr/local/bin and /usr/local/sbin
+    type: command
+    command: "find /usr/local/bin /usr/local/sbin -type f -mtime -30 2>/dev/null | while read f; do ls -la \"$f\"; done"
+    target: "*"
+    timeout: 15
+    on_failure: continue

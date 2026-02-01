@@ -1,0 +1,49 @@
+name: Windows Comprehensive Threat Hunt
+description: Deep threat hunting for Windows systems - processes, persistence, and indicators of compromise
+
+steps:
+  - name: Run Process Hunter
+    type: script
+    script: windows/hunting/Process-Hunter.ps1
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Run Persistence Hunter
+    type: script
+    script: windows/hunting/Persistence-Hunter.ps1
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Check for suspicious PowerShell logs
+    type: command
+    command: "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational';ID=4104} -MaxEvents 20 -ErrorAction SilentlyContinue | Select-Object TimeCreated, Message | Format-List"
+    shell: powershell
+    target: "*"
+    timeout: 120
+    on_failure: continue
+
+  - name: Check for encoded commands in event logs
+    type: command
+    command: "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'} -MaxEvents 100 -ErrorAction SilentlyContinue | Where-Object {$_.Message -match 'encodedcommand|frombase64'} | Select-Object -First 10 TimeCreated, Message"
+    shell: powershell
+    target: "*"
+    timeout: 120
+    on_failure: continue
+
+  - name: Check for Mimikatz indicators
+    type: command
+    command: "Get-WinEvent -FilterHashtable @{LogName='Security';ID=4688} -MaxEvents 500 -ErrorAction SilentlyContinue | Where-Object {$_.Message -match 'mimikatz|sekurlsa|kerberos::'}  | Select-Object -First 5 TimeCreated, Message"
+    shell: powershell
+    target: "*"
+    timeout: 180
+    on_failure: continue
+
+  - name: Check for lateral movement indicators
+    type: command
+    command: "Get-WinEvent -FilterHashtable @{LogName='Security';ID=4648} -MaxEvents 50 -ErrorAction SilentlyContinue | Select-Object TimeCreated, @{N='User';E={$_.Properties[5].Value}}, @{N='Target';E={$_.Properties[9].Value}} | Format-Table"
+    shell: powershell
+    target: "*"
+    timeout: 120
+    on_failure: continue

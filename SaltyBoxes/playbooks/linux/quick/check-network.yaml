@@ -1,0 +1,31 @@
+name: "Quick: Network & Connections"
+description: Check listening ports, established connections, and DNS/hosts configuration
+
+steps:
+  - name: Listening ports
+    type: command
+    command: "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Established connections (non-loopback)
+    type: command
+    command: "ss -tnp state established 2>/dev/null | grep -v '127.0.0.1' | head -30"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: DNS and hosts file
+    type: command
+    command: "echo '=== /etc/hosts (non-default) ==='; grep -v '^#' /etc/hosts | grep -v '^$' | grep -v 'localhost'; echo; echo '=== /etc/resolv.conf ==='; cat /etc/resolv.conf | grep -v '^#'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Firewall rules
+    type: command
+    command: "iptables -L -n --line-numbers 2>/dev/null | head -40 || echo 'iptables not available'"
+    target: "*"
+    timeout: 10
+    on_failure: continue

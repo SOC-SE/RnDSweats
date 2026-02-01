@@ -1,0 +1,45 @@
+name: Initial Windows Hardening
+description: First-response hardening playbook for Windows systems
+
+steps:
+  - name: Enable Windows Firewall on all profiles
+    type: command
+    command: "Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Disable Remote Desktop if not needed
+    type: command
+    command: "Set-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server' -Name 'fDenyTSConnections' -Value 1"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Disable WinRM if not needed
+    type: command
+    command: "Stop-Service WinRM -Force -ErrorAction SilentlyContinue; Set-Service WinRM -StartupType Disabled -ErrorAction SilentlyContinue"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Disable SMBv1
+    type: command
+    command: "Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Enable audit policy for logon events
+    type: command
+    command: "auditpol /set /subcategory:'Logon' /success:enable /failure:enable"
+    target: "*"
+    shell: cmd
+    on_failure: continue
+
+  - name: Disable guest account
+    type: command
+    command: "Disable-LocalUser -Name 'Guest' -ErrorAction SilentlyContinue"
+    target: "*"
+    shell: powershell
+    on_failure: continue

@@ -1,0 +1,38 @@
+name: "Quick: Persistence Mechanisms"
+description: Check systemd services, init scripts, profile scripts, and other persistence vectors
+
+steps:
+  - name: Suspicious systemd services (non-vendor)
+    type: command
+    command: "systemctl list-unit-files --type=service --state=enabled 2>/dev/null | grep -vE '(systemd|dbus|getty|ssh|salt|network|cron|rsyslog|auditd|firewall|polkit|udev)' | head -30"
+    target: "*"
+    timeout: 15
+    on_failure: continue
+
+  - name: Systemd timers
+    type: command
+    command: "systemctl list-timers --all 2>/dev/null | head -20"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Init.d scripts and rc.local
+    type: command
+    command: "ls -la /etc/init.d/ 2>/dev/null | grep -v '^total'; echo '--- rc.local ---'; cat /etc/rc.local 2>/dev/null || echo 'No rc.local'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Profile and bashrc injections
+    type: command
+    command: "echo '=== /etc/profile.d/ ==='; ls /etc/profile.d/; echo; echo '=== /etc/bashrc tail ==='; tail -5 /etc/bashrc 2>/dev/null || tail -5 /etc/bash.bashrc 2>/dev/null; echo; for d in /root /home/*; do if [ -f \"$d/.bashrc\" ]; then echo \"=== $d/.bashrc (last 5 lines) ===\"; tail -5 \"$d/.bashrc\"; echo; fi; done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: LD_PRELOAD and library hijacks
+    type: command
+    command: "echo '=== /etc/ld.so.preload ==='; cat /etc/ld.so.preload 2>/dev/null || echo 'Empty/missing'; echo; echo '=== /etc/ld.so.conf.d/ ==='; cat /etc/ld.so.conf.d/*.conf 2>/dev/null; echo; echo '=== LD_LIBRARY_PATH in /etc/environment ==='; grep -i ld /etc/environment 2>/dev/null || echo 'None'"
+    target: "*"
+    timeout: 10
+    on_failure: continue

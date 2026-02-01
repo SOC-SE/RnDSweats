@@ -1,0 +1,12 @@
+# Salt-GUI Authentication Configuration
+# Copy this file to auth.yaml and set your credentials
+#
+# IMPORTANT: The password_hash must be a bcrypt hash
+# Generate one using: node -e "require('bcrypt').hash('yourpassword', 12).then(console.log)"
+
+users:
+  admin:
+    # bcrypt hash of password (cost factor 12)
+    # Default password is "Changeme1!" - CHANGE THIS IN PRODUCTION!
+    password_hash: "$2b$12$fzH7uhWZxv9ssFBWmmUyn.aysvz7NJV4xFT1cWUW26BOQabWzKKhO"
+    role: admin

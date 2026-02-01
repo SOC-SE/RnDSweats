@@ -1,0 +1,26 @@
+# Salt-GUI Application Configuration
+# Copy this file to app.yaml and customize
+
+server:
+  # Port to listen on
+  port: 3000
+  # Bind address (0.0.0.0 for all interfaces)
+  host: "0.0.0.0"
+
+session:
+  # Session timeout in minutes (default: 30)
+  timeout_minutes: 30
+  # Session secret (auto-generated if not set)
+  # secret: "your-secret-here"
+
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+  # Audit log file path (relative to app root)
+  audit_file: "logs/audit.yaml"
+
+defaults:
+  # Default command timeout in seconds
+  command_timeout: 30
+  # Default script timeout in seconds
+  script_timeout: 120

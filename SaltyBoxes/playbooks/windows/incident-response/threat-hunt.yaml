@@ -1,0 +1,59 @@
+name: Windows Threat Hunt
+description: Search for indicators of compromise on Windows systems
+
+steps:
+  - name: Check for suspicious processes
+    type: command
+    command: "Get-Process | Where-Object {$_.Path -like '*\\Temp\\*' -or $_.Path -like '*\\AppData\\Local\\Temp\\*'} | Select-Object Name, Path, Id | Format-Table"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check for PowerShell in unusual locations
+    type: command
+    command: "Get-Process | Where-Object {$_.ProcessName -like '*powershell*' -and $_.Path -notlike '*System32*'} | Select-Object Name, Path, Id"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check recent login failures
+    type: command
+    command: "Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625} -MaxEvents 20 -ErrorAction SilentlyContinue | Select-Object TimeCreated, Message | Format-List"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check for new scheduled tasks (last 24h)
+    type: command
+    command: "Get-ScheduledTask | Where-Object {$_.Date -gt (Get-Date).AddDays(-1)} | Select-Object TaskName, TaskPath, Date | Format-Table"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check established network connections
+    type: command
+    command: "Get-NetTCPConnection -State Established | Where-Object {$_.RemoteAddress -notlike '127.*' -and $_.RemoteAddress -notlike '::1'} | Select-Object LocalAddress, LocalPort, RemoteAddress, RemotePort, OwningProcess | Format-Table"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check for hidden files in user temp
+    type: command
+    command: "Get-ChildItem -Path $env:TEMP -Hidden -File -ErrorAction SilentlyContinue | Select-Object Name, Length, LastWriteTime | Format-Table"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check startup programs
+    type: command
+    command: "Get-CimInstance -ClassName Win32_StartupCommand | Select-Object Name, Command, Location | Format-Table -AutoSize"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check for unsigned drivers
+    type: command
+    command: "Get-WmiObject Win32_PnPSignedDriver | Where-Object {$_.IsSigned -eq $false} | Select-Object DeviceName, DriverVersion | Format-Table"
+    target: "*"
+    shell: powershell
+    on_failure: continue

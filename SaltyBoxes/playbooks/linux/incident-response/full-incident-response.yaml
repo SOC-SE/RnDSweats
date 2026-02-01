@@ -1,0 +1,45 @@
+name: Linux Full Incident Response
+description: Complete incident response workflow - collect artifacts, hunt threats, isolate if needed
+
+steps:
+  - name: Collect forensic artifacts (FIRST - preserve evidence)
+    type: script
+    script: linux/incident-response/collect-artifacts.sh
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Run process hunter
+    type: script
+    script: linux/hunting/process-hunter.sh
+    target: "*"
+    timeout: 180
+    on_failure: continue
+
+  - name: Run persistence hunter
+    type: script
+    script: linux/hunting/persistence-hunter.sh
+    target: "*"
+    timeout: 180
+    on_failure: continue
+
+  - name: Check for active network connections to suspicious IPs
+    type: command
+    command: "ss -tnp state established | grep -vE '(127.0.0.1|::1|:4505|:4506)' | awk '{print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn | head -10"
+    target: "*"
+    timeout: 60
+    on_failure: continue
+
+  - name: Check for processes running from temp directories
+    type: command
+    command: "ls -la /proc/*/exe 2>/dev/null | grep -E '(/tmp/|/dev/shm/|deleted)' || echo 'None found'"
+    target: "*"
+    timeout: 60
+    on_failure: continue
+
+  - name: Snapshot current state for comparison
+    type: command
+    command: "ps aux > /tmp/ps_snapshot_$(date +%s).txt && ss -tulnp > /tmp/net_snapshot_$(date +%s).txt"
+    target: "*"
+    timeout: 30
+    on_failure: continue

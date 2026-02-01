@@ -1,0 +1,27 @@
+# Salt API Connection Configuration
+# Copy this file to salt.yaml and set your credentials
+
+api:
+  # Salt API URL (include protocol and port)
+  url: "https://localhost:8001"
+
+  # Authentication method: pam, file, ldap
+  eauth: "pam"
+
+  # Salt API username
+  username: "saltadmin"
+
+  # Salt API password
+  # NOTE: For security, you can also set SALT_API_PASSWORD environment variable
+  password: ""
+
+  # Accept self-signed SSL certificates (common in competition environments)
+  # Set to false in production with valid certificates
+  verify_ssl: false
+
+defaults:
+  # Default timeout for Salt API calls (seconds)
+  timeout: 30
+
+  # Batch size for bulk operations
+  batch_size: 10

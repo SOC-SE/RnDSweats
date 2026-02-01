@@ -1,0 +1,31 @@
+name: "Quick: Hosts & DNS Hijacking"
+description: Check for DNS and hosts file manipulation, proxy settings, and repo poisoning
+
+steps:
+  - name: Hosts file entries (non-default)
+    type: command
+    command: "grep -v '^#' /etc/hosts | grep -v '^$' | grep -vE '^(127|::1|ff0)'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: DNS resolvers
+    type: command
+    command: "cat /etc/resolv.conf | grep -v '^#' | grep -v '^$'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Proxy environment variables
+    type: command
+    command: "grep -i proxy /etc/environment /etc/profile.d/*.sh 2>/dev/null; env | grep -i proxy 2>/dev/null || true"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Package repo integrity
+    type: command
+    command: "if [ -d /etc/yum.repos.d ]; then grep -rl 'gpgcheck.*=.*0' /etc/yum.repos.d/ 2>/dev/null; grep -rl '10\\.13\\.37' /etc/yum.repos.d/ 2>/dev/null; elif [ -d /etc/apt ]; then grep -r '10\\.13\\.37' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null; fi; echo 'done'"
+    target: "*"
+    timeout: 10
+    on_failure: continue

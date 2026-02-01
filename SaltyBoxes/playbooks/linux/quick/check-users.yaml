@@ -1,0 +1,38 @@
+name: "Quick: Users & Accounts"
+description: Check for rogue users, UID 0 accounts, empty passwords, and sudo access
+
+steps:
+  - name: Users with UID 0 (root-equivalent)
+    type: command
+    command: "awk -F: '$3==0 {print $1}' /etc/passwd"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Users with login shells
+    type: command
+    command: "awk -F: '$7 ~ /(bash|sh|zsh|fish|ksh)$/ {printf \"%-20s UID=%-6s GID=%-6s %s\\n\", $1, $3, $4, $7}' /etc/passwd"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Users with empty or no password
+    type: command
+    command: "awk -F: '($2==\"\" || $2==\"!\") {print $1}' /etc/shadow 2>/dev/null || echo 'Cannot read shadow'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Sudoers and sudo group members
+    type: command
+    command: "echo '--- /etc/sudoers.d/ files ---'; ls -la /etc/sudoers.d/ 2>/dev/null; echo; for f in /etc/sudoers.d/*; do echo \"--- $f ---\"; cat \"$f\" 2>/dev/null; echo; done; echo '--- wheel/sudo group ---'; getent group wheel sudo 2>/dev/null"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Recently created users (passwd modification time)
+    type: command
+    command: "stat /etc/passwd | grep Modify; echo '--- Last 5 entries in passwd ---'; tail -5 /etc/passwd"
+    target: "*"
+    timeout: 10
+    on_failure: continue

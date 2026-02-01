@@ -1,0 +1,36 @@
+{
+  "name": "salt-gui",
+  "version": "1.0.0",
+  "description": "Web-based remote administration platform for SaltStack - CCDC Competition Edition",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/",
+    "test:unit": "node --test tests/unit/",
+    "test:integration": "node --test tests/integration/"
+  },
+  "keywords": [
+    "saltstack",
+    "salt",
+    "gui",
+    "ccdc",
+    "cyber-defense",
+    "remote-administration",
+    "c2"
+  ],
+  "author": "Samuel Brucker",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "axios": "^1.7.0",
+    "express-session": "^1.18.0",
+    "bcryptjs": "^2.4.3",
+    "js-yaml": "^4.1.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {}
+}

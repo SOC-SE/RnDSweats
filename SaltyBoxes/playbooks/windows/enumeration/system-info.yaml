@@ -1,0 +1,52 @@
+name: Windows System Enumeration
+description: Gather comprehensive system information for security assessment on Windows
+
+steps:
+  - name: Get system information
+    type: command
+    command: "Get-ComputerInfo | Select-Object CsName, OsName, OsVersion, WindowsVersion | Format-List"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: List local users
+    type: command
+    command: "Get-LocalUser | Select-Object Name, Enabled, LastLogon | Format-Table -AutoSize"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: List local administrators
+    type: command
+    command: "Get-LocalGroupMember -Group 'Administrators' | Select-Object Name, ObjectClass | Format-Table"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: List listening ports
+    type: command
+    command: "Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess | Sort-Object LocalPort | Format-Table"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: List running services
+    type: command
+    command: "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object Name, DisplayName | Format-Table -AutoSize"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check scheduled tasks
+    type: command
+    command: "Get-ScheduledTask | Where-Object {$_.State -eq 'Ready'} | Select-Object TaskName, TaskPath | Format-Table -AutoSize"
+    target: "*"
+    shell: powershell
+    on_failure: continue
+
+  - name: Check firewall status
+    type: command
+    command: "Get-NetFirewallProfile | Select-Object Name, Enabled | Format-Table"
+    target: "*"
+    shell: powershell
+    on_failure: continue

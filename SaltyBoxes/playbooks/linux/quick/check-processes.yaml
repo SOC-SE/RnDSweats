@@ -1,0 +1,31 @@
+name: "Quick: Suspicious Processes"
+description: Check for reverse shells, crypto miners, and suspicious process activity
+
+steps:
+  - name: Processes with network connections
+    type: command
+    command: "ss -tnp 2>/dev/null | awk 'NR>1 {print $6}' | sort -u | head -20"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Processes running from /tmp or /dev/shm
+    type: command
+    command: "ls -la /proc/*/exe 2>/dev/null | grep -E '(/tmp|/dev/shm|deleted)' | head -20"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Shell processes (potential reverse shells)
+    type: command
+    command: "ps aux | grep -E '(nc |ncat |netcat |socat |/dev/tcp|bash -i|python.*socket|perl.*socket)' | grep -v grep"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: High CPU processes
+    type: command
+    command: "ps aux --sort=-%cpu | head -10"
+    target: "*"
+    timeout: 10
+    on_failure: continue

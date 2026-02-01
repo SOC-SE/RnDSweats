@@ -1,0 +1,24 @@
+name: "Quick: SUID/SGID Binaries"
+description: Find SUID and SGID binaries, especially in unusual locations
+
+steps:
+  - name: SUID binaries outside standard paths
+    type: command
+    command: "find / -perm -4000 -type f 2>/dev/null | grep -vE '^/(usr/(bin|lib|sbin)|bin|sbin)/' | head -20"
+    target: "*"
+    timeout: 30
+    on_failure: continue
+
+  - name: All SUID binaries
+    type: command
+    command: "find / -perm -4000 -type f 2>/dev/null | sort"
+    target: "*"
+    timeout: 30
+    on_failure: continue
+
+  - name: World-writable files in system paths
+    type: command
+    command: "find /usr /etc /opt -type f -perm -o+w 2>/dev/null | head -20"
+    target: "*"
+    timeout: 30
+    on_failure: continue

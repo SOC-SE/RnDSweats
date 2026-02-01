@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+
+# Configuration files with credentials
+config/auth.yaml
+config/salt.yaml
+
+# Logs
+logs/*.log
+logs/*.yaml
+*.log
+
+# Runtime files
+*.pid
+*.seed
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Playbooks (user-managed)
+playbooks/*.yaml
+!playbooks/.gitkeep
+
+# Uploaded files
+uploads/
+
+# Session data
+sessions/
+
+# Vagrant
+.vagrant/
+Vagrantfile
+
+# Build artifacts
+yay/
+
+# Internal docs and tests
+CLAUDE.md
+ENVIRONMENT.md
+tests/

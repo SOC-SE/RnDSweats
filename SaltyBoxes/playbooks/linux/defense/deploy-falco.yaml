@@ -1,0 +1,31 @@
+name: Deploy Falco HIDS
+description: Install and configure Falco with CCDC detection rules for rootkits, BPFDoor, persistence, C2, and more
+
+steps:
+  - name: Install and configure Falco
+    type: script
+    script: linux/security/install-falco.sh
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Verify Falco is running
+    type: command
+    command: "systemctl status falco* --no-pager | head -20 || echo 'Falco not yet running'"
+    target: "*"
+    shell: /bin/bash
+    on_failure: continue
+
+  - name: Test alert generation
+    type: command
+    command: "cat /etc/shadow > /dev/null 2>&1; sleep 2; tail -5 /var/log/falco/falco_alerts.log 2>/dev/null || echo 'Alerts will appear here when triggered'"
+    target: "*"
+    shell: /bin/bash
+    on_failure: continue
+
+  - name: Show log location
+    type: command
+    command: "echo 'Falco alerts: /var/log/falco/falco_alerts.log'; echo 'Add this to Splunk Universal Forwarder inputs.conf:'; echo '[monitor:///var/log/falco/falco_alerts.log]'; echo 'sourcetype = falco'; echo 'index = security'"
+    target: "*"
+    shell: /bin/bash
+    on_failure: continue

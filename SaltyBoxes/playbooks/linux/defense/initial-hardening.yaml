@@ -1,0 +1,39 @@
+name: Initial Linux Hardening
+description: First-response hardening playbook for Linux systems
+
+steps:
+  - name: Disable unnecessary services
+    type: command
+    command: "systemctl disable --now cups avahi-daemon bluetooth 2>/dev/null || true"
+    target: "*"
+    on_failure: continue
+
+  - name: Set secure permissions on passwd files
+    type: command
+    command: "chmod 644 /etc/passwd && chmod 600 /etc/shadow && chown root:root /etc/passwd /etc/shadow"
+    target: "*"
+    on_failure: continue
+
+  - name: Disable IP forwarding
+    type: command
+    command: "sysctl -w net.ipv4.ip_forward=0 && echo 'net.ipv4.ip_forward = 0' >> /etc/sysctl.conf"
+    target: "*"
+    on_failure: continue
+
+  - name: Disable ICMP redirects
+    type: command
+    command: "sysctl -w net.ipv4.conf.all.accept_redirects=0 && sysctl -w net.ipv4.conf.default.accept_redirects=0"
+    target: "*"
+    on_failure: continue
+
+  - name: Enable SYN cookies
+    type: command
+    command: "sysctl -w net.ipv4.tcp_syncookies=1"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for world-writable files in /etc
+    type: command
+    command: "find /etc -type f -perm -002 2>/dev/null | head -20 || echo 'No world-writable files in /etc'"
+    target: "*"
+    on_failure: continue

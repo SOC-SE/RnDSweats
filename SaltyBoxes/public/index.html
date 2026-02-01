@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salt-GUI</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="screen">
+    <div class="login-container">
+      <h1 class="login-title">Salt-GUI</h1>
+
+      <form id="login-form" class="login-form">
+        <div class="form-group">
+          <label for="login-username">Username</label>
+          <input type="text" id="login-username" name="username" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" name="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Login</button>
+        <div id="login-error" class="error-message hidden"></div>
+      </form>
+
+      <!-- Setup Form (shown only when no users exist) -->
+      <form id="setup-form" class="login-form hidden">
+        <p class="setup-notice">Initial Setup Required</p>
+        <div class="form-group">
+          <label for="setup-username">Admin Username</label>
+          <input type="text" id="setup-username" name="username" value="admin" required>
+        </div>
+        <div class="form-group">
+          <label for="setup-password">Admin Password</label>
+          <input type="password" id="setup-password" name="password" required minlength="8">
+        </div>
+        <div class="form-group">
+          <label for="setup-confirm">Confirm Password</label>
+          <input type="password" id="setup-confirm" name="confirm" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Create Admin User</button>
+        <div id="setup-error" class="error-message hidden"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Application -->
+  <div id="app-screen" class="screen hidden">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <span class="logo">Salt-GUI</span>
+        <span id="connection-status" class="status-badge status-unknown">Checking...</span>
+      </div>
+      <div class="header-right">
+        <span id="current-user" class="user-info"></span>
+        <button id="theme-toggle-btn" class="btn btn-small" title="Toggle Light/Dark Theme">Theme</button>
+        <button id="logout-btn" class="btn btn-small">Logout</button>
+      </div>
+    </header>
+
+    <!-- Salt Disconnected Banner -->
+    <div id="salt-disconnect-banner" class="disconnect-banner hidden">
+      Salt API disconnected -- commands will fail
+    </div>
+
+    <!-- Main Layout -->
+    <div class="main-layout">
+      <!-- Sidebar Navigation -->
+      <nav class="sidebar">
+        <div class="nav-section">
+          <div class="nav-item active" data-view="devices">Devices</div>
+          <div class="nav-item" data-view="keys">Keys</div>
+          <div class="nav-item" data-view="commands">Commands</div>
+          <div class="nav-item" data-view="scripts">Scripts</div>
+          <div class="nav-item" data-view="states">States</div>
+          <div class="nav-item" data-view="playbooks">Playbooks</div>
+          <div class="nav-item" data-view="services">Services</div>
+          <div class="nav-item" data-view="processes">Processes</div>
+          <div class="nav-item" data-view="network">Network</div>
+          <div class="nav-item" data-view="files">Files</div>
+          <div class="nav-item" data-view="logs">Logs</div>
+          <div class="nav-item" data-view="forensics">Forensics</div>
+          <div class="nav-item" data-view="suspicious">Suspicious</div>
+          <div class="nav-item" data-view="passwords">User Management</div>
+          <div class="nav-item" data-view="audit">Audit Log</div>
+          <div class="nav-item" data-view="reports">Reports</div>
+        </div>
+        <div class="nav-divider"></div>
+        <div class="nav-section">
+          <div class="nav-item" data-view="settings">Settings</div>
+        </div>
+        <div class="nav-divider"></div>
+        <div class="nav-section">
+          <div class="nav-item nav-emergency" data-view="emergency">EMERGENCY</div>
+        </div>
+      </nav>
+
+      <!-- Content Area -->
+      <main class="content">
+        <!-- Devices View -->
+        <div id="view-devices" class="view active">
+          <div class="view-header">
+            <h2>Devices</h2>
+            <div class="view-actions">
+              <button id="select-all-btn" class="btn btn-small">Select All</button>
+              <button id="select-linux-btn" class="btn btn-small">Select Linux</button>
+              <button id="select-windows-btn" class="btn btn-small">Select Windows</button>
+              <button id="clear-selection-btn" class="btn btn-small">Clear</button>
+              <button id="refresh-devices-btn" class="btn btn-small btn-primary">Refresh</button>
+            </div>
+          </div>
+          <div class="view-toolbar">
+            <input type="text" id="device-filter" class="filter-input" placeholder="Filter devices...">
+            <span id="device-count" class="count-badge">0 devices</span>
+            <span id="selected-count" class="count-badge">0 selected</span>
+          </div>
+          <div id="device-list" class="device-list">
+            <div class="loading">Loading devices...</div>
+          </div>
+        </div>
+
+        <!-- Keys View -->
+        <div id="view-keys" class="view hidden">
+          <div class="view-header">
+            <h2>Minion Key Management</h2>
+            <div class="view-actions">
+              <button id="accept-all-keys-btn" class="btn btn-small btn-primary">Accept All Pending</button>
+              <button id="refresh-keys-btn" class="btn btn-small">Refresh</button>
+            </div>
+          </div>
+          <div class="keys-panel">
+            <!-- Pending Keys -->
+            <div class="keys-section">
+              <h3 class="keys-section-header">
+                <span class="status-dot status-warning"></span>
+                Pending Keys
+                <span id="pending-count" class="count-badge">0</span>
+              </h3>
+              <div id="pending-keys-list" class="keys-list">
+                <div class="keys-empty">No pending keys</div>
+              </div>
+            </div>
+            <!-- Accepted Keys -->
+            <div class="keys-section">
+              <h3 class="keys-section-header">
+                <span class="status-dot status-online"></span>
+                Accepted Keys
+                <span id="accepted-count" class="count-badge">0</span>
+              </h3>
+              <div id="accepted-keys-list" class="keys-list">
+                <div class="keys-empty">No accepted keys</div>
+              </div>
+            </div>
+            <!-- Rejected Keys -->
+            <div class="keys-section">
+              <h3 class="keys-section-header">
+                <span class="status-dot status-offline"></span>
+                Rejected Keys
+                <span id="rejected-count" class="count-badge">0</span>
+              </h3>
+              <div id="rejected-keys-list" class="keys-list">
+                <div class="keys-empty">No rejected keys</div>
+              </div>
+            </div>
+            <!-- Denied Keys -->
+            <div class="keys-section">
+              <h3 class="keys-section-header">
+                <span class="status-dot status-offline"></span>
+                Denied Keys
+                <span id="denied-count" class="count-badge">0</span>
+              </h3>
+              <div id="denied-keys-list" class="keys-list">
+                <div class="keys-empty">No denied keys</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Commands View -->
+        <div id="view-commands" class="view hidden">
+          <div class="view-header">
+            <h2>Command Execution</h2>
+          </div>
+          <div class="command-panel">
+            <div class="command-options">
+              <div class="option-group">
+                <label>Target:</label>
+                <select id="cmd-target-type">
+                  <option value="selected">Selected Devices</option>
+                  <option value="single">Single Device</option>
+                  <option value="all">All Devices (*)</option>
+                  <option value="custom">Custom Pattern</option>
+                </select>
+                <select id="cmd-single-target" class="hidden">
+                  <option value="">Select device...</option>
+                </select>
+                <input type="text" id="cmd-custom-target" class="hidden" placeholder="e.g., web-* or minion-01">
+              </div>
+              <div id="cmd-device-selector" class="device-selector">
+                <div class="device-selector-header">
+                  <span>Select Devices (<span id="cmd-selected-count">0</span> selected)</span>
+                  <div class="device-selector-actions">
+                    <button type="button" class="btn btn-sm" id="cmd-select-all">All</button>
+                    <button type="button" class="btn btn-sm" id="cmd-select-linux">Linux</button>
+                    <button type="button" class="btn btn-sm" id="cmd-select-windows">Windows</button>
+                    <button type="button" class="btn btn-sm" id="cmd-select-none">None</button>
+                  </div>
+                </div>
+                <div id="cmd-device-list" class="device-selector-list">
+                  <div class="loading">Loading devices...</div>
+                </div>
+              </div>
+              <div class="option-group">
+                <label>Shell:</label>
+                <select id="cmd-shell">
+                  <option value="auto">Auto-detect</option>
+                  <option value="/bin/bash">Bash</option>
+                  <option value="powershell">PowerShell</option>
+                  <option value="cmd">CMD</option>
+                </select>
+              </div>
+              <div class="option-group">
+                <label>Timeout:</label>
+                <select id="cmd-timeout">
+                  <option value="30">30 seconds</option>
+                  <option value="60">60 seconds</option>
+                  <option value="120">2 minutes</option>
+                  <option value="300">5 minutes</option>
+                  <option value="600">10 minutes</option>
+                </select>
+              </div>
+            </div>
+            <div class="command-input-wrapper">
+              <span class="prompt">$</span>
+              <textarea id="cmd-input" class="command-input" placeholder="Enter command..." rows="3"></textarea>
+            </div>
+            <div class="command-actions">
+              <button id="cmd-execute-btn" class="btn btn-primary">Execute</button>
+              <button id="cmd-clear-btn" class="btn btn-small">Clear Output</button>
+            </div>
+          </div>
+          <div class="output-panel">
+            <div class="output-header">
+              <span>Output</span>
+              <button id="cmd-copy-btn" class="btn btn-small">Copy</button>
+            </div>
+            <pre id="cmd-output" class="output-content">No output yet.</pre>
+          </div>
+        </div>
+
+        <!-- Scripts View -->
+        <div id="view-scripts" class="view hidden">
+          <div class="view-header">
+            <h2>Script Deployment</h2>
+          </div>
+          <div class="scripts-layout">
+            <div class="scripts-sidebar">
+              <div class="scripts-header">
+                <span>Available Scripts</span>
+                <button id="refresh-scripts-btn" class="btn btn-small">Refresh</button>
+              </div>
+              <div class="scripts-filter">
+                <select id="scripts-os-filter">
+                  <option value="all">All</option>
+                  <option value="linux">Linux</option>
+                  <option value="windows">Windows</option>
+                </select>
+              </div>
+              <div id="scripts-tree" class="scripts-tree">
+                <div class="loading">Loading scripts...</div>
+              </div>
+            </div>
+            <div class="scripts-main">
+              <div class="script-info" id="script-info">
+                <p class="placeholder-text">Select a script to view details</p>
+              </div>
+              <div class="script-content-wrapper">
+                <div class="script-content-header">
+                  <span>Script Content</span>
+                </div>
+                <pre id="script-content" class="script-content">Select a script to view content.</pre>
+              </div>
+              <div class="script-execute-panel">
+                <div class="option-group">
+                  <label>Target:</label>
+                  <select id="script-target-type">
+                    <option value="selected">Selected Devices</option>
+                    <option value="single">Single Device</option>
+                    <option value="all">All Devices (*)</option>
+                    <option value="custom">Custom Pattern</option>
+                  </select>
+                  <select id="script-single-target" class="hidden">
+                    <option value="">Select device...</option>
+                  </select>
+                  <input type="text" id="script-custom-target" class="hidden" placeholder="e.g., web-* or minion-01">
+                </div>
+                <div id="script-device-selector" class="device-selector">
+                  <div class="device-selector-header">
+                    <span>Select Devices (<span id="script-selected-count">0</span> selected)</span>
+                    <div class="device-selector-actions">
+                      <button type="button" class="btn btn-sm" id="script-select-all">All</button>
+                      <button type="button" class="btn btn-sm" id="script-select-linux">Linux</button>
+                      <button type="button" class="btn btn-sm" id="script-select-windows">Windows</button>
+                      <button type="button" class="btn btn-sm" id="script-select-none">None</button>
+                    </div>
+                  </div>
+                  <div id="script-device-list" class="device-selector-list">
+                    <div class="loading">Loading devices...</div>
+                  </div>
+                </div>
+                <div class="option-group">
+                  <label>Arguments:</label>
+                  <input type="text" id="script-args" placeholder="Optional arguments">
+                </div>
+                <button id="script-execute-btn" class="btn btn-primary" disabled>Execute Script</button>
+              </div>
+              <div class="output-panel">
+                <div class="output-header">
+                  <span>Execution Output</span>
+                  <button id="script-copy-btn" class="btn btn-small">Copy</button>
+                </div>
+                <pre id="script-output" class="output-content">No output yet.</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- States View -->
+        <div id="view-states" class="view hidden">
+          <div class="view-header">
+            <h2>Salt States</h2>
+          </div>
+          <div class="scripts-layout">
+            <div class="scripts-sidebar">
+              <div class="scripts-header">
+                <span>Available States</span>
+                <button id="refresh-states-btn" class="btn btn-small">Refresh</button>
+              </div>
+              <div class="scripts-filter">
+                <select id="states-os-filter">
+                  <option value="all">All</option>
+                  <option value="linux">Linux</option>
+                  <option value="windows">Windows</option>
+                </select>
+              </div>
+              <div id="states-tree" class="scripts-tree">
+                <div class="loading">Loading states...</div>
+              </div>
+            </div>
+            <div class="scripts-main">
+              <div class="script-info" id="state-info">
+                <p class="placeholder-text">Select a state to view details</p>
+              </div>
+              <div class="script-content-wrapper">
+                <div class="script-content-header">
+                  <span>State Content (YAML)</span>
+                </div>
+                <pre id="state-content" class="script-content">Select a state to view content.</pre>
+              </div>
+              <div class="script-execute-panel">
+                <div class="option-group">
+                  <label>Target:</label>
+                  <select id="state-target-type">
+                    <option value="selected">Selected Devices</option>
+                    <option value="single">Single Device</option>
+                    <option value="all">All Devices (*)</option>
+                    <option value="custom">Custom Pattern</option>
+                  </select>
+                  <select id="state-single-target" class="hidden">
+                    <option value="">Select device...</option>
+                  </select>
+                  <input type="text" id="state-custom-target" class="hidden" placeholder="e.g., web-* or minion-01">
+                </div>
+                <div id="state-device-selector" class="device-selector">
+                  <div class="device-selector-header">
+                    <span>Select Devices (<span id="state-selected-count">0</span> selected)</span>
+                    <div class="device-selector-actions">
+                      <button type="button" class="btn btn-sm" id="state-select-all">All</button>
+                      <button type="button" class="btn btn-sm" id="state-select-linux">Linux</button>
+                      <button type="button" class="btn btn-sm" id="state-select-windows">Windows</button>
+                      <button type="button" class="btn btn-sm" id="state-select-none">None</button>
+                    </div>
+                  </div>
+                  <div id="state-device-list" class="device-selector-list">
+                    <div class="loading">Loading devices...</div>
+                  </div>
+                </div>
+                <div class="option-group">
+                  <label>
+                    <input type="checkbox" id="state-test-mode"> Test Mode (dry run)
+                  </label>
+                </div>
+                <button id="state-apply-btn" class="btn btn-primary" disabled>Apply State</button>
+              </div>
+              <div class="output-panel">
+                <div class="output-header">
+                  <span>State Results</span>
+                  <button id="state-copy-btn" class="btn btn-small">Copy</button>
+                </div>
+                <pre id="state-output" class="output-content">No output yet.</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Playbooks View -->
+        <div id="view-playbooks" class="view hidden">
+          <div class="view-header">
+            <h2>Playbooks</h2>
+          </div>
+          <div class="scripts-layout">
+            <div class="scripts-sidebar">
+              <div class="scripts-header">
+                <span>Available Playbooks</span>
+                <button id="refresh-playbooks-btn" class="btn btn-small">Refresh</button>
+              </div>
+              <div class="scripts-filter">
+                <select id="playbooks-os-filter">
+                  <option value="all">All</option>
+                  <option value="linux">Linux</option>
+                  <option value="windows">Windows</option>
+                </select>
+              </div>
+              <div id="playbooks-tree" class="scripts-tree">
+                <div class="loading">Loading playbooks...</div>
+              </div>
+            </div>
+            <div class="scripts-main">
+              <div class="script-info" id="playbook-info">
+                <p class="placeholder-text">Select a playbook to view details</p>
+              </div>
+              <div class="script-content-wrapper">
+                <div class="script-content-header">
+                  <span>Playbook Steps</span>
+                </div>
+                <div id="playbook-steps" class="playbook-steps">
+                  <p class="placeholder-text">Select a playbook to view steps</p>
+                </div>
+              </div>
+              <div class="script-execute-panel">
+                <div class="option-group">
+                  <label>Target Override:</label>
+                  <select id="playbook-target-type">
+                    <option value="default">Use Playbook Defaults</option>
+                    <option value="selected">Selected Devices</option>
+                    <option value="single">Single Device</option>
+                    <option value="all">All Devices (*)</option>
+                    <option value="custom">Custom Pattern</option>
+                  </select>
+                  <select id="playbook-single-target" class="hidden">
+                    <option value="">Select device...</option>
+                  </select>
+                  <input type="text" id="playbook-custom-target" class="hidden" placeholder="e.g., web-* or minion-01">
+                </div>
+                <div id="playbook-device-selector" class="device-selector hidden">
+                  <div class="device-selector-header">
+                    <span>Select Devices (<span id="playbook-selected-count">0</span> selected)</span>
+                    <div class="device-selector-actions">
+                      <button type="button" class="btn btn-sm" id="playbook-select-all">All</button>
+                      <button type="button" class="btn btn-sm" id="playbook-select-linux">Linux</button>
+                      <button type="button" class="btn btn-sm" id="playbook-select-windows">Windows</button>
+                      <button type="button" class="btn btn-sm" id="playbook-select-none">None</button>
+                    </div>
+                  </div>
+                  <div id="playbook-device-list" class="device-selector-list">
+                    <div class="loading">Loading devices...</div>
+                  </div>
+                </div>
+                <button id="playbook-run-btn" class="btn btn-primary" disabled>Run Playbook</button>
+              </div>
+              <div class="output-panel">
+                <div class="output-header">
+                  <span>Playbook Results</span>
+                  <button id="playbook-copy-btn" class="btn btn-small">Copy</button>
+                </div>
+                <pre id="playbook-output" class="output-content">No output yet.</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Audit Log View -->
+        <div id="view-audit" class="view hidden">
+          <div class="view-header">
+            <h2>Audit Log</h2>
+            <div class="view-actions">
+              <button id="refresh-audit-btn" class="btn btn-small btn-primary">Refresh</button>
+            </div>
+          </div>
+          <div class="view-toolbar">
+            <select id="audit-action-filter">
+              <option value="">All Actions</option>
+            </select>
+            <select id="audit-user-filter">
+              <option value="">All Users</option>
+            </select>
+            <input type="number" id="audit-limit" value="100" min="10" max="1000" style="width: 80px;">
+            <span>entries</span>
+          </div>
+          <div id="audit-list" class="audit-list">
+            <div class="loading">Loading audit log...</div>
+          </div>
+        </div>
+
+        <!-- Reports View -->
+        <div id="view-reports" class="view hidden">
+          <div class="view-header">
+            <h2>Reports</h2>
+          </div>
+          <div class="reports-panel">
+            <div class="reports-grid">
+              <div class="report-card">
+                <div class="report-card-header">System Status Report</div>
+                <div class="report-card-description">
+                  Generate a comprehensive status report of all minions including
+                  online/offline status, OS distribution, and IP addresses.
+                </div>
+                <div class="report-card-actions">
+                  <button id="report-status-btn" class="btn btn-primary">Generate</button>
+                </div>
+              </div>
+              <div class="report-card">
+                <div class="report-card-header">Audit Activity Report</div>
+                <div class="report-card-description">
+                  Generate a report of all administrative actions performed
+                  through Salt-GUI, grouped by user and action type.
+                </div>
+                <div class="report-card-actions">
+                  <select id="report-audit-hours">
+                    <option value="1">Last 1 hour</option>
+                    <option value="6">Last 6 hours</option>
+                    <option value="24" selected>Last 24 hours</option>
+                    <option value="168">Last 7 days</option>
+                  </select>
+                  <button id="report-audit-btn" class="btn btn-primary">Generate</button>
+                </div>
+              </div>
+              <div class="report-card">
+                <div class="report-card-header">Security Scan Report</div>
+                <div class="report-card-description">
+                  Run a security scan on selected minions and generate a report
+                  of findings including critical, high, and medium severity issues.
+                </div>
+                <div class="report-card-actions">
+                  <select id="report-security-target">
+                    <option value="">Select target...</option>
+                    <option value="*">All Minions</option>
+                  </select>
+                  <button id="report-security-btn" class="btn btn-primary">Generate</button>
+                </div>
+              </div>
+            </div>
+            <div class="report-output">
+              <div class="report-output-header">
+                <span>Report Output</span>
+                <div class="report-output-actions">
+                  <button id="report-copy-btn" class="btn btn-small">Copy</button>
+                  <button id="report-download-btn" class="btn btn-small">Download</button>
+                </div>
+              </div>
+              <pre id="report-content" class="report-content">Select a report type and click Generate</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Services View -->
+        <div id="view-services" class="view hidden">
+          <div class="view-header">
+            <h2>Service Management</h2>
+          </div>
+          <div class="services-panel">
+            <div class="services-controls">
+              <div class="option-group">
+                <label>Target:</label>
+                <select id="svc-single-target">
+                  <option value="">Select device...</option>
+                </select>
+              </div>
+              <button id="svc-load-btn" class="btn btn-primary">Load Services</button>
+            </div>
+            <div class="services-toolbar">
+              <input type="text" id="svc-filter" class="filter-input" placeholder="Filter services...">
+              <label class="checkbox-inline"><input type="checkbox" id="svc-running-only"> Running only</label>
+              <span id="svc-count" class="count-badge">0 services</span>
+            </div>
+            <div id="services-list" class="services-list">
+              <div class="loading">Select a target and click Load Services</div>
+            </div>
+            <div class="services-actions">
+              <div class="option-group">
+                <label>Service:</label>
+                <input type="text" id="svc-name" placeholder="Enter or click service name...">
+              </div>
+              <button id="svc-start-btn" class="btn btn-small btn-success">Start</button>
+              <button id="svc-stop-btn" class="btn btn-small btn-danger">Stop</button>
+              <button id="svc-restart-btn" class="btn btn-small btn-warning">Restart</button>
+              <button id="svc-enable-btn" class="btn btn-small">Enable</button>
+              <button id="svc-disable-btn" class="btn btn-small">Disable</button>
+            </div>
+            <div class="output-panel" style="margin-top: var(--spacing-md);">
+              <div class="output-header">
+                <span>Output</span>
+              </div>
+              <pre id="svc-output" class="output-content">No output yet.</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Processes View -->
+        <div id="view-processes" class="view hidden">
+          <div class="view-header">
+            <h2>Process Management</h2>
+          </div>
+          <div class="processes-panel">
+            <div class="processes-controls">
+              <div class="option-group">
+                <label>Target:</label>
+                <select id="proc-single-target">
+                  <option value="">Select device...</option>
+                </select>
+              </div>
+              <div class="option-group">
+                <label>Limit:</label>
+                <input type="number" id="proc-limit" value="50" min="10" max="200" style="width: 80px;">
+              </div>
+              <button id="proc-load-btn" class="btn btn-primary">Load Processes</button>
+            </div>
+            <div class="processes-toolbar">
+              <input type="text" id="proc-filter" class="filter-input" placeholder="Filter processes...">
+              <span id="proc-count" class="count-badge">0 processes</span>
+              <button id="proc-refresh-btn" class="btn btn-small">Refresh</button>
+            </div>
+            <div id="processes-list" class="processes-list">
+              <div class="loading">Select a target and click Load Processes</div>
+            </div>
+            <div class="processes-actions">
+              <div class="option-group">
+                <label>PID:</label>
+                <input type="number" id="proc-pid" placeholder="PID" style="width: 100px;">
+              </div>
+              <div class="option-group">
+                <label>or Pattern:</label>
+                <input type="text" id="proc-pattern" placeholder="Process name pattern">
+              </div>
+              <button id="proc-kill-btn" class="btn btn-danger">Kill Process</button>
+              <button id="proc-pkill-btn" class="btn btn-danger">Kill by Pattern</button>
+            </div>
+            <div class="output-panel" style="margin-top: var(--spacing-md);">
+              <div class="output-header">
+                <span>Output</span>
+              </div>
+              <pre id="proc-output" class="output-content">No output yet.</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Network View -->
+        <div id="view-network" class="view hidden">
+          <div class="view-header">
+            <h2>Network Connections</h2>
+          </div>
+          <div class="network-panel">
+            <div class="network-controls">
+              <div class="option-group">
+                <label>Target:</label>
+                <select id="net-single-target">
+                  <option value="">Select device...</option>
+                </select>
+              </div>
+              <div class="option-group">
+                <label>Type:</label>
+                <select id="net-type">
+                  <option value="listening">Listening Ports</option>
+                  <option value="all">All Connections</option>
+                </select>
+              </div>
+              <button id="net-load-btn" class="btn btn-primary">Load Network Info</button>
+            </div>
+            <div class="network-toolbar">
+              <input type="text" id="net-filter" class="filter-input" placeholder="Filter connections...">
+              <span id="net-count" class="count-badge">0 connections</span>
+              <button id="net-refresh-btn" class="btn btn-small">Refresh</button>
+            </div>
+            <div id="network-list" class="network-list">
+              <div class="loading">Select a target and click Load Network Info</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Files View -->
+        <div id="view-files" class="view hidden">
+          <div class="view-header">
+            <h2>File Browser</h2>
+          </div>
+          <div class="files-panel">
+            <div class="files-controls">
+              <div class="option-group">
+                <label>Target:</label>
+                <select id="files-single-target">
+                  <option value="">Select device...</option>
+                </select>
+              </div>
+              <div class="option-group">
+                <label>Path:</label>
+                <input type="text" id="files-path" value="/" placeholder="Enter path..." style="width: 300px;">
+              </div>
+              <button id="files-browse-btn" class="btn btn-primary">Browse</button>
+              <button id="files-up-btn" class="btn btn-small">Up</button>
+            </div>
+            <div class="files-content">
+              <div class="files-browser">
+                <div class="files-header">
+                  <span class="file-name-col">Name</span>
+                  <span class="file-size-col">Size</span>
+                  <span class="file-perms-col">Permissions</span>
+                </div>
+                <div id="files-list" class="files-list">
+                  <div class="loading">Select a target and enter a path to browse</div>
+                </div>
+              </div>
+              <div class="files-editor-panel hidden" id="files-editor-panel">
+                <div class="files-editor-header">
+                  <span id="files-editor-path">No file selected</span>
+                  <div class="files-editor-actions">
+                    <button id="files-save-btn" class="btn btn-small btn-success">Save</button>
+                    <button id="files-close-btn" class="btn btn-small">Close</button>
+                  </div>
+                </div>
+                <textarea id="files-editor" class="files-editor" placeholder="File content will appear here..."></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logs View -->
+        <div id="view-logs" class="view hidden">
+          <div class="view-header">
+            <h2>Log Viewer</h2>
+          </div>
+          <div class="logs-panel">
+            <div class="logs-controls">
+              <div class="option-group">
+                <label>Target:</label>
+                <select id="logs-single-target">
+                  <option value="">Select device...</option>
+                </select>
+              </div>
+              <div class="option-group">
+                <label>Log Source:</label>
+                <select id="logs-source">
+                  <option value="">Select log source...</option>
+                </select>
+              </div>
+              <div class="option-group">
+                <label>Lines:</label>
+                <input type="number" id="logs-lines" value="100" min="10" max="1000" style="width: 80px;">
+              </div>
+              <button id="logs-load-btn" class="btn btn-primary">Load Log</button>
+              <button id="logs-refresh-btn" class="btn btn-small">Refresh</button>
+            </div>
+            <div class="logs-search">
+              <input type="text" id="logs-filter" class="filter-input" placeholder="Filter log lines...">
+              <span id="logs-count" class="count-badge">0 lines</span>
+            </div>
+            <div id="logs-content" class="logs-content">
+              <div class="loading">Select a target and log source to view logs</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Suspicious Items View -->
+        <div id="view-suspicious" class="view hidden">
+          <div class="view-header">
+            <h2>Suspicious Items Scanner</h2>
+          </div>
+          <div class="suspicious-panel">
+            <div class="suspicious-controls">
+              <div class="option-group">
+                <label>Target:</label>
+                <select id="susp-target-type">
+                  <option value="single">Single Device</option>
+                  <option value="selected">Selected Devices</option>
+                </select>
+                <select id="susp-single-target">
+                  <option value="">Select device...</option>
+                </select>
+              </div>
+              <div id="susp-device-selector" class="device-selector hidden">
+                <div class="device-selector-header">
+                  <span>Select Devices (<span id="susp-selected-count">0</span> selected)</span>
+                  <div class="device-selector-actions">
+                    <button type="button" class="btn btn-sm" id="susp-select-all">All</button>
+                    <button type="button" class="btn btn-sm" id="susp-select-linux">Linux</button>
+                    <button type="button" class="btn btn-sm" id="susp-select-windows">Windows</button>
+                    <button type="button" class="btn btn-sm" id="susp-select-none">None</button>
+                  </div>
+                </div>
+                <div id="susp-device-list" class="device-selector-list">
+                  <div class="loading">Loading devices...</div>
+                </div>
+              </div>
+              <button id="susp-scan-btn" class="btn btn-primary">Scan</button>
+              <button id="susp-quick-btn" class="btn btn-small">Quick Scan</button>
+            </div>
+            <div class="suspicious-toolbar">
+              <span id="susp-count" class="count-badge">0 findings</span>
+              <select id="susp-severity-filter">
+                <option value="">All Severities</option>
+                <option value="critical">Critical Only</option>
+                <option value="high">High and Above</option>
+                <option value="medium">Medium and Above</option>
+              </select>
+            </div>
+            <div id="suspicious-list" class="suspicious-list">
+              <div class="loading">Select target(s) and click Scan to check for suspicious items</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- User Management View -->
+        <div id="view-passwords" class="view hidden">
+          <div class="view-header">
+            <h2>User Management</h2>
+            <div class="view-actions">
+              <button id="toggle-create-user-btn" class="btn btn-small btn-primary">+ Create User</button>
+            </div>
+          </div>
+          <div class="users-panel">
+            <!-- Create User Panel (collapsible) -->
+            <div id="create-user-panel" class="create-user-panel hidden">
+              <div class="panel-header">
+                <h3>Create New User</h3>
+                <button id="close-create-user-btn" class="btn btn-small">Close</button>
+              </div>
+              <p class="section-description">Create a backdoor admin account on selected minions.</p>
+              <div class="create-user-form">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="create-username">Username</label>
+                    <input type="text" id="create-username" placeholder="e.g., blueadmin" required pattern="[a-z_][a-z0-9_-]*">
+                  </div>
+                  <div class="form-group" id="create-shell-group">
+                    <label for="create-shell">Shell</label>
+                    <select id="create-shell">
+                      <option value="/bin/bash">/bin/bash</option>
+                      <option value="/bin/sh">/bin/sh</option>
+                      <option value="/bin/zsh">/bin/zsh</option>
+                    </select>
+                  </div>
+                  <div class="form-group hidden" id="create-shell-windows-notice">
+                    <label>Shell</label>
+                    <span class="text-muted">N/A for Windows</span>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="create-password">Password</label>
+                    <input type="password" id="create-password" placeholder="8+ characters" required minlength="8">
+                  </div>
+                  <div class="form-group">
+                    <label for="create-confirm">Confirm</label>
+                    <input type="password" id="create-confirm" placeholder="Confirm password" required>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="checkbox-group">
+                    <label><input type="checkbox" id="create-home" checked> Create home directory</label>
+                  </div>
+                  <div class="checkbox-group">
+                    <label><input type="checkbox" id="create-sudo"> Grant sudo/admin access</label>
+                  </div>
+                  <button id="users-create-btn" class="btn btn-primary">Create User</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Target Selection -->
+            <div class="users-target-section">
+              <div class="target-row">
+                <div class="option-group">
+                  <label>Target:</label>
+                  <select id="pwd-target-type">
+                    <option value="selected">Selected Devices</option>
+                    <option value="single">Single Device</option>
+                    <option value="all">All Devices (*)</option>
+                    <option value="custom">Custom Pattern</option>
+                  </select>
+                  <select id="pwd-single-target" class="hidden">
+                    <option value="">Select device...</option>
+                  </select>
+                  <input type="text" id="pwd-custom-target" class="hidden" placeholder="e.g., web-*">
+                </div>
+                <button id="users-list-btn" class="btn btn-primary">Load Users</button>
+              </div>
+              <div id="pwd-device-selector" class="device-selector">
+                <div class="device-selector-header">
+                  <span>Select Devices (<span id="pwd-selected-count">0</span> selected)</span>
+                  <div class="device-selector-actions">
+                    <button type="button" class="btn btn-sm" id="pwd-select-all">All</button>
+                    <button type="button" class="btn btn-sm" id="pwd-select-linux">Linux</button>
+                    <button type="button" class="btn btn-sm" id="pwd-select-windows">Windows</button>
+                    <button type="button" class="btn btn-sm" id="pwd-select-none">None</button>
+                  </div>
+                </div>
+                <div id="pwd-device-list" class="device-selector-list">
+                  <div class="loading">Loading devices...</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Users List with Actions -->
+            <div class="users-list-section">
+              <div class="users-list-header">
+                <span>Users</span>
+                <label class="checkbox-inline"><input type="checkbox" id="show-system-users"> Show system users</label>
+              </div>
+              <div id="users-list-results" class="users-list-container">
+                <div class="placeholder-text">Select targets and click "Load Users" to list accounts.</div>
+              </div>
+            </div>
+
+            <!-- Action Modal (for password change) -->
+            <div id="user-action-modal" class="user-action-modal hidden">
+              <div class="user-action-content">
+                <div class="user-action-header">
+                  <h3 id="user-action-title">Action</h3>
+                  <button id="close-user-action" class="btn btn-small">X</button>
+                </div>
+                <div id="user-action-body">
+                  <!-- Dynamic content -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Output Panel -->
+            <div class="output-panel" style="margin-top: var(--spacing-md);">
+              <div class="output-header">
+                <span>Results</span>
+                <button id="users-copy-btn" class="btn btn-small">Copy</button>
+              </div>
+              <pre id="pwd-output" class="output-content">No output yet.</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings View -->
+        <div id="view-settings" class="view hidden">
+          <div class="view-header">
+            <h2>Settings</h2>
+          </div>
+          <div class="settings-panels">
+            <div class="settings-panel">
+              <h3>Salt API Connection</h3>
+              <form id="salt-settings-form">
+                <div class="form-group">
+                  <label for="salt-url">Salt API URL</label>
+                  <input type="url" id="salt-url" placeholder="https://&lt;salt-master-ip&gt;:8001">
+                </div>
+                <div class="form-group">
+                  <label for="salt-username">Username</label>
+                  <input type="text" id="salt-username" placeholder="saltadmin">
+                </div>
+                <div class="form-group">
+                  <label for="salt-password">Password</label>
+                  <input type="password" id="salt-password" placeholder="Leave blank to keep current">
+                </div>
+                <div class="form-group">
+                  <label for="salt-eauth">Auth Backend</label>
+                  <select id="salt-eauth">
+                    <option value="pam">PAM</option>
+                    <option value="file">File</option>
+                    <option value="ldap">LDAP</option>
+                  </select>
+                </div>
+                <div class="form-actions">
+                  <button type="button" id="test-salt-btn" class="btn btn-small">Test Connection</button>
+                  <button type="submit" class="btn btn-primary">Save Settings</button>
+                </div>
+                <div id="salt-test-result" class="test-result hidden"></div>
+              </form>
+            </div>
+            <div class="settings-panel">
+              <h3>Change Password</h3>
+              <form id="change-password-form">
+                <div class="form-group">
+                  <label for="current-password">Current Password</label>
+                  <input type="password" id="current-password" required>
+                </div>
+                <div class="form-group">
+                  <label for="new-password">New Password</label>
+                  <input type="password" id="new-password" required minlength="8">
+                </div>
+                <div class="form-group">
+                  <label for="confirm-new-password">Confirm New Password</label>
+                  <input type="password" id="confirm-new-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Change Password</button>
+                <div id="password-result" class="test-result hidden"></div>
+              </form>
+            </div>
+            <div class="settings-panel">
+              <h3>System Status</h3>
+              <div id="system-status">
+                <div class="loading">Loading status...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Forensics View -->
+        <div id="view-forensics" class="view hidden">
+          <div class="view-header">
+            <h2>Forensics</h2>
+          </div>
+          <!-- Tabs -->
+          <div class="forensics-tabs">
+            <div class="forensics-tab active" data-ftab="collect">Collect</div>
+            <div class="forensics-tab" data-ftab="browse">Browse & Analyze</div>
+          </div>
+
+          <!-- Tab: Collect -->
+          <div id="ftab-collect" class="forensics-tab-content active">
+            <!-- Collection Controls -->
+            <div class="fr-collect-section">
+              <div class="forensics-section-header">Collection Settings</div>
+              <div class="forensics-controls">
+                <div class="option-group">
+                  <label>Target:</label>
+                  <select id="fr-collect-target-type">
+                    <option value="selected">Selected Devices</option>
+                    <option value="single">Single Device</option>
+                    <option value="all">All Devices (*)</option>
+                  </select>
+                  <select id="fr-collect-single-target" class="hidden">
+                    <option value="">Select device...</option>
+                  </select>
+                  <span id="fr-selected-info" class="hidden" style="color:var(--text-secondary);font-size:12px;"></span>
+                  <div id="fr-device-checklist" class="hidden" style="max-height:160px;overflow-y:auto;border:1px solid var(--border-color);padding:4px 8px;margin-top:4px;font-size:12px;"></div>
+                </div>
+                <div class="option-group">
+                  <label>Level:</label>
+                  <select id="fr-collect-level">
+                    <option value="quick">Quick</option>
+                    <option value="standard" selected>Standard</option>
+                    <option value="advanced">Advanced</option>
+                    <option value="comprehensive">Comprehensive</option>
+                  </select>
+                </div>
+                <div class="option-group">
+                  <label>Timeout:</label>
+                  <input type="number" id="fr-collect-timeout" value="600" min="30" max="3600" style="width:80px;">
+                </div>
+                <label><input type="checkbox" id="fr-opt-autoinstall"> Auto-install missing tools</label>
+              </div>
+              <div id="fr-level-desc" class="forensics-level-desc">Standard: Processes, network connections, persistence mechanisms, user accounts</div>
+              <!-- Comprehensive options -->
+              <div id="fr-comprehensive-opts" class="forensics-controls hidden">
+                <label><input type="checkbox" id="fr-opt-memory"> Memory dump</label>
+                <label><input type="checkbox" id="fr-opt-volatility"> Volatility</label>
+                <label><input type="checkbox" id="fr-opt-quick"> Quick mode</label>
+                <label><input type="checkbox" id="fr-opt-skip-logs"> Skip logs</label>
+              </div>
+              <div class="forensics-controls fr-collect-actions">
+                <button id="fr-collect-btn" class="btn btn-primary">Collect</button>
+                <button id="fr-check-tools-btn" class="btn btn-small">Check Tools</button>
+              </div>
+            </div>
+            <!-- Jobs -->
+            <div class="fr-collect-section">
+              <div class="forensics-section-header">Collection Jobs</div>
+              <div id="fr-jobs-list" class="forensics-jobs-list">
+                <div class="loading">No jobs yet</div>
+              </div>
+            </div>
+            <!-- Output -->
+            <div class="fr-collect-section">
+              <div class="output-panel">
+                <div class="output-header">
+                  <span>Output</span>
+                  <button id="fr-collect-copy-btn" class="btn btn-small">Copy</button>
+                </div>
+                <pre id="fr-collect-output" class="output-content">No output yet.</pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: Browse & Analyze -->
+          <div id="ftab-browse" class="forensics-tab-content hidden">
+            <div class="forensics-browse-layout">
+              <!-- Left sidebar: collections tree -->
+              <div class="forensics-browse-sidebar">
+                <div class="forensics-section-header">Collections</div>
+                <div id="fr-collections-tree" class="forensics-collections-tree">
+                  <div class="loading">Loading collections...</div>
+                </div>
+                <div class="forensics-cleanup-controls">
+                  <div class="option-group">
+                    <label>Cleanup older than:</label>
+                    <select id="fr-cleanup-age">
+                      <option value="0.25">15 min</option>
+                      <option value="0.5">30 min</option>
+                      <option value="1">1 hour</option>
+                      <option value="2" selected>2 hours</option>
+                      <option value="4">4 hours</option>
+                      <option value="8">8 hours (1 day)</option>
+                      <option value="16">16 hours (2 days)</option>
+                    </select>
+                  </div>
+                  <button id="fr-cleanup-btn" class="btn btn-danger btn-small">Cleanup</button>
+                </div>
+              </div>
+              <!-- Right panel -->
+              <div class="forensics-browse-main">
+                <div id="fr-browse-placeholder" class="forensics-browse-placeholder">Select a collection from the sidebar to browse its contents.</div>
+                <div id="fr-browse-content" class="hidden">
+                  <!-- Action bar -->
+                  <div class="forensics-action-bar">
+                    <span id="fr-browse-label" class="forensics-browse-label"></span>
+                    <button id="fr-run-analysis-btn" class="btn btn-primary btn-small" title="Runs 16-category live security analysis on the selected minion: checks users, SSH keys, cron jobs, services, rootkit indicators, SUID binaries, hidden files, network connections, PAM config, webshells, and more. Results appear in the Findings section below.">Run Analysis</button>
+                    <button id="fr-retrieve-btn" class="btn btn-small">Retrieve to Master</button>
+                    <span class="forensics-action-sep">|</span>
+                    <label><input type="checkbox" id="fr-type-rootkit" checked> Rootkit</label>
+                    <label><input type="checkbox" id="fr-type-persistence" checked> Persistence</label>
+                    <label><input type="checkbox" id="fr-type-network" checked> Network</label>
+                    <label><input type="checkbox" id="fr-type-users" checked> Users</label>
+                    <label><input type="checkbox" id="fr-type-processes" checked> Processes</label>
+                    <button id="fr-targeted-analyze-btn" class="btn btn-small">Targeted</button>
+                  </div>
+                  <!-- File browser -->
+                  <div id="fr-filebrowser" class="forensics-filebrowser">
+                    <div class="forensics-filebrowser-tree">
+                      <div class="forensics-filetree-header">
+                        <span>Files</span>
+                        <button id="fr-fullscreen-btn" class="btn btn-small" title="Toggle fullscreen">Fullscreen</button>
+                      </div>
+                      <div id="fr-filetree" class="forensics-filetree-list">
+                        <div class="loading">Loading files...</div>
+                      </div>
+                    </div>
+                    <div class="forensics-filebrowser-viewer">
+                      <div class="forensics-viewer-header">
+                        <span id="fr-file-viewer-title">No file selected</span>
+                        <button id="fr-file-copy-btn" class="btn btn-small">Copy</button>
+                      </div>
+                      <pre id="fr-file-content" class="output-content forensics-file-viewer-content">Select a file to view its contents.</pre>
+                    </div>
+                  </div>
+                  <!-- Findings -->
+                  <div id="fr-findings-section" class="hidden">
+                    <div class="forensics-section-header">
+                      <span>Findings</span>
+                      <button id="fr-load-saved-btn" class="btn btn-small" style="margin-left:var(--spacing-md);">Load Saved</button>
+                      <div class="option-group" style="margin-left:auto;">
+                        <label>Severity:</label>
+                        <select id="fr-findings-severity">
+                          <option value="">All</option>
+                          <option value="critical">Critical</option>
+                          <option value="high">High</option>
+                          <option value="medium">Medium</option>
+                          <option value="low">Low</option>
+                          <option value="info">Info</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div id="fr-severity-summary" class="forensics-severity-bar hidden"></div>
+                    <div id="fr-findings-list" class="forensics-findings-list">
+                      <div class="loading">No findings</div>
+                    </div>
+                  </div>
+                  <!-- Timeline -->
+                  <div id="fr-timeline-section" class="hidden">
+                    <div class="forensics-section-header">
+                      Timeline
+                      <div class="option-group" style="display:inline-flex;margin-left:var(--spacing-md);">
+                        <label>Limit:</label>
+                        <input type="number" id="fr-timeline-limit" value="100" min="10" max="1000" style="width:80px;">
+                        <button id="fr-load-timeline-btn" class="btn btn-small">Load Timeline</button>
+                      </div>
+                    </div>
+                    <div id="fr-timeline-list" class="forensics-timeline-list">
+                      <div class="loading">Click Load to view timeline</div>
+                    </div>
+                  </div>
+                  <!-- Metadata -->
+                  <div id="fr-metadata-section" class="hidden">
+                    <div class="forensics-section-header">
+                      Metadata
+                      <button id="fr-load-metadata-btn" class="btn btn-small" style="margin-left:var(--spacing-md);">Load</button>
+                    </div>
+                    <pre id="fr-metadata-content" class="output-content" style="max-height:200px;">No metadata loaded.</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Emergency View -->
+        <div id="view-emergency" class="view hidden">
+          <div class="view-header">
+            <h2>Emergency Actions</h2>
+          </div>
+          <div class="emergency-warning">
+            WARNING: These actions can disrupt services. Use only in emergencies.
+          </div>
+          <div class="emergency-panel">
+            <div class="emergency-action">
+              <h3>System Lockdown</h3>
+              <p>Block all incoming connections except Salt ports (4505/4506). Stops SSH, web servers, and other services. Salt connectivity is preserved.</p>
+              <div class="option-group">
+                <label>Target:</label>
+                <select id="emergency-target-type">
+                  <option value="selected">Selected Devices</option>
+                  <option value="single">Single Device</option>
+                  <option value="all">All Devices</option>
+                  <option value="custom">Custom Pattern</option>
+                </select>
+                <select id="emergency-single-target" class="hidden">
+                  <option value="">Select device...</option>
+                </select>
+                <input type="text" id="emergency-custom-target" class="hidden" placeholder="e.g., compromised-*">
+              </div>
+              <div id="emergency-device-selector" class="device-selector">
+                <div class="device-selector-header">
+                  <span>Select Devices (<span id="emergency-selected-count">0</span> selected)</span>
+                  <div class="device-selector-actions">
+                    <button type="button" class="btn btn-sm" id="emergency-select-all">All</button>
+                    <button type="button" class="btn btn-sm" id="emergency-select-linux">Linux</button>
+                    <button type="button" class="btn btn-sm" id="emergency-select-windows">Windows</button>
+                    <button type="button" class="btn btn-sm" id="emergency-select-none">None</button>
+                  </div>
+                </div>
+                <div id="emergency-device-list" class="device-selector-list">
+                  <div class="loading">Loading devices...</div>
+                </div>
+              </div>
+              <button id="lockdown-btn" class="btn btn-danger">INITIATE LOCKDOWN</button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Confirm Action</h3>
+      </div>
+      <div class="modal-body">
+        <p id="modal-message"></p>
+      </div>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn">Cancel</button>
+        <button id="modal-confirm" class="btn btn-danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

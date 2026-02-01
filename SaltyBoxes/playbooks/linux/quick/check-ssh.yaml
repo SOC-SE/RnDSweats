@@ -1,0 +1,24 @@
+name: "Quick: SSH Configuration & Keys"
+description: Check SSH config, authorized keys, and known hosts for backdoors
+
+steps:
+  - name: SSHD config security settings
+    type: command
+    command: "grep -iE '(PermitRootLogin|PasswordAuth|PubkeyAuth|AllowAgent|GatewayPorts|PermitEmpty)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -v '^#'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: All authorized_keys files
+    type: command
+    command: "find / -name authorized_keys -type f 2>/dev/null | while read f; do echo \"=== $f ===\"; cat \"$f\"; echo; done"
+    target: "*"
+    timeout: 15
+    on_failure: continue
+
+  - name: SSH config files (proxy/tunnel settings)
+    type: command
+    command: "for d in /root /home/*; do if [ -f \"$d/.ssh/config\" ]; then echo \"=== $d/.ssh/config ===\"; cat \"$d/.ssh/config\"; echo; fi; done"
+    target: "*"
+    timeout: 10
+    on_failure: continue

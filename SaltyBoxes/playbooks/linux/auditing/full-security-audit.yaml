@@ -1,0 +1,31 @@
+name: Linux Full Security Audit
+description: Comprehensive security audit for Linux systems - users, network, services, and logs
+
+steps:
+  - name: Run User Audit
+    type: script
+    script: linux/auditing/user-audit.sh
+    target: "*"
+    timeout: 120
+    on_failure: continue
+
+  - name: Run Network Audit
+    type: script
+    script: linux/auditing/network-audit.sh
+    target: "*"
+    timeout: 120
+    on_failure: continue
+
+  - name: Run Service Audit
+    type: script
+    script: linux/auditing/service-audit.sh
+    target: "*"
+    timeout: 120
+    on_failure: continue
+
+  - name: Run Log Analysis
+    type: script
+    script: linux/auditing/log-analysis.sh
+    target: "*"
+    timeout: 180
+    on_failure: continue

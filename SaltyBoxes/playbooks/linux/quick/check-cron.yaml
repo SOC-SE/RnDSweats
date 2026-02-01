@@ -1,0 +1,31 @@
+name: "Quick: Cron & Scheduled Tasks"
+description: Check all cron locations for suspicious scheduled tasks
+
+steps:
+  - name: System crontab
+    type: command
+    command: "cat /etc/crontab 2>/dev/null | grep -v '^#' | grep -v '^$'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Cron.d directory
+    type: command
+    command: "for f in /etc/cron.d/*; do echo \"=== $f ===\"; cat \"$f\" 2>/dev/null | grep -v '^#' | grep -v '^$'; echo; done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: User crontabs
+    type: command
+    command: "for user in $(awk -F: '$7 ~ /sh$/ {print $1}' /etc/passwd); do crons=$(crontab -l -u \"$user\" 2>/dev/null | grep -v '^#' | grep -v '^$'); if [ -n \"$crons\" ]; then echo \"=== $user ===\"; echo \"$crons\"; echo; fi; done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: At jobs
+    type: command
+    command: "atq 2>/dev/null || echo 'at not available'"
+    target: "*"
+    timeout: 10
+    on_failure: continue

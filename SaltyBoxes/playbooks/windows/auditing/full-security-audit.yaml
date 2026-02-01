@@ -1,0 +1,41 @@
+name: Windows Full Security Audit
+description: Comprehensive security audit for Windows systems - users, network, and security configuration
+
+steps:
+  - name: Run User Audit
+    type: script
+    script: windows/auditing/User-Audit.ps1
+    target: "*"
+    timeout: 180
+    on_failure: continue
+
+  - name: Run Network Audit
+    type: script
+    script: windows/auditing/Network-Audit.ps1
+    target: "*"
+    timeout: 180
+    on_failure: continue
+
+  - name: Check Windows Update Status
+    type: command
+    command: "Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 10 HotFixID, Description, InstalledOn"
+    shell: powershell
+    target: "*"
+    timeout: 120
+    on_failure: continue
+
+  - name: Check Antivirus Status
+    type: command
+    command: "Get-MpComputerStatus -ErrorAction SilentlyContinue | Select-Object AntivirusEnabled, RealTimeProtectionEnabled, AntivirusSignatureLastUpdated"
+    shell: powershell
+    target: "*"
+    timeout: 60
+    on_failure: continue
+
+  - name: Check BitLocker Status
+    type: command
+    command: "Get-BitLockerVolume -ErrorAction SilentlyContinue | Select-Object MountPoint, VolumeStatus, ProtectionStatus"
+    shell: powershell
+    target: "*"
+    timeout: 60
+    on_failure: continue

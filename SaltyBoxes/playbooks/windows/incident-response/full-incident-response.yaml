@@ -1,0 +1,48 @@
+name: Windows Full Incident Response
+description: Complete incident response workflow - collect artifacts, hunt threats, isolate if needed
+
+steps:
+  - name: Collect forensic artifacts (FIRST - preserve evidence)
+    type: script
+    script: windows/incident-response/Collect-Artifacts.ps1
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Run process hunter
+    type: script
+    script: windows/hunting/Process-Hunter.ps1
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Run persistence hunter
+    type: script
+    script: windows/hunting/Persistence-Hunter.ps1
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Check for encoded PowerShell commands in logs
+    type: command
+    command: "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'} -MaxEvents 100 -ErrorAction SilentlyContinue | Where-Object {$_.Message -match 'encodedcommand|frombase64'} | Select-Object -First 5 TimeCreated"
+    shell: powershell
+    target: "*"
+    timeout: 120
+    on_failure: continue
+
+  - name: Check for suspicious scheduled tasks
+    type: command
+    command: "Get-ScheduledTask | Where-Object {$_.Author -notlike '*Microsoft*' -and $_.State -ne 'Disabled'} | Select-Object TaskName, Author, State"
+    shell: powershell
+    target: "*"
+    timeout: 60
+    on_failure: continue
+
+  - name: Check for processes with network connections to external IPs
+    type: command
+    command: "Get-NetTCPConnection -State Established | Where-Object {$_.RemoteAddress -notmatch '^(127\\.|10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01]))'} | Select-Object RemoteAddress, RemotePort, OwningProcess, @{N='Process';E={(Get-Process -Id $_.OwningProcess).ProcessName}} | Format-Table"
+    shell: powershell
+    target: "*"
+    timeout: 60
+    on_failure: continue

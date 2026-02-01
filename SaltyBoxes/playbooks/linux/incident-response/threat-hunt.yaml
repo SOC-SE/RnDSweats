@@ -1,0 +1,51 @@
+name: Linux Threat Hunt
+description: Search for indicators of compromise on Linux systems
+
+steps:
+  - name: Check for suspicious processes
+    type: command
+    command: "ps aux | grep -E '(nc|ncat|netcat|socat|/tmp/|/dev/shm/)' | grep -v grep || echo 'No obvious suspicious processes'"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for hidden files in /tmp
+    type: command
+    command: "find /tmp -name '.*' -type f 2>/dev/null | head -20"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for executables in /tmp and /dev/shm
+    type: command
+    command: "find /tmp /dev/shm -type f -executable 2>/dev/null | head -20"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for recent failed logins
+    type: command
+    command: "lastb 2>/dev/null | head -20 || grep 'Failed password' /var/log/auth.log 2>/dev/null | tail -20 || echo 'Cannot access login failure data'"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for unauthorized SSH keys
+    type: command
+    command: "find /home /root -name 'authorized_keys' -exec cat {} \\; 2>/dev/null"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for suspicious cron entries
+    type: command
+    command: "grep -r 'curl\\|wget\\|nc\\|bash -i\\|python' /etc/cron* /var/spool/cron 2>/dev/null || echo 'No suspicious cron entries found'"
+    target: "*"
+    on_failure: continue
+
+  - name: Check established connections
+    type: command
+    command: "ss -tnp state established 2>/dev/null | grep -v '127.0.0.1' | head -30"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for SUID binaries
+    type: command
+    command: "find /usr -perm -4000 -type f 2>/dev/null | head -30"
+    target: "*"
+    on_failure: continue

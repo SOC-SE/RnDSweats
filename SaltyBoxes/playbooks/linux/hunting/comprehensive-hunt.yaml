@@ -1,0 +1,45 @@
+name: Linux Comprehensive Threat Hunt
+description: Deep threat hunting for Linux systems - processes, persistence, and indicators of compromise
+
+steps:
+  - name: Run Process Hunter
+    type: script
+    script: linux/hunting/process-hunter.sh
+    target: "*"
+    timeout: 180
+    on_failure: continue
+
+  - name: Run Persistence Hunter
+    type: script
+    script: linux/hunting/persistence-hunter.sh
+    target: "*"
+    timeout: 180
+    on_failure: continue
+
+  - name: Check for rootkits with chkrootkit
+    type: command
+    command: "chkrootkit 2>/dev/null | grep -v 'not found' | grep -v 'nothing found' || echo 'chkrootkit not installed'"
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Check for rootkits with rkhunter
+    type: command
+    command: "rkhunter --check --skip-keypress --report-warnings-only 2>/dev/null || echo 'rkhunter not installed'"
+    target: "*"
+    timeout: 300
+    on_failure: continue
+
+  - name: Check kernel modules
+    type: command
+    command: "lsmod | grep -vE '(intel|nvidia|amd|usb|hid|snd|bluetooth|iwl|ath|cfg80211|mac80211)' | head -30"
+    target: "*"
+    timeout: 60
+    on_failure: continue
+
+  - name: Check for processes with deleted binaries
+    type: command
+    command: "ls -la /proc/*/exe 2>/dev/null | grep deleted"
+    target: "*"
+    timeout: 60
+    on_failure: continue

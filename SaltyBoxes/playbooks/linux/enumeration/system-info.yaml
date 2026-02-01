@@ -1,0 +1,45 @@
+name: Linux System Enumeration
+description: Gather comprehensive system information for security assessment
+
+steps:
+  - name: Get system information
+    type: command
+    command: "uname -a && hostname && cat /etc/os-release | head -5"
+    target: "*"
+    on_failure: continue
+
+  - name: List local users
+    type: command
+    command: "cat /etc/passwd | grep -v nologin | grep -v false"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for sudo users
+    type: command
+    command: "getent group sudo wheel 2>/dev/null || echo 'No sudo/wheel group'"
+    target: "*"
+    on_failure: continue
+
+  - name: List listening ports
+    type: command
+    command: "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo 'Neither ss nor netstat available'"
+    target: "*"
+    on_failure: continue
+
+  - name: Check running services
+    type: command
+    command: "systemctl list-units --type=service --state=running --no-pager 2>/dev/null | head -30 || service --status-all 2>/dev/null | grep '+' | head -30"
+    target: "*"
+    on_failure: continue
+
+  - name: Check cron jobs
+    type: command
+    command: "cat /etc/crontab 2>/dev/null; ls -la /etc/cron.d/ 2>/dev/null; crontab -l 2>/dev/null || echo 'No user crontab'"
+    target: "*"
+    on_failure: continue
+
+  - name: Check for SSH keys
+    type: command
+    command: "find /home -name 'authorized_keys' 2>/dev/null; find /root -name 'authorized_keys' 2>/dev/null"
+    target: "*"
+    on_failure: continue

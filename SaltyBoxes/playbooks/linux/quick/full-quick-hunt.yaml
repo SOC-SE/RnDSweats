@@ -1,0 +1,150 @@
+name: "Quick: Full IoC Sweep"
+description: Run all quick checks in sequence - users, cron, SSH, persistence, SUID, hidden files, network, hosts/DNS, processes
+
+steps:
+  - name: UID 0 accounts
+    type: command
+    command: "awk -F: '$3==0 {print $1}' /etc/passwd"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Users with login shells
+    type: command
+    command: "awk -F: '$7 ~ /(bash|sh|zsh)$/ {printf \"%-20s UID=%-6s %s\\n\", $1, $3, $7}' /etc/passwd"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Empty passwords
+    type: command
+    command: "awk -F: '($2==\"\" || $2==\"!\") {print $1}' /etc/shadow 2>/dev/null"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Sudoers.d files
+    type: command
+    command: "for f in /etc/sudoers.d/*; do echo \"--- $f ---\"; cat \"$f\" 2>/dev/null; done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Cron.d entries
+    type: command
+    command: "for f in /etc/cron.d/*; do echo \"=== $f ===\"; cat \"$f\" 2>/dev/null | grep -v '^#' | grep -v '^$'; done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: User crontabs
+    type: command
+    command: "for user in $(awk -F: '$7 ~ /sh$/ {print $1}' /etc/passwd); do c=$(crontab -l -u \"$user\" 2>/dev/null | grep -v '^#' | grep -v '^$'); [ -n \"$c\" ] && echo \"=== $user ===\" && echo \"$c\"; done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Authorized SSH keys
+    type: command
+    command: "find / -name authorized_keys -type f 2>/dev/null | while read f; do echo \"=== $f ===\"; cat \"$f\"; done"
+    target: "*"
+    timeout: 15
+    on_failure: continue
+
+  - name: SSHD security config
+    type: command
+    command: "grep -iE '(PermitRootLogin|PasswordAuth|PermitEmpty)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -v '^#'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Enabled systemd services (non-standard)
+    type: command
+    command: "systemctl list-unit-files --type=service --state=enabled 2>/dev/null | grep -vE '(systemd|dbus|getty|ssh|salt|network|cron|rsyslog|auditd|firewall|polkit|udev)' | head -20"
+    target: "*"
+    timeout: 15
+    on_failure: continue
+
+  - name: Systemd timers
+    type: command
+    command: "systemctl list-timers --all 2>/dev/null | head -15"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: LD_PRELOAD hijacks
+    type: command
+    command: "cat /etc/ld.so.preload 2>/dev/null; cat /etc/ld.so.conf.d/*.conf 2>/dev/null; grep -i ld /etc/environment 2>/dev/null; echo done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Profile.d and bashrc injections
+    type: command
+    command: "ls /etc/profile.d/; echo '---'; for d in /root /home/*; do [ -f \"$d/.bashrc\" ] && echo \"=== $d/.bashrc last 3 ===\" && tail -3 \"$d/.bashrc\"; done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: SUID in non-standard paths
+    type: command
+    command: "find / -perm -4000 -type f 2>/dev/null | grep -vE '^/(usr/(bin|lib|sbin)|bin|sbin)/'"
+    target: "*"
+    timeout: 30
+    on_failure: continue
+
+  - name: Hidden files in temp dirs
+    type: command
+    command: "find /tmp /dev/shm /var/tmp /opt -name '.*' 2>/dev/null"
+    target: "*"
+    timeout: 15
+    on_failure: continue
+
+  - name: Executables in /tmp and /dev/shm
+    type: command
+    command: "find /tmp /dev/shm -type f -executable 2>/dev/null"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Hosts file hijacking
+    type: command
+    command: "grep -v '^#' /etc/hosts | grep -v '^$' | grep -vE '^(127|::1)'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: DNS resolvers
+    type: command
+    command: "grep nameserver /etc/resolv.conf"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Listening ports
+    type: command
+    command: "ss -tlnp 2>/dev/null | head -25"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Processes from tmp or deleted
+    type: command
+    command: "ls -la /proc/*/exe 2>/dev/null | grep -E '(/tmp|/dev/shm|deleted)'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Init scripts and rc.local
+    type: command
+    command: "cat /etc/rc.local 2>/dev/null; ls /etc/init.d/ 2>/dev/null | grep -vE '(README|salt|ssh|network|cron|rsyslog)'"
+    target: "*"
+    timeout: 10
+    on_failure: continue
+
+  - name: Repo integrity (gpgcheck, rogue repos)
+    type: command
+    command: "grep -rl 'gpgcheck.*0' /etc/yum.repos.d/ 2>/dev/null; grep -rl '10\\.13\\.37' /etc/yum.repos.d/ /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null; echo done"
+    target: "*"
+    timeout: 10
+    on_failure: continue
