@@ -254,7 +254,8 @@ done
 echo "Running enumeration and tool normalization scripts"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bash "$SCRIPT_DIR/masterEnum.sh" >> "$LOG_FILE" 2>&1
-bash "$SCRIPT_DIR/../../postHardenTools/normalizeTools.sh" >> "$LOG_FILE" 2>&1
+bash "$SCRIPT_DIR/../../postHardenTools/normalizeToolsGeneral.sh" >> "$LOG_FILE" 2>&1
+bash "$SCRIPT_DIR/../../postHardenTools/normalizeToolsSecurity.sh" >> "$LOG_FILE" 2>&1
 echo "Scripts completed. Check $LOG_FILE for more details."
 
 
