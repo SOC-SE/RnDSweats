@@ -435,19 +435,17 @@ ZEEKEOF
 module RedTeam;
 
 # JA4 Detection (Modern - TLS 1.3 aware)
-event ssl_client_hello(c: connection, version: count, record_version: count,
-                       possible_ts: time, client_random: string,
-                       session_id: string, ciphers: index_vec,
-                       comp_methods: index_vec) &priority=5
+# Use ssl_established because JA4 is populated after handshake completes
+event ssl_established(c: connection) &priority=5
 {
     if ( ! enable_ja4_detection )
         return;
-    
+
     # JA4 is populated by Zeek's JA4 package or built-in support
     if ( c?$ssl && c$ssl?$ja4 && c$ssl$ja4 in ja4_signatures )
     {
         local desc = ja4_signatures[c$ssl$ja4];
-        
+
         NOTICE([
             $note = C2_Beacon_Detected,
             $conn = c,
@@ -459,18 +457,16 @@ event ssl_client_hello(c: connection, version: count, record_version: count,
 }
 
 # JA3 Detection (Legacy - broader coverage)
-event ssl_client_hello(c: connection, version: count, record_version: count,
-                       possible_ts: time, client_random: string,
-                       session_id: string, ciphers: index_vec,
-                       comp_methods: index_vec) &priority=4
+# Use ssl_established because JA3 is populated after handshake completes
+event ssl_established(c: connection) &priority=4
 {
     if ( ! enable_ja3_detection )
         return;
-    
+
     if ( c?$ssl && c$ssl?$ja3 && c$ssl$ja3 in ja3_signatures )
     {
         local desc = ja3_signatures[c$ssl$ja3];
-        
+
         NOTICE([
             $note = Malware_Callback,
             $conn = c,
@@ -482,22 +478,25 @@ event ssl_client_hello(c: connection, version: count, record_version: count,
 }
 
 # Certificate Detection
-event x509_certificate(f: fa_file, cert_ref: opaque of x509, cert: X509::Certificate) &priority=5
+event ssl_established(c: connection) &priority=3
 {
     if ( ! enable_cert_detection )
         return;
-    
-    # Check subject/issuer for suspicious patterns
-    local subject = cert$subject;
-    local issuer = cert$issuer;
-    
-    for ( pattern in suspicious_cert_patterns )
+
+    if ( ! c?$ssl || ! c$ssl?$subject )
+        return;
+
+    local subject = c$ssl$subject;
+    local issuer = c$ssl?$issuer ? c$ssl$issuer : "";
+
+    for ( susp_pattern in suspicious_cert_patterns )
     {
-        if ( pattern in subject || pattern in issuer )
+        if ( strstr(subject, susp_pattern) != 0 || strstr(issuer, susp_pattern) != 0 )
         {
             NOTICE([
                 $note = Suspicious_Certificate,
-                $msg = fmt("Suspicious certificate pattern: %s", pattern),
+                $conn = c,
+                $msg = fmt("Suspicious certificate pattern: %s", susp_pattern),
                 $sub = subject
             ]);
             break;

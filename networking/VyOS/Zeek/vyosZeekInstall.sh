@@ -21,6 +21,8 @@
 #    3. Extracts packages to /opt/zeek
 #    4. Configures Zeek for your network interfaces
 #    5. Sets up zeekctl for management
+#    6. Installs pip, zkg (Zeek Package Manager), and websockets
+#    7. Installs JA3 package for TLS fingerprinting
 #
 #  Usage: ./install-zeek-vyos.sh [options]
 #
@@ -601,6 +603,81 @@ setup_zeekctl() {
     log_success "Zeek control initialized"
 }
 
+install_zeek_packages() {
+    log_header "Installing Zeek Package Manager (zkg) and JA3"
+
+    # Install pip if not available (VyOS doesn't have it by default)
+    if ! command -v pip3 &>/dev/null; then
+        log_info "Installing pip..."
+        curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+        python3 /tmp/get-pip.py --user --break-system-packages 2>/dev/null || \
+        python3 /tmp/get-pip.py --user
+        rm -f /tmp/get-pip.py
+
+        # Add local bin to PATH for current session
+        export PATH="$PATH:$HOME/.local/bin"
+        log_success "pip installed"
+    else
+        log_success "pip already available"
+    fi
+
+    # Ensure PATH includes local bin
+    if ! grep -q '\.local/bin' ~/.bashrc 2>/dev/null; then
+        echo 'export PATH=$PATH:~/.local/bin:/opt/zeek/bin' >> ~/.bashrc
+        log_info "Added ~/.local/bin and /opt/zeek/bin to PATH in ~/.bashrc"
+    fi
+
+    # Install zkg and websockets
+    log_info "Installing zkg and websockets..."
+    pip3 install zkg --break-system-packages 2>/dev/null || \
+    pip3 install --user zkg --break-system-packages 2>/dev/null || \
+    pip3 install --user zkg || {
+        log_warning "Could not install zkg via pip"
+        return 1
+    }
+    log_success "zkg installed"
+
+    pip3 install websockets --break-system-packages 2>/dev/null || \
+    pip3 install --user websockets --break-system-packages 2>/dev/null || \
+    pip3 install --user websockets || true
+    log_success "websockets installed"
+
+    # Configure zkg
+    log_info "Configuring zkg..."
+    "$HOME/.local/bin/zkg" autoconfig 2>/dev/null || \
+    zkg autoconfig 2>/dev/null || {
+        log_warning "zkg autoconfig failed - may need manual configuration"
+    }
+
+    # Install JA3 for TLS fingerprinting
+    log_info "Installing JA3 package for TLS fingerprinting..."
+    "$HOME/.local/bin/zkg" install zeek/salesforce/ja3 --force 2>/dev/null || \
+    zkg install zeek/salesforce/ja3 --force 2>/dev/null || {
+        log_warning "Could not install JA3 via zkg"
+        log_info "Attempting manual JA3 installation..."
+
+        # Manual fallback: clone JA3 repo
+        if command -v git &>/dev/null; then
+            cd "$ZEEK_PREFIX/share/zeek/site"
+            git clone https://github.com/salesforce/ja3.git 2>/dev/null || true
+            if [[ -d "ja3" ]]; then
+                # Add to local.zeek if not already present
+                if ! grep -q "@load ja3" "$ZEEK_PREFIX/share/zeek/site/local.zeek" 2>/dev/null; then
+                    echo "@load ja3/zeek" >> "$ZEEK_PREFIX/share/zeek/site/local.zeek"
+                fi
+                log_success "JA3 installed manually via git"
+            fi
+        else
+            log_warning "JA3 installation failed - TLS fingerprinting unavailable"
+        fi
+    }
+
+    # Deploy changes
+    log_info "Deploying Zeek configuration..."
+    "$ZEEK_PREFIX/bin/zeekctl" deploy 2>&1 || true
+    log_success "Zeek packages installed and deployed"
+}
+
 create_systemd_service() {
     log_header "Creating Systemd Service"
     cat > /etc/systemd/system/zeek.service << EOF
@@ -661,6 +738,12 @@ print_summary() {
     echo "  • Interfaces: ${MONITOR_INTERFACES[*]}"
     [[ ${#MONITOR_INTERFACES[@]} -eq 1 ]] && echo "  • Mode: Standalone" || echo "  • Mode: Cluster (${#MONITOR_INTERFACES[@]} workers)"
     [[ -n "$LOCAL_NETWORKS" ]] && echo "  • Local networks: $LOCAL_NETWORKS" || echo "  • Local networks: (none - all traffic external)"
+    command -v zkg &>/dev/null && echo "  • zkg: installed" || echo "  • zkg: not found"
+    if [[ -d "$ZEEK_PREFIX/share/zeek/site/ja3" ]] || zkg list 2>/dev/null | grep -q "ja3"; then
+        echo "  • JA3: installed (TLS fingerprinting enabled)"
+    else
+        echo "  • JA3: not installed"
+    fi
     echo ""
     echo -e "${GREEN}Commands:${NC}"
     echo "  ${ZEEK_PREFIX}/bin/zeekctl status | deploy | stop"
@@ -691,14 +774,15 @@ main() {
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
 
     check_root
-    log_step "1/8" "Detecting VyOS"; detect_vyos
-    log_step "2/8" "Checking Filesystem"; check_filesystem_writable
-    log_step "3/8" "Detecting Interfaces"; detect_interfaces; detect_networks
-    log_step "4/8" "Downloading Binaries"; download_and_extract_binaries
-    log_step "5/8" "Runtime Dependencies"; install_runtime_deps
-    log_step "6/8" "Configuring Zeek"; configure_zeek
-    log_step "7/8" "Setting Up Services"; setup_zeekctl; create_systemd_service
-    log_step "8/8" "Cleanup & Verify"; cleanup_temp; verify_installation || true
+    log_step "1/9" "Detecting VyOS"; detect_vyos
+    log_step "2/9" "Checking Filesystem"; check_filesystem_writable
+    log_step "3/9" "Detecting Interfaces"; detect_interfaces; detect_networks
+    log_step "4/9" "Downloading Binaries"; download_and_extract_binaries
+    log_step "5/9" "Runtime Dependencies"; install_runtime_deps
+    log_step "6/9" "Configuring Zeek"; configure_zeek
+    log_step "7/9" "Setting Up Services"; setup_zeekctl; create_systemd_service
+    log_step "8/9" "Installing Packages (pip/zkg/JA3)"; install_zeek_packages
+    log_step "9/9" "Cleanup & Verify"; cleanup_temp; verify_installation || true
     print_summary
 }
 
