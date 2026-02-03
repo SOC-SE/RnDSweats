@@ -26,7 +26,8 @@
 #
 #  Options:
 #    -i, --interface IFACE   Network interface(s) to monitor (comma-separated)
-#    -n, --networks CIDR     Local networks (comma-separated, default: auto-detect)
+#    -n, --networks CIDR     Local networks (comma-separated, auto-detected from interface)
+#                            RFC1918 NOT assumed - only your actual subnets are marked local
 #    -v, --zeek-version VER  Zeek major version (default: 7.0)
 #    -y, --yes               Non-interactive mode
 #    -h, --help              Show this help message
@@ -84,10 +85,15 @@ Usage: ./install-zeek-vyos.sh [options]
 Options:
   -i, --interface IFACE   Network interface(s) to monitor, comma-separated
                           Examples: -i eth1  OR  -i "eth1,eth2,eth3"
-  -n, --networks CIDR     Local networks, comma-separated (default: RFC1918)
+  -n, --networks CIDR     Local networks, comma-separated (default: auto-detect)
+                          Examples: -n "10.50.0.0/16" OR -n "192.168.1.0/24,10.0.0.0/8"
+                          Use -n "" for empty (treat all traffic as external)
   -v, --zeek-version VER  Zeek major version (default: 7.0)
   -y, --yes               Non-interactive mode
   -h, --help              Show this help message
+
+Note: RFC1918 ranges are NOT assumed to be local. In competition environments,
+      attackers may use private IP ranges. Only your actual network is marked local.
 
 Interface Selection:
   Single interface:    -i eth1           (standalone mode)
@@ -213,9 +219,39 @@ detect_interfaces() {
 }
 
 detect_networks() {
-    [[ -n "$LOCAL_NETWORKS" ]] && { log_info "Using specified networks: $LOCAL_NETWORKS"; return; }
-    LOCAL_NETWORKS="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
-    log_success "Local networks: $LOCAL_NETWORKS (RFC1918)"
+    log_header "Configuring Local Networks"
+
+    if [[ -n "$LOCAL_NETWORKS" ]]; then
+        log_success "Using specified networks: $LOCAL_NETWORKS"
+        return
+    fi
+
+    # Auto-detect from monitored interfaces
+    local detected_nets=()
+    for iface in "${MONITOR_INTERFACES[@]}"; do
+        local iface_net
+        iface_net=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP 'inet \K[0-9./]+' | head -1)
+        if [[ -n "$iface_net" ]]; then
+            detected_nets+=("$iface_net")
+            log_info "Detected network on $iface: $iface_net"
+        fi
+    done
+
+    if [[ ${#detected_nets[@]} -gt 0 ]]; then
+        LOCAL_NETWORKS=$(IFS=,; echo "${detected_nets[*]}")
+        log_success "Auto-detected local networks: $LOCAL_NETWORKS"
+    else
+        log_warning "Could not auto-detect networks"
+        log_info "Zeek will treat all traffic as external (no 'Local' designation)"
+        LOCAL_NETWORKS=""
+    fi
+
+    # Prompt for confirmation in interactive mode
+    if [[ "$NON_INTERACTIVE" != true ]] && [[ -n "$LOCAL_NETWORKS" ]]; then
+        echo ""
+        read -r -p "Local networks [$LOCAL_NETWORKS]: " user_nets
+        [[ -n "$user_nets" ]] && LOCAL_NETWORKS="$user_nets"
+    fi
 }
 
 check_filesystem_writable() {
@@ -257,10 +293,20 @@ download_and_extract_binaries() {
 
     local repo_url arch pkg_list
     repo_url=$(get_zeek_repo_url)
-    arch=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+
+    # Detect architecture properly
+    local machine_arch
+    machine_arch=$(uname -m)
+    case "$machine_arch" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        armv7l)  arch="armhf" ;;
+        i686)    arch="i386" ;;
+        *)       arch=$(dpkg --print-architecture 2>/dev/null || echo "amd64") ;;
+    esac
 
     log_info "Repository: $repo_url"
-    log_info "Architecture: $arch"
+    log_info "System architecture: $machine_arch -> $arch"
 
     cd "$TEMP_DIR"
 
@@ -274,14 +320,28 @@ download_and_extract_binaries() {
         return
     }
 
-    # Find the main zeek package and dependencies
+    # Find packages matching our architecture
+    # Parse Packages file to extract package info for correct architecture
     local zeek_pkg zeek_core_pkg zeekctl_pkg libbroker_pkg
 
-    # Parse package list to find latest versions
-    zeek_pkg=$(grep -A 20 "^Package: zeek$" Packages | grep "^Filename:" | head -1 | awk '{print $2}')
-    zeek_core_pkg=$(grep -A 20 "^Package: zeek-core$" Packages | grep "^Filename:" | head -1 | awk '{print $2}')
-    zeekctl_pkg=$(grep -A 20 "^Package: zeekctl$" Packages | grep "^Filename:" | head -1 | awk '{print $2}')
-    libbroker_pkg=$(grep -A 20 "^Package: libbroker-dev$" Packages | grep "^Filename:" | head -1 | awk '{print $2}')
+    # Function to find package filename for specific arch
+    find_pkg_for_arch() {
+        local pkg_name="$1"
+        local target_arch="$2"
+        awk -v pkg="$pkg_name" -v arch="$target_arch" '
+            /^Package:/ { current_pkg = $2; current_arch = ""; filename = "" }
+            /^Architecture:/ { current_arch = $2 }
+            /^Filename:/ { filename = $2 }
+            /^$/ {
+                if (current_pkg == pkg && (current_arch == arch || current_arch == "all"))
+                    print filename
+            }
+        ' Packages | tail -1
+    }
+
+    zeek_core_pkg=$(find_pkg_for_arch "zeek-core" "$arch")
+    zeekctl_pkg=$(find_pkg_for_arch "zeekctl" "$arch")
+    libbroker_pkg=$(find_pkg_for_arch "libbroker-dev" "$arch")
 
     if [[ -z "$zeek_core_pkg" ]]; then
         log_warning "Could not find zeek-core package, trying LTS download..."
@@ -343,44 +403,66 @@ download_and_extract_binaries() {
 download_zeek_lts() {
     log_header "Downloading Zeek LTS Binary Release"
 
-    # Alternative: Download from Zeek's binary releases
-    local arch release_url
-    arch=$(uname -m)
-
-    case "$arch" in
-        x86_64|amd64) arch="amd64" ;;
-        aarch64|arm64) arch="arm64" ;;
-        *) log_error "Unsupported architecture: $arch"; exit 1 ;;
+    # Detect architecture properly
+    local machine_arch arch
+    machine_arch=$(uname -m)
+    case "$machine_arch" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *) log_error "Unsupported architecture: $machine_arch"; exit 1 ;;
     esac
 
-    # Try to get the static/portable build
-    log_info "Checking for portable Zeek build..."
+    log_info "Target architecture: $machine_arch -> $arch"
 
-    # Zeek provides tarballs for some releases
-    local tarball_url="https://download.zeek.org/binary-packages/Debian_12/${arch}/"
+    # Try OBS repository with architecture-specific path
+    local obs_url="https://download.opensuse.org/repositories/security:/zeek/Debian_12/${arch}/"
 
-    log_info "Fetching from: $tarball_url"
+    log_info "Fetching from OBS: $obs_url"
 
     # List available packages
     local pkg_list
-    pkg_list=$(curl -fsSL "$tarball_url" 2>/dev/null | grep -oP 'href="\K[^"]+\.deb' | head -20) || {
-        log_warning "Could not list packages from binary repository"
-        log_info "Attempting direct package download..."
+    pkg_list=$(curl -fsSL "$obs_url" 2>/dev/null | grep -oP 'href="\K[^"]+\.deb' | head -20) || {
+        log_warning "Could not list packages from OBS repository"
     }
 
     if [[ -n "$pkg_list" ]]; then
-        log_info "Available packages:"
-        echo "$pkg_list" | head -5
+        log_info "Available packages for $arch:"
+        echo "$pkg_list" | grep -E "zeek-core|zeekctl" | head -5
 
-        # Download zeek-core and zeekctl
+        # Download zeek-core and zeekctl - filter for correct arch in filename
         for pattern in "zeek-core_" "zeekctl_"; do
-            local pkg=$(echo "$pkg_list" | grep "^${pattern}" | sort -V | tail -1)
+            # Filter packages that match our architecture (amd64 or arm64 in filename)
+            local pkg=$(echo "$pkg_list" | grep "^${pattern}" | grep "_${arch}\." | sort -V | tail -1)
+            if [[ -z "$pkg" ]]; then
+                # Try without arch in filename
+                pkg=$(echo "$pkg_list" | grep "^${pattern}" | sort -V | tail -1)
+            fi
             if [[ -n "$pkg" ]]; then
                 log_info "Downloading $pkg..."
-                curl -fsSL "${tarball_url}${pkg}" -o "$TEMP_DIR/$pkg" && \
+                curl -fsSL "${obs_url}${pkg}" -o "$TEMP_DIR/$pkg" && \
                     echo -e "  ${GREEN}✓${NC} $pkg"
             fi
         done
+    fi
+
+    # Fallback: try Zeek's own binary download site
+    if [[ ! -f "$TEMP_DIR/"*.deb ]]; then
+        local zeek_url="https://download.zeek.org/binary-packages/Debian_12/${arch}/"
+        log_info "Trying Zeek download site: $zeek_url"
+
+        pkg_list=$(curl -fsSL "$zeek_url" 2>/dev/null | grep -oP 'href="\K[^"]+\.deb' | head -20) || true
+
+        if [[ -n "$pkg_list" ]]; then
+            for pattern in "zeek-core_" "zeekctl_"; do
+                local pkg=$(echo "$pkg_list" | grep "^${pattern}" | grep "_${arch}\." | sort -V | tail -1)
+                [[ -z "$pkg" ]] && pkg=$(echo "$pkg_list" | grep "^${pattern}" | sort -V | tail -1)
+                if [[ -n "$pkg" ]]; then
+                    log_info "Downloading $pkg..."
+                    curl -fsSL "${zeek_url}${pkg}" -o "$TEMP_DIR/$pkg" && \
+                        echo -e "  ${GREEN}✓${NC} $pkg"
+                fi
+            done
+        fi
     fi
 
     # Extract any downloaded debs
@@ -455,12 +537,21 @@ EOF
     export PATH="$PATH:$ZEEK_PREFIX/bin"
     log_success "Added Zeek to PATH"
     
-    cat > "$ZEEK_PREFIX/etc/networks.cfg" << EOF
-10.0.0.0/8          Private IP space
-172.16.0.0/12       Private IP space
-192.168.0.0/16      Private IP space
-EOF
-    log_success "Configured networks.cfg"
+    # Configure networks.cfg based on detected/specified networks
+    if [[ -n "$LOCAL_NETWORKS" ]]; then
+        # Write each network on its own line
+        > "$ZEEK_PREFIX/etc/networks.cfg"
+        IFS=',' read -ra nets <<< "$LOCAL_NETWORKS"
+        for net in "${nets[@]}"; do
+            net=$(echo "$net" | xargs)  # trim whitespace
+            echo "$net    Local network" >> "$ZEEK_PREFIX/etc/networks.cfg"
+        done
+        log_success "Configured networks.cfg with: $LOCAL_NETWORKS"
+    else
+        # Empty networks.cfg - all traffic treated as external
+        > "$ZEEK_PREFIX/etc/networks.cfg"
+        log_info "networks.cfg left empty (all traffic treated as external)"
+    fi
     
     if [[ ${#MONITOR_INTERFACES[@]} -eq 1 ]]; then
         cat > "$ZEEK_PREFIX/etc/node.cfg" << EOF
@@ -569,6 +660,7 @@ print_summary() {
     echo "  • Path: $ZEEK_PREFIX"
     echo "  • Interfaces: ${MONITOR_INTERFACES[*]}"
     [[ ${#MONITOR_INTERFACES[@]} -eq 1 ]] && echo "  • Mode: Standalone" || echo "  • Mode: Cluster (${#MONITOR_INTERFACES[@]} workers)"
+    [[ -n "$LOCAL_NETWORKS" ]] && echo "  • Local networks: $LOCAL_NETWORKS" || echo "  • Local networks: (none - all traffic external)"
     echo ""
     echo -e "${GREEN}Commands:${NC}"
     echo "  ${ZEEK_PREFIX}/bin/zeekctl status | deploy | stop"
