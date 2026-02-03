@@ -400,6 +400,7 @@ install_tls_fingerprinting() {
     cat > "$dest_dir/__load__.zeek" << 'ZEEKEOF'
 ##! Red Team Detection Suite - TLS/SSH Fingerprinting
 ##! Detects C2 frameworks, RATs, and malware via JA3/JA4/HASSH fingerprints
+##! Gracefully handles missing packages (JA3, JA4, HASSH)
 
 @load base/protocols/ssl
 @load base/protocols/ssh
@@ -417,17 +418,20 @@ export {
     };
 
     # Enable/disable detection - ALL ENABLED BY DEFAULT
-    option enable_ja3_detection: bool = T;
-    option enable_ja4_detection: bool = T;
-    option enable_hassh_detection: bool = T;
     option enable_cert_detection: bool = T;
 }
 
+# Load signature databases (always load - they're just tables)
 @load ./fingerprints/ja3_signatures
 @load ./fingerprints/ja4_signatures
 @load ./fingerprints/ja4x_certificates
 @load ./fingerprints/hassh_signatures
+
+# Load detection logic
 @load ./detection
+@load ./detection_ja3
+@load ./detection_ja4
+@load ./detection_hassh
 ZEEKEOF
 
     #---------------------------------------------------------------------------
@@ -435,93 +439,13 @@ ZEEKEOF
     #---------------------------------------------------------------------------
     cat > "$dest_dir/detection.zeek" << 'ZEEKEOF'
 ##! TLS/SSH Fingerprint Detection Logic
-##! Supports: JA3, JA4, JA4S, HASSH, Certificate patterns
+##! Certificate pattern detection (always works)
+##! JA3/JA4/HASSH detection requires their respective packages
 
 module RedTeam;
 
-# JA3 Detection (legacy but broad coverage)
-event ssl_established(c: connection) &priority=5
-{
-    if ( ! enable_ja3_detection )
-        return;
-
-    if ( ! c?$ssl )
-        return;
-
-    # Check JA3 hash
-    if ( c$ssl?$ja3 && c$ssl$ja3 in ja3_signatures )
-    {
-        local desc = ja3_signatures[c$ssl$ja3];
-        NOTICE([
-            $note = Malware_Callback,
-            $conn = c,
-            $msg = fmt("JA3 TLS fingerprint match: %s", desc),
-            $sub = c$ssl$ja3,
-            $identifier = fmt("%s-%s", c$id$orig_h, c$ssl$ja3)
-        ]);
-    }
-}
-
-# JA4 Detection (modern TLS 1.3 aware)
-event ssl_established(c: connection) &priority=5
-{
-    if ( ! enable_ja4_detection )
-        return;
-
-    if ( ! c?$ssl )
-        return;
-
-    # Check JA4 hash (requires ja4 package from FoxIO)
-    if ( c$ssl?$ja4 && c$ssl$ja4 in ja4_signatures )
-    {
-        local desc = ja4_signatures[c$ssl$ja4];
-        NOTICE([
-            $note = C2_TLS_Fingerprint,
-            $conn = c,
-            $msg = fmt("JA4 TLS fingerprint match: %s", desc),
-            $sub = c$ssl$ja4,
-            $identifier = fmt("%s-%s", c$id$orig_h, c$ssl$ja4)
-        ]);
-    }
-
-    # Check JA4S (server fingerprint) if available
-    if ( c$ssl?$ja4s && c$ssl$ja4s in ja4s_signatures )
-    {
-        local sdesc = ja4s_signatures[c$ssl$ja4s];
-        NOTICE([
-            $note = C2_TLS_Fingerprint,
-            $conn = c,
-            $msg = fmt("JA4S server fingerprint match: %s", sdesc),
-            $sub = c$ssl$ja4s,
-            $identifier = fmt("%s-%s", c$id$resp_h, c$ssl$ja4s)
-        ]);
-    }
-}
-
-# HASSH Detection (SSH fingerprinting)
-event ssh_auth_successful(c: connection, auth_method_none: bool) &priority=5
-{
-    if ( ! enable_hassh_detection )
-        return;
-
-    if ( ! c?$ssh )
-        return;
-
-    # Check HASSH (client SSH fingerprint)
-    if ( c$ssh?$hassh && c$ssh$hassh in hassh_signatures )
-    {
-        local desc = hassh_signatures[c$ssh$hassh];
-        NOTICE([
-            $note = Suspicious_SSH_Client,
-            $conn = c,
-            $msg = fmt("HASSH SSH fingerprint match: %s", desc),
-            $sub = c$ssh$hassh,
-            $identifier = fmt("%s-%s", c$id$orig_h, c$ssh$hassh)
-        ]);
-    }
-}
-
 # Certificate Detection - suspicious patterns in cert subject/issuer
+# This always works as it uses standard SSL fields
 event ssl_established(c: connection) &priority=3
 {
     if ( ! enable_cert_detection )
@@ -556,6 +480,126 @@ event ssl_established(c: connection) &priority=3
         }
     }
 }
+ZEEKEOF
+
+    #---------------------------------------------------------------------------
+    # JA3 Detection (only works if ja3 package is installed)
+    #---------------------------------------------------------------------------
+    cat > "$dest_dir/detection_ja3.zeek" << 'ZEEKEOF'
+##! JA3 TLS Fingerprint Detection
+##! Requires: zkg install zeek/salesforce/ja3
+
+@ifdef ( SSL::Info$ja3 )
+
+module RedTeam;
+
+event ssl_established(c: connection) &priority=5
+{
+    if ( ! c?$ssl || ! c$ssl?$ja3 )
+        return;
+
+    if ( c$ssl$ja3 in ja3_signatures )
+    {
+        local desc = ja3_signatures[c$ssl$ja3];
+        NOTICE([
+            $note = Malware_Callback,
+            $conn = c,
+            $msg = fmt("JA3 TLS fingerprint match: %s", desc),
+            $sub = c$ssl$ja3,
+            $identifier = fmt("%s-%s", c$id$orig_h, c$ssl$ja3)
+        ]);
+    }
+}
+
+@endif
+ZEEKEOF
+
+    #---------------------------------------------------------------------------
+    # JA4 Detection (only works if ja4 package is installed)
+    #---------------------------------------------------------------------------
+    cat > "$dest_dir/detection_ja4.zeek" << 'ZEEKEOF'
+##! JA4 TLS Fingerprint Detection
+##! Requires: zkg install zeek/foxio/ja4
+
+@ifdef ( SSL::Info$ja4 )
+
+module RedTeam;
+
+event ssl_established(c: connection) &priority=5
+{
+    if ( ! c?$ssl || ! c$ssl?$ja4 )
+        return;
+
+    if ( c$ssl$ja4 in ja4_signatures )
+    {
+        local desc = ja4_signatures[c$ssl$ja4];
+        NOTICE([
+            $note = C2_TLS_Fingerprint,
+            $conn = c,
+            $msg = fmt("JA4 TLS fingerprint match: %s", desc),
+            $sub = c$ssl$ja4,
+            $identifier = fmt("%s-%s", c$id$orig_h, c$ssl$ja4)
+        ]);
+    }
+}
+
+@endif
+
+@ifdef ( SSL::Info$ja4s )
+
+module RedTeam;
+
+event ssl_established(c: connection) &priority=4
+{
+    if ( ! c?$ssl || ! c$ssl?$ja4s )
+        return;
+
+    if ( c$ssl$ja4s in ja4s_signatures )
+    {
+        local desc = ja4s_signatures[c$ssl$ja4s];
+        NOTICE([
+            $note = C2_TLS_Fingerprint,
+            $conn = c,
+            $msg = fmt("JA4S server fingerprint match: %s", desc),
+            $sub = c$ssl$ja4s,
+            $identifier = fmt("%s-%s", c$id$resp_h, c$ssl$ja4s)
+        ]);
+    }
+}
+
+@endif
+ZEEKEOF
+
+    #---------------------------------------------------------------------------
+    # HASSH Detection (only works if hassh package is installed)
+    #---------------------------------------------------------------------------
+    cat > "$dest_dir/detection_hassh.zeek" << 'ZEEKEOF'
+##! HASSH SSH Fingerprint Detection
+##! Requires: zkg install zeek/salesforce/hassh
+
+@ifdef ( SSH::Info$hassh )
+
+module RedTeam;
+
+event ssh_auth_successful(c: connection, auth_method_none: bool) &priority=5
+{
+    if ( ! c?$ssh || ! c$ssh?$hassh )
+        return;
+
+    if ( c$ssh$hassh in hassh_signatures )
+    {
+        local desc = hassh_signatures[c$ssh$hassh];
+        NOTICE([
+            $note = Suspicious_SSH_Client,
+            $conn = c,
+            $msg = fmt("HASSH SSH fingerprint match: %s", desc),
+            $sub = c$ssh$hassh,
+            $identifier = fmt("%s-%s", c$id$orig_h, c$ssh$hassh)
+        ]);
+    }
+}
+
+@endif
 ZEEKEOF
 
     log_success "Created TLS fingerprinting framework"
@@ -970,73 +1014,64 @@ ZEEKEOF
     cat > "$dest_dir/kerberos_attacks.zeek" << 'ZEEKEOF'
 ##! Kerberos Attack Detection - Kerberoasting, AS-REP Roasting
 ##! Compatible with Zeek 5.x/6.x/7.x
+##! Note: For full Kerberos attack detection, install BZAR package
 
 module AD_ATTACKS;
 
 @load base/protocols/krb
 
-# Weak encryption types that indicate potential Kerberoasting
-# RC4 = etype 23, DES = etype 1,3
-const weak_etypes: set[count] = { 1, 3, 23 };
-
-# Track TGS requests per source
+# Track TGS requests per source (volume-based detection)
 global tgs_request_count: table[addr] of count &default=0 &read_expire=2min;
+global tgs_request_services: table[addr] of set[string] &read_expire=2min;
 
-# Kerberoasting detection via TGS-REQ monitoring
-# When a client requests many service tickets with weak encryption, it may be Kerberoasting
-event krb_tgs_request(c: connection, msg: KRB::KDC_Request) &priority=5
+# Kerberoasting detection via TGS-REQ volume monitoring
+# When a client requests many service tickets in a short time, it may be Kerberoasting
+# This is a simplified detection - BZAR provides more comprehensive coverage
+event krb_tgs_response(c: connection, msg_type: count, client: string, service: string, error_code: count, kvno: count, cipher: count) &priority=5
 {
     if ( ! detect_kerberoasting )
         return;
 
+    # Only track successful responses (error_code == 0)
+    if ( error_code != 0 )
+        return;
+
     local src = c$id$orig_h;
 
-    # Check if request uses weak encryption types
-    if ( msg?$etype )
-    {
-        for ( i in msg$etype )
-        {
-            if ( msg$etype[i] in weak_etypes )
-            {
-                ++tgs_request_count[src];
+    # Initialize set if needed
+    if ( src !in tgs_request_services )
+        tgs_request_services[src] = set();
 
-                if ( tgs_request_count[src] >= kerberos_tgs_threshold )
-                {
-                    NOTICE([$note=Kerberoasting_Detected, $conn=c,
-                            $msg=fmt("Potential Kerberoasting: %d TGS requests with weak encryption from %s",
-                                    tgs_request_count[src], src),
-                            $sub="T1558.003", $src=src]);
-                    tgs_request_count[src] = 0;
-                }
-                break;
-            }
-        }
+    # Track unique services requested
+    add tgs_request_services[src][service];
+    ++tgs_request_count[src];
+
+    # Alert if many different services requested (Kerberoasting pattern)
+    if ( |tgs_request_services[src]| >= kerberos_tgs_threshold )
+    {
+        NOTICE([$note=Kerberoasting_Detected, $conn=c,
+                $msg=fmt("Potential Kerberoasting: %s requested %d different service tickets",
+                        src, |tgs_request_services[src]|),
+                $sub="T1558.003", $src=src]);
+
+        # Reset counters after alert
+        delete tgs_request_services[src];
+        tgs_request_count[src] = 0;
     }
 }
 
-# AS-REP Roasting detection - requests without pre-authentication
-event krb_as_request(c: connection, msg: KRB::KDC_Request) &priority=5
+# AS-REP Roasting detection via error responses
+# AS-REP roasting targets accounts with "Do not require Kerberos preauthentication"
+event krb_as_response(c: connection, msg_type: count, client: string, service: string, error_code: count, kvno: count, cipher: count) &priority=5
 {
     if ( ! detect_kerberoasting )
         return;
 
-    # AS-REP roasting targets accounts with "Do not require Kerberos preauthentication"
-    # Detection: AS-REQ without PA-DATA followed by successful AS-REP
-    # This is a simplified check - full detection requires correlating request/response
     local src = c$id$orig_h;
 
-    if ( msg?$etype )
-    {
-        for ( i in msg$etype )
-        {
-            if ( msg$etype[i] in weak_etypes )
-            {
-                # Track for potential AS-REP roasting
-                ++discovery_tracker[src];
-                break;
-            }
-        }
-    }
+    # Track AS responses for potential AS-REP roasting analysis
+    # A large number of AS requests to different principals may indicate roasting
+    ++discovery_tracker[src];
 }
 ZEEKEOF
 
