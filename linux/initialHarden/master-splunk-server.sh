@@ -230,6 +230,7 @@ $SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
 
 $SPLUNK_HOME/bin/splunk add index linux -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
 $SPLUNK_HOME/bin/splunk add index windows -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
+$SPLUNK_HOME/bin/splunk add index network -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
 
 # ============================================================================
 # PHASE 4: SPLUNK CONFIGURATION
@@ -247,9 +248,15 @@ cat > "$SPLUNK_HOME/etc/system/local/inputs.conf" << EOF
 host = $(hostname)
 
 [tcp://514]
-sourcetype = syslog
-index = linux
+sourcetype = ngfw:syslog
+index = network
 disabled = 0
+
+[tcp://5140]
+sourcetype = technitium:syslog
+index = network
+disabled = 0
+connection_host = ip
 
 # =============================================================================
 # Local file monitors (logs generated on this host)
@@ -342,6 +349,13 @@ index = linux
 sourcetype = wazuh:api
 crcSalt = <SOURCE>
 
+# Wazuh Agent Alerts (JSON - aggregated from all agents on this server)
+[monitor:///var/ossec/logs/alerts/alerts.json]
+index = linux
+sourcetype = wazuh:alerts
+crcSalt = <SOURCE>
+disabled = 0
+
 # --- Salt Master ---
 
 [monitor:///var/log/salt/master]
@@ -362,7 +376,7 @@ EOF
 # Move custom props.conf if it exists
 # Check multiple locations since script may run from /tmp or from repo
 PROPS_CONF=""
-for props_path in "$TOOLS/Splunk/props.conf" "$SCRIPT_DIR/props.conf" "$SCRIPT_DIR/../Tools/Splunk/props.conf" "/tmp/props.conf"; do
+for props_path in "$REPO_DIR/linux/securityInfrastructure/Splunk/props.conf" "$TOOLS/Splunk/props.conf" "$SCRIPT_DIR/props.conf" "$SCRIPT_DIR/../Tools/Splunk/props.conf" "/tmp/props.conf"; do
     if [[ -f "$props_path" ]]; then
         PROPS_CONF="$props_path"
         break
@@ -374,7 +388,44 @@ if [[ -n "$PROPS_CONF" ]]; then
     cp "$PROPS_CONF" "$SPLUNK_HOME/etc/system/local/"
     chown splunk:splunk "$SPLUNK_HOME/etc/system/local/props.conf"
 else
-    warn "props.conf not found. Checked: $TOOLS/Splunk/, $SCRIPT_DIR/, /tmp/"
+    warn "props.conf not found. Checked: $REPO_DIR/linux/securityInfrastructure/Splunk/, $TOOLS/Splunk/, $SCRIPT_DIR/, /tmp/"
+fi
+
+# Move custom transforms.conf if it exists
+TRANSFORMS_CONF=""
+for transforms_path in "$REPO_DIR/linux/securityInfrastructure/Splunk/transforms.conf" "$TOOLS/Splunk/transforms.conf" "$SCRIPT_DIR/transforms.conf" "/tmp/transforms.conf"; do
+    if [[ -f "$transforms_path" ]]; then
+        TRANSFORMS_CONF="$transforms_path"
+        break
+    fi
+done
+
+if [[ -n "$TRANSFORMS_CONF" ]]; then
+    log "Installing custom transforms.conf from $TRANSFORMS_CONF..."
+    cp "$TRANSFORMS_CONF" "$SPLUNK_HOME/etc/system/local/"
+    chown splunk:splunk "$SPLUNK_HOME/etc/system/local/transforms.conf"
+else
+    warn "transforms.conf not found. Skipping..."
+fi
+
+# Deploy Splunk dashboards if they exist
+DASHBOARDS_DIR=""
+for dash_path in "$REPO_DIR/linux/securityInfrastructure/Splunk/Dashboards" "$TOOLS/Splunk/Dashboards" "$SCRIPT_DIR/Dashboards" "/tmp/Splunk/Dashboards"; do
+    if [[ -d "$dash_path" ]]; then
+        DASHBOARDS_DIR="$dash_path"
+        break
+    fi
+done
+
+if [[ -n "$DASHBOARDS_DIR" ]] && [[ -n "$(ls -A "$DASHBOARDS_DIR"/*.xml 2>/dev/null)" ]]; then
+    log "Installing Splunk dashboards from $DASHBOARDS_DIR..."
+    mkdir -p "$SPLUNK_HOME/etc/apps/search/local/data/ui/views"
+    cp "$DASHBOARDS_DIR"/*.xml "$SPLUNK_HOME/etc/apps/search/local/data/ui/views/"
+    chown splunk:splunk "$SPLUNK_HOME/etc/apps/search/local/data/ui/views"/*.xml
+    DASHBOARD_COUNT=$(ls "$DASHBOARDS_DIR"/*.xml 2>/dev/null | wc -l)
+    log "Dashboards installed: $DASHBOARD_COUNT files"
+else
+    warn "Dashboard directory not found or empty. Dashboards can be imported manually via Splunk Web UI."
 fi
 
 # Restart Splunk with new config
@@ -492,7 +543,8 @@ iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
 # --- Inbound: Splunk services ---
 iptables -A INPUT -p tcp --dport 8000 -j ACCEPT   # Splunk Web
 iptables -A INPUT -p tcp --dport 9997 -j ACCEPT   # Splunk Forwarders
-iptables -A INPUT -p tcp --dport 514 -j ACCEPT    # Syslog
+iptables -A INPUT -p tcp --dport 514 -j ACCEPT    # Syslog (NGFW)
+iptables -A INPUT -p tcp --dport 5140 -j ACCEPT   # Technitium DNS Syslog
 
 # --- Inbound: Wazuh ---
 iptables -A INPUT -p tcp --dport 1514 -j ACCEPT   # Wazuh Event
@@ -538,7 +590,7 @@ iptables-save > /etc/iptables/rules.v4
 systemctl enable iptables 2>/dev/null || true
 systemctl start iptables 2>/dev/null || true
 
-log "Firewall configured: Splunk(8000,9997,514), Wazuh(1514,1515,55000), Salt(4505,4506,8881,3000), DNS(53,5380)"
+log "Firewall configured: Splunk(8000,9997,514,5140), Wazuh(1514,1515,55000), Salt(4505,4506,8881,3000), DNS(53,5380)"
 
 # ============================================================================
 # PHASE 7: KERNEL HARDENING
@@ -637,16 +689,28 @@ echo "Splunk backup (hardened): $SPLUNK_BACKUP"
 echo ""
 echo "This box hosts:"
 echo "  - Splunk $SPLUNK_VERSION (fresh install)"
+if [[ -n "$DASHBOARD_COUNT" ]] && [[ "$DASHBOARD_COUNT" -gt 0 ]]; then
+    echo "  - Splunk Dashboards: $DASHBOARD_COUNT SOC dashboards installed"
+fi
 echo "  - SaltGUI (management)"
 echo "  - Wazuh Server (SIEM)"
 echo "  - Technitium DNS Server"
 echo ""
 echo "NEXT STEPS:"
 echo "  1. Verify Splunk is accessible: https://localhost:8000"
-echo "  2. Install Salt master: saltServerInstall.sh"
-echo "  3. Install Wazuh server"
-echo "  4. Configure Technitium DNS"
-echo "  5. Run threat hunting tools carefully"
+if [[ -n "$DASHBOARD_COUNT" ]] && [[ "$DASHBOARD_COUNT" -gt 0 ]]; then
+    echo "  2. Check dashboards in Splunk Web UI"
+    echo "  3. Configure Technitium DNS syslog (Settings > Logging > TCP 127.0.0.1:5140)"
+    echo "  4. Install Salt master: saltServerInstall.sh"
+    echo "  5. Install Wazuh server"
+    echo "  6. Run threat hunting tools carefully"
+else
+    echo "  2. Import dashboards manually (see linux/securityInfrastructure/Splunk/Dashboards/)"
+    echo "  3. Configure Technitium DNS syslog (Settings > Logging > TCP 127.0.0.1:5140)"
+    echo "  4. Install Salt master: saltServerInstall.sh"
+    echo "  5. Install Wazuh server"
+    echo "  6. Run threat hunting tools carefully"
+fi
 echo ""
 echo "SERVICE VERIFICATION:"
 echo "  /opt/splunk/bin/splunk status"

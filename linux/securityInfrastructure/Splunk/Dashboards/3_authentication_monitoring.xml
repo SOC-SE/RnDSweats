@@ -1,0 +1,171 @@
+<form version="1.1">
+  <label>Authentication &amp; Access Control</label>
+  <description>Monitor authentication activity and detect credential abuse</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time_token">
+      <label>Time Range</label>
+      <default>
+        <earliest>-4h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+  </fieldset>
+
+  <row>
+    <panel>
+      <title>Failed Authentication Heatmap</title>
+      <chart>
+        <search>
+          <query>
+(index=linux sourcetype=linux_secure "Failed password") OR
+(index=windows EventCode=4625) OR
+(index=network sourcetype=syslog "authentication failed")
+| eval auth_source=case(
+    sourcetype=="linux_secure", "Linux SSH",
+    EventCode==4625, "Windows Login",
+    1=1, "Network Device"
+)
+| timechart span=10m count by auth_source
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">all</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>SSH Brute Force Detection (10+ Failures → Success)</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=linux_secure (user OR password)
+| transaction src_ip, user maxspan=5m
+| search "Failed password" AND "Accepted"
+| rex field=_raw "from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"
+| rex field=_raw "for (invalid user )?(?&lt;username&gt;\w+)"
+| stats count as total_events, earliest(_time) as first_attempt, latest(_time) as success_time by src_ip, username
+| eval attack_duration=tostring(success_time-first_attempt, "duration")
+| convert ctime(first_attempt) ctime(success_time)
+| sort -total_events
+| rename src_ip as "Attacker IP", username as "Compromised User", total_events as "Auth Attempts", first_attempt as "First Failure", success_time as "Successful Login", attack_duration as "Attack Duration"
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Auth Attempts">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" minColor="#F8BE34"></colorPalette>
+          <scale type="minMidMax" minValue="10"></scale>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Top Failed Authentication Sources</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=linux_secure "Failed password") OR
+(index=windows EventCode=4625)
+| rex field=_raw "from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"
+| stats count as failures by src_ip, user, host
+| sort -failures
+| rename src_ip as "Source IP", user as "Target User", host as "Target Host", failures as "Failed Attempts"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Successful Authentications</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=linux_secure "Accepted password" OR "Accepted publickey") OR
+(index=windows EventCode=4624 Logon_Type!=3)
+| rex field=_raw "from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"
+| stats count as successful_logins by src_ip, user, host
+| sort -successful_logins
+| rename src_ip as "Source IP", user as "Username", host as "Target Host", successful_logins as "Successful Logins"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Privilege Escalation Monitoring</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=linux:audit type=USER_CMD) OR
+(index=linux sourcetype=linux_secure "sudo:") OR
+(index=windows EventCode=4720 OR EventCode=4728 OR EventCode=4732)
+| eval activity=case(
+    sourcetype=="linux:audit", "Command: " . command,
+    match(_raw, "sudo:"), "Sudo: " . _raw,
+    EventCode==4720, "User Created: " . TargetUserName,
+    EventCode==4728, "User Added to Global Group: " . TargetUserName,
+    EventCode==4732, "User Added to Local Group: " . TargetUserName,
+    1=1, "Unknown"
+)
+| table _time, host, user, activity
+| sort -_time
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>VPN/Remote Access Tracking</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=syslog (openvpn OR ipsec OR charon)
+| rex field=_raw "(?&lt;vpn_user&gt;\w+)\/(?&lt;vpn_ip&gt;\d+\.\d+\.\d+\.\d+)"
+| stats count as connections, earliest(_time) as first_conn, latest(_time) as last_conn by vpn_user, vpn_ip
+| convert ctime(first_conn) ctime(last_conn)
+| sort -connections
+| rename vpn_user as "VPN User", vpn_ip as "Remote IP", connections as "Connections", first_conn as "First", last_conn as "Last"
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</form>
