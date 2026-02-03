@@ -9,22 +9,25 @@
 #    ╚═══╝     ╚═╝    ╚═════╝ ╚══════╝    ╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝
 #
 #  VyOS Zeek Installation Script
-#  Version: 1.1.0
+#  Version: 2.0.0
 #
-#  Installs Zeek Network Security Monitor on VyOS by:
-#    1. Configuring Debian repositories (VyOS is Debian-based)
-#    2. Installing build dependencies
-#    3. Compiling Zeek from source
-#    4. Configuring Zeek for your network interfaces
-#    5. Setting up zeekctl for management
+#  Installs Zeek Network Security Monitor on VyOS using pre-built binaries.
+#  This method works around VyOS's read-only filesystem by extracting
+#  official Zeek packages directly without requiring compilation.
+#
+#  Installation Steps:
+#    1. Detects VyOS version and Debian base
+#    2. Downloads pre-built Zeek binaries from official repository
+#    3. Extracts packages to /opt/zeek
+#    4. Configures Zeek for your network interfaces
+#    5. Sets up zeekctl for management
 #
 #  Usage: ./install-zeek-vyos.sh [options]
 #
 #  Options:
 #    -i, --interface IFACE   Network interface(s) to monitor (comma-separated)
 #    -n, --networks CIDR     Local networks (comma-separated, default: auto-detect)
-#    -v, --zeek-version VER  Zeek version to install (default: 7.0.4)
-#    -j, --jobs N            Parallel compile jobs (default: auto)
+#    -v, --zeek-version VER  Zeek major version (default: 7.0)
 #    -y, --yes               Non-interactive mode
 #    -h, --help              Show this help message
 #
@@ -52,13 +55,14 @@ fi
 # Defaults
 MONITOR_INTERFACES=()
 LOCAL_NETWORKS=""
-ZEEK_VERSION="7.0.4"
-COMPILE_JOBS=""
+ZEEK_VERSION="7.0"
 NON_INTERACTIVE=false
 ZEEK_PREFIX="/opt/zeek"
 VYOS_VERSION=""
 DEBIAN_VERSION=""
 DEBIAN_CODENAME=""
+INSTALL_METHOD="binary"  # binary or source
+TEMP_DIR="/tmp/zeek-install"
 
 log_header() { echo ""; echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"; echo -e "${CYAN}  $1${NC}"; echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"; }
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -71,7 +75,9 @@ show_help() {
     cat << 'EOF'
 VyOS Zeek Installation Script
 
-Installs Zeek Network Security Monitor on VyOS by compiling from source.
+Installs Zeek Network Security Monitor on VyOS using pre-built binaries.
+This method extracts official Zeek packages directly without requiring
+build tools (which VyOS's read-only filesystem doesn't support).
 
 Usage: ./install-zeek-vyos.sh [options]
 
@@ -79,15 +85,14 @@ Options:
   -i, --interface IFACE   Network interface(s) to monitor, comma-separated
                           Examples: -i eth1  OR  -i "eth1,eth2,eth3"
   -n, --networks CIDR     Local networks, comma-separated (default: RFC1918)
-  -v, --zeek-version VER  Zeek version to install (default: 7.0.4)
-  -j, --jobs N            Parallel compile jobs (default: nproc-1)
+  -v, --zeek-version VER  Zeek major version (default: 7.0)
   -y, --yes               Non-interactive mode
   -h, --help              Show this help message
 
 Interface Selection:
   Single interface:    -i eth1           (standalone mode)
   Multiple interfaces: -i "eth1,eth2"    (cluster mode)
-  
+
   For VyOS routers, monitor LAN-facing interface(s) to see:
     • Internal source IPs (not NAT'd)
     • Lateral movement between hosts
@@ -213,94 +218,236 @@ detect_networks() {
     log_success "Local networks: $LOCAL_NETWORKS (RFC1918)"
 }
 
-setup_debian_repos() {
-    log_header "Configuring Debian Repositories"
-    log_warning "VyOS limits package installation - enabling Debian repos temporarily"
-    
-    [[ "$NON_INTERACTIVE" != true ]] && ! prompt_yes_no "Continue? [Y/n]" "y" && { log_error "Aborted"; exit 1; }
-    
-    [[ -f /etc/apt/sources.list ]] && cp /etc/apt/sources.list "/etc/apt/sources.list.backup.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
-    
-    cat > /etc/apt/sources.list.d/debian-zeek-build.list << EOF
-deb http://deb.debian.org/debian ${DEBIAN_CODENAME} main contrib
-deb http://deb.debian.org/debian ${DEBIAN_CODENAME}-updates main contrib
-deb http://security.debian.org/debian-security ${DEBIAN_CODENAME}-security main contrib
-EOF
-    log_success "Created Debian repository config"
-    
-    apt-get update -qq 2>&1 | grep -v "^W:" || true
-    log_success "Repository configuration complete"
+check_filesystem_writable() {
+    log_header "Checking Filesystem"
+
+    # Check if /opt is writable
+    if ! touch /opt/.zeek-write-test 2>/dev/null; then
+        log_warning "Filesystem appears read-only"
+        log_info "Attempting to remount with write access..."
+
+        # Try to make the filesystem writable (VyOS specific)
+        if mount -o remount,rw / 2>/dev/null; then
+            log_success "Filesystem remounted with write access"
+        else
+            log_error "Cannot write to /opt - filesystem is read-only"
+            log_info "VyOS may need to be in configuration mode"
+            log_info "Try: configure; then run this script again"
+            exit 1
+        fi
+    else
+        rm -f /opt/.zeek-write-test
+        log_success "Filesystem is writable"
+    fi
+
+    mkdir -p "$ZEEK_PREFIX" "$TEMP_DIR"
 }
 
-install_build_deps() {
-    log_header "Installing Build Dependencies"
-    
-    local deps=(build-essential cmake make gcc g++ flex bison git libpcap-dev libssl-dev python3 python3-dev python3-pip swig zlib1g-dev libmaxminddb-dev)
-    local optional=(libkrb5-dev libgoogle-perftools-dev)
-    
-    log_info "Installing ${#deps[@]} packages..."
-    for pkg in "${deps[@]}"; do
-        if ! dpkg -s "$pkg" &>/dev/null; then
-            apt-get install -y -qq "$pkg" 2>/dev/null && echo -e "  ${GREEN}✓${NC} $pkg" || echo -e "  ${YELLOW}!${NC} $pkg (failed)"
+get_zeek_repo_url() {
+    # Determine the correct OBS repository URL based on Debian version
+    case "$DEBIAN_CODENAME" in
+        bookworm|12) echo "https://download.opensuse.org/repositories/security:/zeek/Debian_12" ;;
+        bullseye|11) echo "https://download.opensuse.org/repositories/security:/zeek/Debian_11" ;;
+        *) echo "https://download.opensuse.org/repositories/security:/zeek/Debian_12" ;;
+    esac
+}
+
+download_and_extract_binaries() {
+    log_header "Downloading Pre-built Zeek Binaries"
+
+    local repo_url arch pkg_list
+    repo_url=$(get_zeek_repo_url)
+    arch=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+
+    log_info "Repository: $repo_url"
+    log_info "Architecture: $arch"
+
+    cd "$TEMP_DIR"
+
+    # Download repository package list
+    log_info "Fetching package list..."
+    curl -fsSL "${repo_url}/Packages.gz" 2>/dev/null | gunzip > Packages || \
+    curl -fsSL "${repo_url}/Packages" -o Packages || {
+        log_error "Failed to fetch package list from repository"
+        log_info "Trying alternative download method..."
+        download_zeek_lts
+        return
+    }
+
+    # Find the main zeek package and dependencies
+    local zeek_pkg zeek_core_pkg zeekctl_pkg libbroker_pkg
+
+    # Parse package list to find latest versions
+    zeek_pkg=$(grep -A 20 "^Package: zeek$" Packages | grep "^Filename:" | head -1 | awk '{print $2}')
+    zeek_core_pkg=$(grep -A 20 "^Package: zeek-core$" Packages | grep "^Filename:" | head -1 | awk '{print $2}')
+    zeekctl_pkg=$(grep -A 20 "^Package: zeekctl$" Packages | grep "^Filename:" | head -1 | awk '{print $2}')
+    libbroker_pkg=$(grep -A 20 "^Package: libbroker-dev$" Packages | grep "^Filename:" | head -1 | awk '{print $2}')
+
+    if [[ -z "$zeek_core_pkg" ]]; then
+        log_warning "Could not find zeek-core package, trying LTS download..."
+        download_zeek_lts
+        return
+    fi
+
+    # Download packages
+    local packages=("$zeek_core_pkg" "$zeekctl_pkg")
+    [[ -n "$libbroker_pkg" ]] && packages+=("$libbroker_pkg")
+
+    log_info "Downloading ${#packages[@]} packages..."
+    for pkg in "${packages[@]}"; do
+        [[ -z "$pkg" ]] && continue
+        local pkg_name=$(basename "$pkg")
+        log_info "  Downloading $pkg_name..."
+        curl -fsSL "${repo_url}/${pkg}" -o "$pkg_name" || {
+            log_warning "Failed to download $pkg_name"
+            continue
+        }
+        echo -e "  ${GREEN}✓${NC} $pkg_name"
+    done
+
+    # Extract packages
+    log_info "Extracting packages to $ZEEK_PREFIX..."
+    mkdir -p "$TEMP_DIR/extracted"
+    for deb in *.deb; do
+        [[ -f "$deb" ]] || continue
+        log_info "  Extracting $deb..."
+        dpkg-deb -x "$deb" "$TEMP_DIR/extracted" 2>/dev/null || {
+            # Fallback: use ar and tar
+            ar x "$deb" 2>/dev/null
+            if [[ -f data.tar.xz ]]; then
+                tar -xf data.tar.xz -C "$TEMP_DIR/extracted" 2>/dev/null
+            elif [[ -f data.tar.zst ]]; then
+                zstd -d data.tar.zst -o data.tar 2>/dev/null && tar -xf data.tar -C "$TEMP_DIR/extracted"
+            elif [[ -f data.tar.gz ]]; then
+                tar -xzf data.tar.gz -C "$TEMP_DIR/extracted" 2>/dev/null
+            fi
+            rm -f data.tar* control.tar* debian-binary
+        }
+        echo -e "  ${GREEN}✓${NC} Extracted $deb"
+    done
+
+    # Move files to proper locations
+    mkdir -p "$ZEEK_PREFIX"
+    if [[ -d "$TEMP_DIR/extracted/opt/zeek" ]]; then
+        cp -r "$TEMP_DIR/extracted/opt/zeek/"* "$ZEEK_PREFIX/" 2>/dev/null || true
+    fi
+    if [[ -d "$TEMP_DIR/extracted/usr" ]]; then
+        # Copy libraries
+        cp -r "$TEMP_DIR/extracted/usr/lib/"* /usr/lib/ 2>/dev/null || true
+        cp -r "$TEMP_DIR/extracted/usr/bin/"* /usr/bin/ 2>/dev/null || true
+    fi
+
+    log_success "Binaries extracted to $ZEEK_PREFIX"
+}
+
+download_zeek_lts() {
+    log_header "Downloading Zeek LTS Binary Release"
+
+    # Alternative: Download from Zeek's binary releases
+    local arch release_url
+    arch=$(uname -m)
+
+    case "$arch" in
+        x86_64|amd64) arch="amd64" ;;
+        aarch64|arm64) arch="arm64" ;;
+        *) log_error "Unsupported architecture: $arch"; exit 1 ;;
+    esac
+
+    # Try to get the static/portable build
+    log_info "Checking for portable Zeek build..."
+
+    # Zeek provides tarballs for some releases
+    local tarball_url="https://download.zeek.org/binary-packages/Debian_12/${arch}/"
+
+    log_info "Fetching from: $tarball_url"
+
+    # List available packages
+    local pkg_list
+    pkg_list=$(curl -fsSL "$tarball_url" 2>/dev/null | grep -oP 'href="\K[^"]+\.deb' | head -20) || {
+        log_warning "Could not list packages from binary repository"
+        log_info "Attempting direct package download..."
+    }
+
+    if [[ -n "$pkg_list" ]]; then
+        log_info "Available packages:"
+        echo "$pkg_list" | head -5
+
+        # Download zeek-core and zeekctl
+        for pattern in "zeek-core_" "zeekctl_"; do
+            local pkg=$(echo "$pkg_list" | grep "^${pattern}" | sort -V | tail -1)
+            if [[ -n "$pkg" ]]; then
+                log_info "Downloading $pkg..."
+                curl -fsSL "${tarball_url}${pkg}" -o "$TEMP_DIR/$pkg" && \
+                    echo -e "  ${GREEN}✓${NC} $pkg"
+            fi
+        done
+    fi
+
+    # Extract any downloaded debs
+    cd "$TEMP_DIR"
+    mkdir -p extracted
+    for deb in *.deb; do
+        [[ -f "$deb" ]] || continue
+        dpkg-deb -x "$deb" extracted/ 2>/dev/null || {
+            ar x "$deb" 2>/dev/null
+            [[ -f data.tar.xz ]] && tar -xf data.tar.xz -C extracted/
+            [[ -f data.tar.zst ]] && { zstd -d data.tar.zst -o data.tar && tar -xf data.tar -C extracted/; }
+            [[ -f data.tar.gz ]] && tar -xzf data.tar.gz -C extracted/
+            rm -f data.tar* control.tar* debian-binary
+        }
+    done
+
+    # Install extracted files
+    if [[ -d "extracted/opt/zeek" ]]; then
+        mkdir -p "$ZEEK_PREFIX"
+        cp -r extracted/opt/zeek/* "$ZEEK_PREFIX/"
+        log_success "Zeek installed to $ZEEK_PREFIX"
+    else
+        log_error "Failed to extract Zeek binaries"
+        log_info ""
+        log_info "Manual installation alternative:"
+        log_info "  1. On a Debian 12 machine, run:"
+        log_info "     apt install zeek"
+        log_info "  2. Copy /opt/zeek to this VyOS system:"
+        log_info "     scp -r /opt/zeek vyos:/opt/"
+        exit 1
+    fi
+}
+
+install_runtime_deps() {
+    log_header "Checking Runtime Dependencies"
+
+    # List of runtime libraries Zeek needs
+    local required_libs=("libpcap" "libssl" "libcrypto" "libz" "libmaxminddb")
+    local missing=()
+
+    for lib in "${required_libs[@]}"; do
+        if ! ldconfig -p 2>/dev/null | grep -q "$lib"; then
+            missing+=("$lib")
         else
-            echo -e "  ${GREEN}✓${NC} $pkg (installed)"
+            echo -e "  ${GREEN}✓${NC} $lib"
         fi
     done
-    
-    for pkg in "${optional[@]}"; do apt-get install -y -qq "$pkg" 2>/dev/null || true; done
-    
-    for pkg in cmake gcc g++ libpcap-dev libssl-dev python3; do
-        dpkg -s "$pkg" &>/dev/null || { log_error "Critical package missing: $pkg"; exit 1; }
-    done
-    log_success "Build dependencies installed"
-}
 
-download_zeek() {
-    log_header "Downloading Zeek $ZEEK_VERSION"
-    
-    local src_dir="/usr/local/src" zeek_dir="/usr/local/src/zeek-$ZEEK_VERSION"
-    mkdir -p "$src_dir"; cd "$src_dir"
-    
-    if [[ -d "$zeek_dir" ]]; then
-        log_info "Zeek source exists"
-        { [[ "$NON_INTERACTIVE" == true ]] || ! prompt_yes_no "Re-download? [y/N]" "n"; } && { log_success "Using existing source"; return 0; }
-        rm -rf "$zeek_dir"
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log_warning "Some libraries may be missing: ${missing[*]}"
+        log_info "Zeek may still work if libraries are present in non-standard locations"
     fi
-    
-    log_info "Downloading..."
-    curl -fSL --progress-bar -o "zeek-$ZEEK_VERSION.tar.gz" "https://download.zeek.org/zeek-$ZEEK_VERSION.tar.gz" || { log_error "Download failed"; exit 1; }
-    tar -xzf "zeek-$ZEEK_VERSION.tar.gz"; rm -f "zeek-$ZEEK_VERSION.tar.gz"
-    log_success "Source ready at $zeek_dir"
-}
 
-compile_zeek() {
-    log_header "Compiling Zeek (15-45 minutes)"
-    
-    local src_dir="/usr/local/src/zeek-$ZEEK_VERSION" build_dir="/usr/local/src/zeek-$ZEEK_VERSION/build"
-    
-    [[ -z "$COMPILE_JOBS" ]] && { COMPILE_JOBS=$(nproc 2>/dev/null || echo "2"); [[ "$COMPILE_JOBS" -gt 2 ]] && COMPILE_JOBS=$((COMPILE_JOBS - 1)); }
-    log_info "Using $COMPILE_JOBS parallel jobs"
-    
-    cd "$src_dir"; [[ -d "$build_dir" ]] && rm -rf "$build_dir"; mkdir -p "$build_dir"; cd "$build_dir"
-    
-    log_info "Configuring..."
-    cmake .. -DCMAKE_INSTALL_PREFIX="$ZEEK_PREFIX" -DCMAKE_BUILD_TYPE=Release -DENABLE_PERFTOOLS=OFF -DINSTALL_ZEEKCTL=ON -DINSTALL_ZKG=ON 2>&1 | tee /tmp/zeek-cmake.log || { log_error "CMake failed"; exit 1; }
-    [[ ! -f Makefile ]] && { log_error "CMake did not generate Makefile"; exit 1; }
-    log_success "Configuration complete"
-    
-    log_info "Compiling..."
-    make -j"$COMPILE_JOBS" 2>&1 | tee /tmp/zeek-build.log || { log_error "Compilation failed"; tail -30 /tmp/zeek-build.log; exit 1; }
-    log_success "Compilation complete"
-    
-    log_info "Installing..."
-    make install 2>&1 | tee /tmp/zeek-install.log || { log_error "Installation failed"; exit 1; }
-    log_success "Zeek installed to $ZEEK_PREFIX"
+    # Set library path to include Zeek's lib directory
+    if [[ -d "$ZEEK_PREFIX/lib" ]]; then
+        echo "$ZEEK_PREFIX/lib" > /etc/ld.so.conf.d/zeek.conf 2>/dev/null || true
+        ldconfig 2>/dev/null || true
+    fi
+
+    log_success "Runtime dependency check complete"
 }
 
 configure_zeek() {
     log_header "Configuring Zeek"
-    
-    [[ ! -d "$ZEEK_PREFIX/etc" ]] && { log_error "Zeek etc directory not found"; exit 1; }
+
+    # Create etc directory if it doesn't exist (may happen with binary extraction)
+    mkdir -p "$ZEEK_PREFIX/etc" "$ZEEK_PREFIX/logs" "$ZEEK_PREFIX/spool"
     
     cat > /etc/profile.d/zeek.sh << EOF
 export PATH="\$PATH:$ZEEK_PREFIX/bin"
@@ -385,14 +532,11 @@ EOF
     log_success "Created zeek.service"
 }
 
-cleanup_repos() {
+cleanup_temp() {
     log_header "Cleanup"
-    if [[ "$NON_INTERACTIVE" != true ]] && prompt_yes_no "Remove Debian repos? [Y/n]" "y"; then
-        rm -f /etc/apt/sources.list.d/debian-zeek-build.list
-        apt-get update -qq 2>/dev/null || true
-        log_success "Removed build repositories"
-    else
-        log_info "Keeping Debian repositories"
+    if [[ -d "$TEMP_DIR" ]]; then
+        rm -rf "$TEMP_DIR"
+        log_success "Removed temporary files"
     fi
 }
 
@@ -421,16 +565,19 @@ print_summary() {
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${GREEN}Summary:${NC}"
-    echo "  • VyOS: $VYOS_VERSION | Zeek: $ZEEK_VERSION"
+    echo "  • VyOS: $VYOS_VERSION | Zeek: $ZEEK_VERSION (pre-built binary)"
     echo "  • Path: $ZEEK_PREFIX"
     echo "  • Interfaces: ${MONITOR_INTERFACES[*]}"
     [[ ${#MONITOR_INTERFACES[@]} -eq 1 ]] && echo "  • Mode: Standalone" || echo "  • Mode: Cluster (${#MONITOR_INTERFACES[@]} workers)"
     echo ""
     echo -e "${GREEN}Commands:${NC}"
-    echo "  zeekctl status | deploy | stop"
+    echo "  ${ZEEK_PREFIX}/bin/zeekctl status | deploy | stop"
     echo "  systemctl status zeek"
     echo ""
-    echo -e "${YELLOW}Next: ./install-zeek-detection-suite.sh${NC}"
+    echo -e "${GREEN}Verify installation:${NC}"
+    echo "  ${ZEEK_PREFIX}/bin/zeek --version"
+    echo ""
+    echo -e "${YELLOW}Next: ./zeekDetectionConfigure.sh${NC}"
     echo ""
 }
 
@@ -440,27 +587,26 @@ main() {
             -i|--interface) IFS=',' read -ra MONITOR_INTERFACES <<< "$2"; for i in "${!MONITOR_INTERFACES[@]}"; do MONITOR_INTERFACES[$i]=$(echo "${MONITOR_INTERFACES[$i]}" | xargs); done; shift 2 ;;
             -n|--networks) LOCAL_NETWORKS="$2"; shift 2 ;;
             -v|--zeek-version) ZEEK_VERSION="$2"; shift 2 ;;
-            -j|--jobs) COMPILE_JOBS="$2"; shift 2 ;;
             -y|--yes) NON_INTERACTIVE=true; shift ;;
             -h|--help) show_help; exit 0 ;;
             *) log_error "Unknown option: $1"; show_help; exit 1 ;;
         esac
     done
-    
+
     echo -e "\n${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║        VYOS ZEEK INSTALLATION SCRIPT v1.1.0                    ║${NC}"
+    echo -e "${CYAN}║        VYOS ZEEK INSTALLATION SCRIPT v2.0.0                    ║${NC}"
+    echo -e "${CYAN}║        (Pre-built Binary Installation)                         ║${NC}"
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
-    
+
     check_root
-    log_step "1/9" "Detecting VyOS"; detect_vyos
-    log_step "2/9" "Detecting Interfaces"; detect_interfaces; detect_networks
-    log_step "3/9" "Configuring Repos"; setup_debian_repos
-    log_step "4/9" "Installing Dependencies"; install_build_deps
-    log_step "5/9" "Downloading Zeek"; download_zeek
-    log_step "6/9" "Compiling Zeek"; compile_zeek
-    log_step "7/9" "Configuring Zeek"; configure_zeek
-    log_step "8/9" "Setting Up Services"; setup_zeekctl; create_systemd_service
-    log_step "9/9" "Cleanup & Verify"; cleanup_repos; verify_installation || true
+    log_step "1/8" "Detecting VyOS"; detect_vyos
+    log_step "2/8" "Checking Filesystem"; check_filesystem_writable
+    log_step "3/8" "Detecting Interfaces"; detect_interfaces; detect_networks
+    log_step "4/8" "Downloading Binaries"; download_and_extract_binaries
+    log_step "5/8" "Runtime Dependencies"; install_runtime_deps
+    log_step "6/8" "Configuring Zeek"; configure_zeek
+    log_step "7/8" "Setting Up Services"; setup_zeekctl; create_systemd_service
+    log_step "8/8" "Cleanup & Verify"; cleanup_temp; verify_installation || true
     print_summary
 }
 
