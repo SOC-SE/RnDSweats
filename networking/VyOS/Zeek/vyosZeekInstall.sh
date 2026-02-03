@@ -649,7 +649,7 @@ install_zeek_packages() {
         log_warning "zkg autoconfig failed - may need manual configuration"
     }
 
-    # Install JA3 for TLS fingerprinting
+    # Install JA3 for TLS fingerprinting (legacy, broad coverage)
     log_info "Installing JA3 package for TLS fingerprinting..."
     "$HOME/.local/bin/zkg" install zeek/salesforce/ja3 --force 2>/dev/null || \
     zkg install zeek/salesforce/ja3 --force 2>/dev/null || {
@@ -670,6 +670,44 @@ install_zeek_packages() {
         else
             log_warning "JA3 installation failed - TLS fingerprinting unavailable"
         fi
+    }
+
+    # Install JA4+ suite (modern TLS 1.3 aware fingerprinting)
+    # Includes: JA4, JA4S, JA4H, JA4L, JA4X, JA4SSH
+    log_info "Installing JA4+ package (modern TLS fingerprinting)..."
+    "$HOME/.local/bin/zkg" install zeek/foxio/ja4 --force 2>/dev/null || \
+    zkg install zeek/foxio/ja4 --force 2>/dev/null || {
+        log_warning "Could not install JA4 via zkg"
+        # Manual fallback
+        if command -v git &>/dev/null; then
+            cd "$ZEEK_PREFIX/share/zeek/site"
+            git clone https://github.com/FoxIO-LLC/ja4.git ja4-foxio 2>/dev/null || true
+            if [[ -d "ja4-foxio/zeek" ]]; then
+                log_success "JA4 installed manually via git"
+            fi
+        fi
+    }
+
+    # Install HASSH for SSH fingerprinting
+    log_info "Installing HASSH package for SSH fingerprinting..."
+    "$HOME/.local/bin/zkg" install zeek/salesforce/hassh --force 2>/dev/null || \
+    zkg install zeek/salesforce/hassh --force 2>/dev/null || {
+        log_warning "Could not install HASSH via zkg"
+        # Manual fallback
+        if command -v git &>/dev/null; then
+            cd "$ZEEK_PREFIX/share/zeek/site"
+            git clone https://github.com/salesforce/hassh.git 2>/dev/null || true
+            if [[ -d "hassh" ]]; then
+                log_success "HASSH installed manually via git"
+            fi
+        fi
+    }
+
+    # Install BZAR for lateral movement detection
+    log_info "Installing MITRE BZAR package..."
+    "$HOME/.local/bin/zkg" install zeek/mitre-attack/bzar --force 2>/dev/null || \
+    zkg install zeek/mitre-attack/bzar --force 2>/dev/null || {
+        log_warning "Could not install BZAR via zkg"
     }
 
     # Deploy changes
@@ -739,10 +777,29 @@ print_summary() {
     [[ ${#MONITOR_INTERFACES[@]} -eq 1 ]] && echo "  • Mode: Standalone" || echo "  • Mode: Cluster (${#MONITOR_INTERFACES[@]} workers)"
     [[ -n "$LOCAL_NETWORKS" ]] && echo "  • Local networks: $LOCAL_NETWORKS" || echo "  • Local networks: (none - all traffic external)"
     command -v zkg &>/dev/null && echo "  • zkg: installed" || echo "  • zkg: not found"
+
+    # Check fingerprinting packages
+    echo ""
+    echo -e "${GREEN}Fingerprinting Packages:${NC}"
     if [[ -d "$ZEEK_PREFIX/share/zeek/site/ja3" ]] || zkg list 2>/dev/null | grep -q "ja3"; then
-        echo "  • JA3: installed (TLS fingerprinting enabled)"
+        echo "  • JA3:   installed (TLS fingerprinting)"
     else
-        echo "  • JA3: not installed"
+        echo "  • JA3:   not installed"
+    fi
+    if zkg list 2>/dev/null | grep -q "ja4"; then
+        echo "  • JA4+:  installed (modern TLS fingerprinting)"
+    else
+        echo "  • JA4+:  not installed"
+    fi
+    if zkg list 2>/dev/null | grep -q "hassh"; then
+        echo "  • HASSH: installed (SSH fingerprinting)"
+    else
+        echo "  • HASSH: not installed"
+    fi
+    if zkg list 2>/dev/null | grep -q "bzar"; then
+        echo "  • BZAR:  installed (lateral movement)"
+    else
+        echo "  • BZAR:  not installed"
     fi
     echo ""
     echo -e "${GREEN}Commands:${NC}"
