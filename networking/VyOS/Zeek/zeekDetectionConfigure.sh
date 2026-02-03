@@ -975,9 +975,9 @@ create_local_zeek() {
     # Determine if JA3 should be loaded
     local ja3_load=""
     if [[ "$JA3_INSTALLED" == true ]]; then
-        ja3_load="@load packages/zeek-ja3"
+        ja3_load="@load packages/ja3"
     else
-        ja3_load="# @load packages/zeek-ja3  # Install: zkg install zeek/salesforce/ja3"
+        ja3_load="# @load packages/ja3  # Install: zkg install zeek/salesforce/ja3"
     fi
 
     # Determine if BZAR should be loaded
