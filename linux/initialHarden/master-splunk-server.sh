@@ -120,7 +120,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "========================================================"
 echo "  SPLUNK/SIEM SERVER - MASTER HARDENING SCRIPT"
-echo "  Target: Oracle Linux 9.2 / Rocky Linux 9"
+echo "  Target: Oracle Linux 9.2"
 echo "  Time: $(date)"
 echo "  WARNING: Critical infrastructure - proceed carefully!"
 echo "========================================================"
@@ -410,6 +410,7 @@ fi
 
 # Deploy Splunk dashboards if they exist
 DASHBOARDS_DIR=""
+DASHBOARD_COUNT=0
 for dash_path in "$REPO_DIR/linux/securityInfrastructure/Splunk/Dashboards" "$TOOLS/Splunk/Dashboards" "$SCRIPT_DIR/Dashboards" "/tmp/Splunk/Dashboards"; do
     if [[ -d "$dash_path" ]]; then
         DASHBOARDS_DIR="$dash_path"
@@ -417,15 +418,19 @@ for dash_path in "$REPO_DIR/linux/securityInfrastructure/Splunk/Dashboards" "$TO
     fi
 done
 
+# Always create views directory (needed for manual imports too)
+mkdir -p "$SPLUNK_HOME/etc/apps/search/local/data/ui/views"
+chown -R splunk:splunk "$SPLUNK_HOME/etc/apps/search/local/data/ui"
+
 if [[ -n "$DASHBOARDS_DIR" ]] && [[ -n "$(ls -A "$DASHBOARDS_DIR"/*.xml 2>/dev/null)" ]]; then
     log "Installing Splunk dashboards from $DASHBOARDS_DIR..."
-    mkdir -p "$SPLUNK_HOME/etc/apps/search/local/data/ui/views"
     cp "$DASHBOARDS_DIR"/*.xml "$SPLUNK_HOME/etc/apps/search/local/data/ui/views/"
     chown splunk:splunk "$SPLUNK_HOME/etc/apps/search/local/data/ui/views"/*.xml
     DASHBOARD_COUNT=$(ls "$DASHBOARDS_DIR"/*.xml 2>/dev/null | wc -l)
     log "Dashboards installed: $DASHBOARD_COUNT files"
 else
     warn "Dashboard directory not found or empty. Dashboards can be imported manually via Splunk Web UI."
+    log "Views directory created at: $SPLUNK_HOME/etc/apps/search/local/data/ui/views/"
 fi
 
 # Restart Splunk with new config
