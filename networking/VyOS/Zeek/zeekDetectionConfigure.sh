@@ -1155,11 +1155,13 @@ ${bzar_load}
 
 # Domain Controllers - Add your DC IPs to prevent DCSync false positives
 # These hosts legitimately perform AD replication
-redef AD_ATTACKS::whitelisted_dcs += { ${dc_whitelist:-# Add DC IPs here, e.g.: 10.0.0.1, 10.0.0.2} };
+# Example: redef AD_ATTACKS::whitelisted_dcs += { 10.0.0.1, 10.0.0.2 };
+$(if [[ -n "$dc_whitelist" ]]; then echo "redef AD_ATTACKS::whitelisted_dcs += { $dc_whitelist };"; fi)
 
 # Admin Workstations - Optional: Whitelist legitimate admin jump boxes
 # These may use PsExec/WMI for legitimate administration
-redef AD_ATTACKS::whitelisted_admin_hosts += { ${admin_whitelist:-# Add admin IPs here} };
+# Example: redef AD_ATTACKS::whitelisted_admin_hosts += { 10.0.0.100 };
+$(if [[ -n "$admin_whitelist" ]]; then echo "redef AD_ATTACKS::whitelisted_admin_hosts += { $admin_whitelist };"; fi)
 
 #==============================================================================
 # DETECTION TUNING
