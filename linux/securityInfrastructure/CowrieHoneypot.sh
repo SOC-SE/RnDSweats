@@ -11,6 +11,11 @@
 # Cowrie runs its own self-contained SSH server — no system sshd needed.
 # All logs are JSON-structured for easy Splunk/SIEM ingestion.
 #
+# HONEYPOT ACCOUNT INTEGRATION:
+#   The master hardening scripts create a fake "sysadmin_backup" account with
+#   known credentials. When red team discovers and uses these creds via SSH,
+#   Cowrie captures the attempt. Monitor with: ./CowrieHoneypot.sh creds
+#
 # USAGE (run as root):
 #   ./CowrieHoneypot.sh install       Install and start Cowrie
 #   ./CowrieHoneypot.sh uninstall     Stop and remove Cowrie
@@ -21,6 +26,9 @@
 #   ./CowrieHoneypot.sh downloads     List captured files/malware
 #   ./CowrieHoneypot.sh splunk        Configure Splunk forwarder for Cowrie logs
 #   ./CowrieHoneypot.sh               Interactive menu
+#
+# ENVIRONMENT VARIABLES:
+#   COWRIE_HOSTNAME    Fake hostname shown to attackers (default: actual hostname)
 
 set -euo pipefail
 
@@ -40,8 +48,8 @@ LISTEN_SSH_PORT=2222
 LISTEN_TELNET_PORT=2223
 LISTEN_ENABLED_TELNET="false"
 
-# Hostname the fake shell presents to attackers
-FAKE_HOSTNAME="svr01"
+# Hostname the fake shell presents to attackers (defaults to actual hostname)
+FAKE_HOSTNAME="${COWRIE_HOSTNAME:-$(hostname -s)}"
 
 # ── Colors ──────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'
@@ -133,18 +141,10 @@ clone_cowrie() {
     tmp_dir=$(mktemp -d)
     git clone --quiet --depth 1 "$COWRIE_REPO" "$tmp_dir/cowrie"
 
-    # Check for vendored fallback if clone fails
+    # Verify clone succeeded
     if [[ ! -d "$tmp_dir/cowrie/src" ]]; then
-        local vendor_src
-        vendor_src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../vendor/cowrie"
-        if [[ -d "$vendor_src" ]]; then
-            log_warn "Git clone failed. Using vendored copy..."
-            rm -rf "$tmp_dir/cowrie"
-            cp -r "$vendor_src" "$tmp_dir/cowrie"
-        else
-            rm -rf "$tmp_dir"
-            log_fatal "Failed to clone Cowrie and no vendored copy available."
-        fi
+        rm -rf "$tmp_dir"
+        log_fatal "Failed to clone Cowrie repository. Check network connectivity."
     fi
 
     cp -a "$tmp_dir/cowrie/." "$COWRIE_HOME/"
@@ -291,6 +291,17 @@ setup_firewall() {
             iptables -A INPUT -p tcp --dport "$LISTEN_TELNET_PORT" -j ACCEPT
             log_info "Allowed inbound TCP/${LISTEN_TELNET_PORT}."
         fi
+    fi
+
+    # Persist iptables rules across reboots
+    if command -v netfilter-persistent &>/dev/null; then
+        netfilter-persistent save 2>/dev/null || true
+        log_info "iptables rules saved (netfilter-persistent)."
+    elif [[ -f /etc/sysconfig/iptables ]]; then
+        iptables-save > /etc/sysconfig/iptables
+        log_info "iptables rules saved (/etc/sysconfig/iptables)."
+    else
+        log_warn "Could not persist iptables rules. Save manually or install iptables-persistent."
     fi
 
     log_info "iptables rules configured."
