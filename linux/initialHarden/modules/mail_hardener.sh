@@ -235,6 +235,14 @@ smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, rej
 smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
 smtpd_data_restrictions = reject_unauth_pipelining
 
+# === Mail Hardener: SASL Authentication (via Dovecot) ===
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = private/auth
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous
+smtpd_sasl_local_domain = \$myhostname
+broken_sasl_auth_clients = yes
+
 EOF
 
     # Add submission service if not present
@@ -307,6 +315,25 @@ disable_plaintext_auth = yes
 auth_mechanisms = plain login
 EOF
     fi
+
+    # Postfix SASL auth socket - create config in conf.d
+    local master_conf="/etc/dovecot/conf.d/10-master.conf"
+    if [[ -f "$master_conf" ]] && ! grep -q "# === Mail Hardener: Postfix Auth" "$master_conf" 2>/dev/null; then
+        # Ensure postfix user can access the socket
+        mkdir -p /var/spool/postfix/private
+        cat >> "$master_conf" <<'EOF'
+
+# === Mail Hardener: Postfix Auth Socket ===
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+EOF
+        info "Configured Dovecot auth socket for Postfix SASL"
+    fi
 }
 
 harden_dovecot_rhel() {
@@ -319,6 +346,9 @@ harden_dovecot_rhel() {
     grep -q "^mail_location" /etc/dovecot/dovecot.conf "$dovecot_local" 2>/dev/null || echo "mail_location = maildir:~/Maildir" >> "$dovecot_local"
 
     if ! grep -q "# === Mail Hardener" "$dovecot_local" 2>/dev/null; then
+        # Ensure postfix spool directory exists for auth socket
+        mkdir -p /var/spool/postfix/private
+
         cat >> "$dovecot_local" <<EOF
 
 # === Mail Hardener: SSL/TLS Configuration ===
@@ -333,7 +363,17 @@ ssl_key = <$KEY_FILE
 disable_plaintext_auth = yes
 auth_mechanisms = plain login
 mail_privileged_group = mail
+
+# === Mail Hardener: Postfix Auth Socket ===
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
 EOF
+        info "Configured Dovecot auth socket for Postfix SASL"
     fi
 }
 
