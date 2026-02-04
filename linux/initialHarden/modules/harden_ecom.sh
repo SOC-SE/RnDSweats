@@ -225,7 +225,19 @@ create_backup() {
     if [[ "$DB_SERVER" != "unknown" ]]; then
         log_info "Backing up database '${OPENCART_DB_NAME}'..."
         if command -v mysqldump >/dev/null 2>&1; then
-            mysqldump --defaults-file=/dev/null -u root "${OPENCART_DB_NAME}" > "${backup_dir}/db_${OPENCART_DB_NAME}.sql" || log_warn "Failed to dump DB ${OPENCART_DB_NAME}."
+            # Try mysqldump - relies on ~/.my.cnf, socket auth, or passwordless local root
+            # Use OpenCart DB credentials if available, otherwise try root
+            if [[ -n "${OPENCART_DB_USER:-}" && -n "${OPENCART_DB_PASS:-}" ]]; then
+                mysqldump -u "${OPENCART_DB_USER}" -p"${OPENCART_DB_PASS}" "${OPENCART_DB_NAME}" > "${backup_dir}/db_${OPENCART_DB_NAME}.sql" 2>/dev/null \
+                    || log_warn "Failed to dump DB ${OPENCART_DB_NAME} with OpenCart credentials."
+            elif [[ -f ~/.my.cnf ]]; then
+                mysqldump "${OPENCART_DB_NAME}" > "${backup_dir}/db_${OPENCART_DB_NAME}.sql" 2>/dev/null \
+                    || log_warn "Failed to dump DB ${OPENCART_DB_NAME} using ~/.my.cnf."
+            else
+                # Try socket auth (common on modern MySQL/MariaDB for root)
+                mysqldump -u root "${OPENCART_DB_NAME}" > "${backup_dir}/db_${OPENCART_DB_NAME}.sql" 2>/dev/null \
+                    || log_warn "Failed to dump DB ${OPENCART_DB_NAME}. Configure ~/.my.cnf or run mysqlharden.sh first."
+            fi
         else
             log_warn "mysqldump not found, skipping DB backup."
         fi
@@ -381,7 +393,7 @@ harden_php() {
 
     # Detect web root for open_basedir
     local web_root="/var/www/html"
-    [[ -n "${OPENCART_ROOT:-}" && -d "$OPENCART_ROOT" ]] && web_root="$OPENCART_ROOT"
+    [[ -n "${OPENCART_DIR:-}" && -d "$OPENCART_DIR" ]] && web_root="$OPENCART_DIR"
     local open_basedir="${web_root}:/tmp:/usr/share/php"
 
     for ini in "${ini_files[@]}"; do
