@@ -220,6 +220,31 @@ detect_interfaces() {
     log_success "Monitor interfaces: ${MONITOR_INTERFACES[*]}"
 }
 
+calculate_network_address() {
+    # Convert IP/CIDR to network address (e.g., 172.16.101.1/24 -> 172.16.101.0/24)
+    local ip_cidr="$1"
+    local ip="${ip_cidr%/*}"
+    local prefix="${ip_cidr#*/}"
+
+    # Split IP into octets
+    IFS='.' read -r o1 o2 o3 o4 <<< "$ip"
+
+    # Calculate netmask from prefix
+    local mask=$((0xFFFFFFFF << (32 - prefix) & 0xFFFFFFFF))
+    local m1=$(( (mask >> 24) & 255 ))
+    local m2=$(( (mask >> 16) & 255 ))
+    local m3=$(( (mask >> 8) & 255 ))
+    local m4=$(( mask & 255 ))
+
+    # Apply netmask to get network address
+    local n1=$((o1 & m1))
+    local n2=$((o2 & m2))
+    local n3=$((o3 & m3))
+    local n4=$((o4 & m4))
+
+    echo "${n1}.${n2}.${n3}.${n4}/${prefix}"
+}
+
 detect_networks() {
     log_header "Configuring Local Networks"
 
@@ -231,11 +256,14 @@ detect_networks() {
     # Auto-detect from monitored interfaces
     local detected_nets=()
     for iface in "${MONITOR_INTERFACES[@]}"; do
-        local iface_net
-        iface_net=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP 'inet \K[0-9./]+' | head -1)
-        if [[ -n "$iface_net" ]]; then
-            detected_nets+=("$iface_net")
-            log_info "Detected network on $iface: $iface_net"
+        local iface_ip_cidr
+        iface_ip_cidr=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP 'inet \K[0-9./]+' | head -1)
+        if [[ -n "$iface_ip_cidr" ]]; then
+            # Calculate actual network address from IP/CIDR
+            local network_addr
+            network_addr=$(calculate_network_address "$iface_ip_cidr")
+            detected_nets+=("$network_addr")
+            log_info "Detected network on $iface: $network_addr (from $iface_ip_cidr)"
         fi
     done
 
@@ -603,6 +631,43 @@ setup_zeekctl() {
     log_success "Zeek control initialized"
 }
 
+configure_path() {
+    log_header "Configuring System PATH"
+
+    # Create system-wide profile.d script for persistent PATH
+    # This ensures zeek, zeekctl, zkg, pip3 are available to all users after login
+    cat > /etc/profile.d/zeek.sh << 'PATHEOF'
+# Zeek Network Security Monitor - PATH configuration
+# Added by VyOS Zeek installer
+
+# Zeek binaries
+if [ -d "/opt/zeek/bin" ]; then
+    export PATH="/opt/zeek/bin:$PATH"
+fi
+
+# User-installed pip packages (zkg, etc)
+if [ -d "$HOME/.local/bin" ]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+PATHEOF
+    chmod 644 /etc/profile.d/zeek.sh
+    log_success "Created /etc/profile.d/zeek.sh for persistent PATH"
+
+    # Update current session PATH immediately
+    export PATH="/opt/zeek/bin:$HOME/.local/bin:$PATH"
+    log_info "Updated current session PATH"
+
+    # Also add to root's .bashrc for interactive shells
+    if [[ ! -f ~/.bashrc ]] || ! grep -q '/opt/zeek/bin' ~/.bashrc 2>/dev/null; then
+        echo '' >> ~/.bashrc
+        echo '# Zeek and pip user packages' >> ~/.bashrc
+        echo 'export PATH="/opt/zeek/bin:$HOME/.local/bin:$PATH"' >> ~/.bashrc
+        log_info "Added PATH to ~/.bashrc"
+    fi
+
+    log_success "PATH configured - zeek, zeekctl, zkg, pip3 will be available"
+}
+
 install_zeek_packages() {
     log_header "Installing Zeek Package Manager (zkg) and JA3"
 
@@ -614,17 +679,12 @@ install_zeek_packages() {
         python3 /tmp/get-pip.py --user
         rm -f /tmp/get-pip.py
 
-        # Add local bin to PATH for current session
-        export PATH="$PATH:$HOME/.local/bin"
+        # Ensure PATH is set for pip3 to be found
+        export PATH="$HOME/.local/bin:$PATH"
+        hash -r  # Refresh command hash table
         log_success "pip installed"
     else
         log_success "pip already available"
-    fi
-
-    # Ensure PATH includes local bin
-    if ! grep -q '\.local/bin' ~/.bashrc 2>/dev/null; then
-        echo 'export PATH=$PATH:~/.local/bin:/opt/zeek/bin' >> ~/.bashrc
-        log_info "Added ~/.local/bin and /opt/zeek/bin to PATH in ~/.bashrc"
     fi
 
     # Install zkg and websockets
@@ -725,7 +785,7 @@ After=network.target
 
 [Service]
 Type=forking
-Environment="PATH=$ZEEK_PREFIX/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PATH=$ZEEK_PREFIX/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=$ZEEK_PREFIX/bin/zeekctl deploy
 ExecStop=$ZEEK_PREFIX/bin/zeekctl stop
 Restart=on-failure
@@ -802,14 +862,19 @@ print_summary() {
         echo "  • BZAR:  not installed"
     fi
     echo ""
-    echo -e "${GREEN}Commands:${NC}"
-    echo "  ${ZEEK_PREFIX}/bin/zeekctl status | deploy | stop"
+    echo -e "${GREEN}PATH Configuration:${NC}"
+    echo "  • System-wide: /etc/profile.d/zeek.sh (automatic on next login)"
+    echo "  • To apply NOW: source /etc/profile.d/zeek.sh"
+    echo ""
+    echo -e "${GREEN}Commands (after sourcing PATH):${NC}"
+    echo "  zeekctl status | deploy | stop"
+    echo "  zeek --version"
+    echo "  zkg list"
     echo "  systemctl status zeek"
     echo ""
-    echo -e "${GREEN}Verify installation:${NC}"
-    echo "  ${ZEEK_PREFIX}/bin/zeek --version"
-    echo ""
-    echo -e "${YELLOW}Next: ./zeekDetectionConfigure.sh${NC}"
+    echo -e "${YELLOW}Apply PATH now, then run detection config:${NC}"
+    echo "  source /etc/profile.d/zeek.sh"
+    echo "  ./zeekDetectionConfigure.sh"
     echo ""
 }
 
@@ -831,15 +896,16 @@ main() {
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
 
     check_root
-    log_step "1/9" "Detecting VyOS"; detect_vyos
-    log_step "2/9" "Checking Filesystem"; check_filesystem_writable
-    log_step "3/9" "Detecting Interfaces"; detect_interfaces; detect_networks
-    log_step "4/9" "Downloading Binaries"; download_and_extract_binaries
-    log_step "5/9" "Runtime Dependencies"; install_runtime_deps
-    log_step "6/9" "Configuring Zeek"; configure_zeek
-    log_step "7/9" "Setting Up Services"; setup_zeekctl; create_systemd_service
-    log_step "8/9" "Installing Packages (pip/zkg/JA3)"; install_zeek_packages
-    log_step "9/9" "Cleanup & Verify"; cleanup_temp; verify_installation || true
+    log_step "1/10" "Detecting VyOS"; detect_vyos
+    log_step "2/10" "Checking Filesystem"; check_filesystem_writable
+    log_step "3/10" "Detecting Interfaces"; detect_interfaces; detect_networks
+    log_step "4/10" "Downloading Binaries"; download_and_extract_binaries
+    log_step "5/10" "Runtime Dependencies"; install_runtime_deps
+    log_step "6/10" "Configuring PATH"; configure_path
+    log_step "7/10" "Configuring Zeek"; configure_zeek
+    log_step "8/10" "Setting Up Services"; setup_zeekctl; create_systemd_service
+    log_step "9/10" "Installing Packages (pip/zkg/JA3)"; install_zeek_packages
+    log_step "10/10" "Cleanup & Verify"; cleanup_temp; verify_installation || true
     print_summary
 }
 

@@ -28,6 +28,12 @@
 
 set -euo pipefail
 
+# Ensure PATH includes Zeek and pip user packages
+# Source system-wide profile if it exists (created by vyosZeekInstall.sh)
+[[ -f /etc/profile.d/zeek.sh ]] && source /etc/profile.d/zeek.sh
+# Fallback: add paths directly if profile doesn't exist
+export PATH="/opt/zeek/bin:$HOME/.local/bin:$PATH"
+
 # Colors (with fallback for non-color terminals)
 if [[ -t 1 ]] && [[ "${TERM:-}" != "dumb" ]]; then
     RED='\033[0;31m'
