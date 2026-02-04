@@ -49,7 +49,7 @@ set -euo pipefail
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
 readonly BACKUP_DIR="/var/backups/security/waf_proxy"
-readonly LOG_FILE="/var/log/syst/waf_proxy.log"
+readonly LOG_FILE="/var/log/waf_proxy_install.log"
 readonly CORAZA_SPOA_VERSION="v0.5.0"
 readonly CORAZA_SPOA_DIR="/opt/coraza-spoa"
 readonly CORAZA_CONF_DIR="/etc/coraza-spoa"
@@ -145,7 +145,7 @@ detect_system() {
     fi
 
     # Detect init system
-    if command -v systemctl &>/dev/null && systemctl --version &>/dev/null 2>&1; then
+    if command -v systemctl &>/dev/null && systemctl --version &>/dev/null; then
         INIT_SYSTEM="systemd"
     elif command -v rc-service &>/dev/null; then
         INIT_SYSTEM="openrc"
@@ -181,10 +181,26 @@ service_cmd() {
             systemctl "$action" "$service"
             ;;
         openrc)
-            rc-service "$service" "$action"
+            # Map systemd actions to OpenRC equivalents
+            case "$action" in
+                is-active)
+                    rc-service "$service" status &>/dev/null
+                    ;;
+                *)
+                    rc-service "$service" "$action"
+                    ;;
+            esac
             ;;
         sysvinit)
-            service "$service" "$action"
+            # Map systemd actions to SysVinit equivalents
+            case "$action" in
+                is-active)
+                    service "$service" status &>/dev/null
+                    ;;
+                *)
+                    service "$service" "$action"
+                    ;;
+            esac
             ;;
     esac
 }
@@ -260,7 +276,7 @@ prompt_stats_password() {
 
 check_apache_running() {
     if ! service_cmd is-active "$APACHE_SERVICE" &>/dev/null; then
-        if ! pgrep -x "apache2\|httpd" &>/dev/null; then
+        if ! pgrep -E "^(apache2|httpd)$" &>/dev/null; then
             log_error "Apache is not running. Please start Apache first."
             exit 1
         fi
@@ -373,7 +389,12 @@ install_coraza_spoa() {
     mkdir -p "$CORAZA_SPOA_DIR"
     mkdir -p "$CORAZA_CONF_DIR"
     mkdir -p /var/log/coraza-spoa
-    chown coraza:coraza /var/log/coraza-spoa
+
+    # Create log files with proper ownership (Coraza needs write access)
+    touch /var/log/coraza-spoa/spoa.log
+    touch /var/log/coraza-spoa/audit.log
+    touch /var/log/coraza-spoa/debug.log
+    chown -R coraza:coraza /var/log/coraza-spoa
 
     # Download Coraza SPOA binary
     local download_url="https://github.com/corazawaf/coraza-spoa/releases/download/${CORAZA_SPOA_VERSION}/coraza-spoa_Linux_${ARCH}.tar.gz"
@@ -434,7 +455,8 @@ install_coraza_spoa_from_source() {
 
     (cd "$build_dir" && go run mage.go build)
 
-    cp "$build_dir/coraza-spoa" "$CORAZA_SPOA_DIR/"
+    # Binary is output to build/ subdirectory
+    cp "$build_dir/build/coraza-spoa" "$CORAZA_SPOA_DIR/"
     chmod +x "$CORAZA_SPOA_DIR/coraza-spoa"
     ln -sf "$CORAZA_SPOA_DIR/coraza-spoa" /usr/local/bin/coraza-spoa
 
@@ -491,7 +513,7 @@ configure_apache_port() {
         debian)
             # Update ports.conf - match Listen 80, Listen 0.0.0.0:80, Listen [::]:80, etc.
             if [[ -f "$APACHE_PORTS_CONF" ]]; then
-                sed -i -E "s/^Listen\s+(\[?[^]]*\]?:)?80$/Listen 127.0.0.1:$APACHE_BACKEND_PORT/" "$APACHE_PORTS_CONF"
+                sed -i -E "s/^Listen[[:space:]]+(\[?[^]]*\]?:)?80$/Listen 127.0.0.1:$APACHE_BACKEND_PORT/" "$APACHE_PORTS_CONF"
             fi
 
             # Update default site
@@ -510,7 +532,7 @@ configure_apache_port() {
         rhel)
             # Update main config - match Listen 80, Listen 0.0.0.0:80, etc.
             if [[ -f "$APACHE_PORTS_CONF" ]]; then
-                sed -i -E "s/^Listen\s+(\[?[^]]*\]?:)?80$/Listen 127.0.0.1:$APACHE_BACKEND_PORT/" "$APACHE_PORTS_CONF"
+                sed -i -E "s/^Listen[[:space:]]+(\[?[^]]*\]?:)?80$/Listen 127.0.0.1:$APACHE_BACKEND_PORT/" "$APACHE_PORTS_CONF"
             fi
 
             # Update virtual hosts
@@ -522,7 +544,7 @@ configure_apache_port() {
             ;;
         alpine)
             if [[ -f "$APACHE_PORTS_CONF" ]]; then
-                sed -i -E "s/^Listen\s+(\[?[^]]*\]?:)?80$/Listen 127.0.0.1:$APACHE_BACKEND_PORT/" "$APACHE_PORTS_CONF"
+                sed -i -E "s/^Listen[[:space:]]+(\[?[^]]*\]?:)?80$/Listen 127.0.0.1:$APACHE_BACKEND_PORT/" "$APACHE_PORTS_CONF"
             fi
             ;;
     esac
@@ -567,7 +589,7 @@ SecResponseBodyLimitAction ProcessPartial
 
 # Audit logging
 SecAuditEngine RelevantOnly
-SecAuditLogRelevantStatus "^(?:5|4(?!04))"
+SecAuditLogRelevantStatus "^[45]"
 SecAuditLogParts ABIJDEFHZ
 SecAuditLogType Serial
 SecAuditLog /var/log/coraza-spoa/audit.log
@@ -585,6 +607,9 @@ EOF
     cat > "$CORAZA_CONF_DIR/crs-setup.conf" << EOF
 # OWASP CRS Setup for Coraza
 # Generated: $(date)
+
+# CRS setup version marker - required for CRS rules to recognize setup is loaded
+SecAction "id:900990,phase:1,pass,t:none,nolog,setvar:tx.crs_setup_version=400"
 
 # Paranoia Level (1-4)
 # 1 = Low false positives, basic protection
@@ -629,22 +654,19 @@ bind: 127.0.0.1:9000
 
 log_level: info
 log_file: /var/log/coraza-spoa/spoa.log
+log_format: json
 
 applications:
   - name: haproxy
+    log_level: info
+    log_file: /dev/stdout
+    log_format: json
     directives: |
       Include $CORAZA_CONF_DIR/coraza.conf
       Include $CORAZA_CONF_DIR/crs-setup.conf
       Include $CORAZA_CONF_DIR/coreruleset/rules/*.conf
-
-    # Response check (check response from backend)
     response_check: true
-
-    # Transaction timeout (ms)
     transaction_ttl_ms: 60000
-
-    # Max concurrent transactions
-    transaction_active_limit: 100000
 EOF
 
     log_info "Coraza SPOA configured with paranoia level $WAF_PARANOIA_LEVEL"
@@ -664,26 +686,22 @@ configure_haproxy() {
     # Create SPOE configuration for Coraza
     cat > /etc/haproxy/coraza.cfg << 'EOF'
 # HAProxy SPOE Configuration for Coraza WAF
-# This file defines the SPOE agent connection to coraza-spoa
+# https://github.com/corazawaf/coraza-spoa
 
 [coraza]
 spoe-agent coraza-agent
-    messages coraza-req coraza-res
+    messages coraza-req
     option var-prefix coraza
     option set-on-error error
-    timeout hello      100ms
+    timeout hello      2s
     timeout idle       2m
     timeout processing 500ms
     use-backend coraza-spoa
     log global
 
 spoe-message coraza-req
-    args id=unique-id src-ip=src method=method path=path query=query version=req.ver headers=req.hdrs body=req.body
+    args app=str(haproxy) src-ip=src src-port=src_port dst-ip=dst dst-port=dst_port method=method path=path query=query version=req.ver headers=req.hdrs body=req.body
     event on-frontend-http-request
-
-spoe-message coraza-res
-    args id=unique-id version=res.ver status=status headers=res.hdrs body=res.body
-    event on-http-response
 EOF
 
     # Create main HAProxy configuration
@@ -715,7 +733,6 @@ defaults
     option  httplog
     option  dontlognull
     option  http-server-close
-    option  forwardfor except 127.0.0.0/8
     timeout connect 5000ms
     timeout client  50000ms
     timeout server  50000ms
@@ -744,32 +761,57 @@ frontend http_front
     unique-id-format %{+X}o\ %ci:%cp_%fi:%fp_%Ts_%rt:%pid
     unique-id-header X-Request-ID
 
+    #---------------------------------------------------------------------------
+    # Fast-path blocking (before WAF for performance)
+    #---------------------------------------------------------------------------
+    # Block sensitive file extensions
+    acl sensitive_ext path_end .sql .bak .old .orig .save .swp .env .htaccess .htpasswd .config .log
+    http-request deny deny_status 403 if sensitive_ext
+
+    # Block hidden files/directories (paths containing /.)
+    acl hidden_path path_sub /.
+    http-request deny deny_status 403 if hidden_path
+
+    # Block common probe/debug files
+    acl probe_files path_end phpinfo.php info.php test.php adminer.php
+    http-request deny deny_status 403 if probe_files
+
+    #---------------------------------------------------------------------------
+    # Coraza WAF (SPOE filter)
+    #---------------------------------------------------------------------------
     # SPOE filter for Coraza WAF
     filter spoe engine coraza config /etc/haproxy/coraza.cfg
 
     # Block requests that Coraza flagged as malicious
-    http-request deny deny_status 403 if { var(txn.coraza.fail) -m int eq 1 }
-    http-response deny deny_status 502 if { var(txn.coraza.fail) -m int eq 1 }
+    # Coraza SPOA sets txn.coraza.action to "deny" when request should be blocked
+    http-request deny deny_status 403 if { var(txn.coraza.action) -m str deny }
+    http-response deny deny_status 502 if { var(txn.coraza.action) -m str deny }
 
-    # Rate limiting - 100 requests per 10 seconds per IP (backup protection)
-    stick-table type ip size 100k expire 30s store http_req_rate(10s)
+    #---------------------------------------------------------------------------
+    # Rate limiting
+    #---------------------------------------------------------------------------
+    stick-table type ip size 100k expire 30s store http_req_rate(10s),conn_cur
     http-request track-sc0 src
+    # Block if more than 100 requests per 10 seconds
     http-request deny deny_status 429 if { sc_http_req_rate(0) gt 100 }
+    # Block if more than 50 concurrent connections per IP
+    http-request deny deny_status 429 if { sc_conn_cur(0) gt 50 }
 
-    # Connection limits - max 30 concurrent connections per IP
-    acl too_many_conns src_conn_cur ge 30
-    http-request deny deny_status 429 if too_many_conns
-
-    # Add security headers
+    #---------------------------------------------------------------------------
+    # Security headers
+    #---------------------------------------------------------------------------
     http-response set-header X-Frame-Options DENY
     http-response set-header X-Content-Type-Options nosniff
     http-response set-header X-XSS-Protection "1; mode=block"
     http-response set-header Referrer-Policy strict-origin-when-cross-origin
     http-response set-header Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    http-response set-header X-Permitted-Cross-Domain-Policies none
+    http-response set-header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'self'"
 
     # Remove server version disclosure
     http-response del-header Server
-    http-response set-header Server "Secure-Server"
+    http-response del-header X-Powered-By
+    http-response set-header Server "Secure-Proxy"
 
     default_backend apache_backend
 
@@ -785,6 +827,7 @@ backend coraza-spoa
 #-------------------------------------------------------------------------------
 backend apache_backend
     balance roundrobin
+    option forwardfor except 127.0.0.0/8
     option httpchk GET /
     http-check expect rstatus ^[23]
 
@@ -849,6 +892,7 @@ Group=coraza
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
+PrivateTmp=true
 ReadWritePaths=/var/log/coraza-spoa
 
 [Install]
@@ -881,6 +925,166 @@ EOF
     chmod +x /etc/init.d/coraza-spoa
 }
 
+harden_apache() {
+    log_step "Hardening Apache configuration..."
+
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[DRY-RUN] Would harden Apache configuration"
+        return 0
+    fi
+
+    case "$DISTRO_FAMILY" in
+        debian)
+            # Create security configuration
+            cat > /etc/apache2/conf-available/security-hardening.conf << 'EOF'
+# Security Hardening Configuration
+# Generated by WAF Proxy Setup Script
+
+# Hide Apache version
+ServerTokens Prod
+ServerSignature Off
+
+# Disable directory browsing globally
+<Directory />
+    Options -Indexes -FollowSymLinks
+    AllowOverride None
+    Require all denied
+</Directory>
+
+<Directory /var/www/>
+    Options -Indexes +FollowSymLinks
+    AllowOverride None
+    Require all granted
+</Directory>
+
+# Protect sensitive files
+<FilesMatch "\.(sql|bak|old|orig|save|swp|env|git|htaccess|htpasswd|ini|log|conf)$">
+    Require all denied
+</FilesMatch>
+
+# Block access to hidden files/directories
+<DirectoryMatch "/\.">
+    Require all denied
+</DirectoryMatch>
+
+# Disable TRACE method
+TraceEnable Off
+
+# Prevent clickjacking (backup - also set in HAProxy)
+Header always set X-Frame-Options "DENY"
+Header always set X-Content-Type-Options "nosniff"
+EOF
+            a2enconf security-hardening 2>/dev/null || true
+            a2enmod headers 2>/dev/null || true
+            ;;
+        rhel)
+            # Append to main httpd.conf or create security conf
+            cat > /etc/httpd/conf.d/security-hardening.conf << 'EOF'
+# Security Hardening Configuration
+# Generated by WAF Proxy Setup Script
+
+ServerTokens Prod
+ServerSignature Off
+
+<Directory />
+    Options -Indexes -FollowSymLinks
+    AllowOverride None
+    Require all denied
+</Directory>
+
+<FilesMatch "\.(sql|bak|old|orig|save|swp|env|git|htaccess|htpasswd|ini|log|conf)$">
+    Require all denied
+</FilesMatch>
+
+<DirectoryMatch "/\.">
+    Require all denied
+</DirectoryMatch>
+
+TraceEnable Off
+
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+</IfModule>
+EOF
+            ;;
+        alpine)
+            # Alpine uses httpd.conf directly
+            if ! grep -q "ServerTokens Prod" "$APACHE_PORTS_CONF" 2>/dev/null; then
+                cat >> "$APACHE_PORTS_CONF" << 'EOF'
+
+# Security Hardening
+ServerTokens Prod
+ServerSignature Off
+TraceEnable Off
+EOF
+            fi
+            ;;
+    esac
+
+    log_info "Apache hardening applied"
+}
+
+harden_php() {
+    log_step "Hardening PHP configuration..."
+
+    if [[ "$DRY_RUN" == true ]]; then
+        log_info "[DRY-RUN] Would harden PHP configuration"
+        return 0
+    fi
+
+    local php_ini_files=()
+
+    # Find PHP ini files based on distro
+    case "$DISTRO_FAMILY" in
+        debian)
+            # Check for PHP-FPM and Apache module configs
+            for ini in /etc/php/*/apache2/php.ini /etc/php/*/fpm/php.ini; do
+                [[ -f "$ini" ]] && php_ini_files+=("$ini")
+            done
+            ;;
+        rhel)
+            [[ -f /etc/php.ini ]] && php_ini_files+=("/etc/php.ini")
+            ;;
+        alpine)
+            for ini in /etc/php*/php.ini; do
+                [[ -f "$ini" ]] && php_ini_files+=("$ini")
+            done
+            ;;
+    esac
+
+    if [[ ${#php_ini_files[@]} -eq 0 ]]; then
+        log_warn "No PHP ini files found, skipping PHP hardening"
+        return 0
+    fi
+
+    for ini in "${php_ini_files[@]}"; do
+        log_info "Hardening $ini"
+
+        # Hide PHP version
+        sed -i 's/^expose_php.*/expose_php = Off/' "$ini"
+        if ! grep -q "^expose_php" "$ini"; then
+            echo "expose_php = Off" >> "$ini"
+        fi
+
+        # Secure session cookies
+        sed -i 's/^session.cookie_httponly.*/session.cookie_httponly = 1/' "$ini"
+        if ! grep -q "^session.cookie_httponly" "$ini"; then
+            echo "session.cookie_httponly = 1" >> "$ini"
+        fi
+
+        sed -i 's/^;*session.cookie_samesite.*/session.cookie_samesite = Lax/' "$ini"
+        if ! grep -q "^session.cookie_samesite" "$ini"; then
+            echo "session.cookie_samesite = Lax" >> "$ini"
+        fi
+
+        # Disable dangerous functions (optional - uncomment if needed)
+        # sed -i 's/^disable_functions.*/disable_functions = exec,passthru,shell_exec,system,proc_open,popen/' "$ini"
+    done
+
+    log_info "PHP hardening applied"
+}
+
 #-------------------------------------------------------------------------------
 # Main Operations
 #-------------------------------------------------------------------------------
@@ -899,6 +1103,8 @@ do_install() {
     configure_apache_port
     configure_haproxy
     create_systemd_service
+    harden_apache
+    harden_php
 
     if [[ "$DRY_RUN" == true ]]; then
         log_info "[DRY-RUN] Installation simulation complete"
@@ -1046,7 +1252,7 @@ do_status() {
     echo ""
 
     echo "Apache ($APACHE_SERVICE):"
-    if service_cmd is-active "$APACHE_SERVICE" &>/dev/null || pgrep -x "apache2\|httpd" &>/dev/null; then
+    if service_cmd is-active "$APACHE_SERVICE" &>/dev/null || pgrep -E "^(apache2|httpd)$" &>/dev/null; then
         echo -e "  Status: ${GREEN}Running${NC}"
         echo "  Listening on:"
         ss -tlnp | grep -E "apache|httpd" | awk '{print "    " $4}'
