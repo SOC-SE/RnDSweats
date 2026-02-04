@@ -67,6 +67,30 @@ critical() {
     echo -e "${RED}[CRITICAL]${NC} $1"
 }
 
+prompt_password() {
+    local user_label=$1
+    local var_name=$2
+    while true; do
+        echo -n "Enter new password for $user_label: "
+        stty -echo
+        read -r pass1
+        stty echo
+        echo
+        echo -n "Confirm new password for $user_label: "
+        stty -echo
+        read -r pass2
+        stty echo
+        echo
+
+        if [ "$pass1" == "$pass2" ] && [ -n "$pass1" ]; then
+            declare -g "$var_name=$pass1"
+            break
+        else
+            echo "Passwords do not match or are empty. Try again."
+        fi
+    done
+}
+
 # --- Parse Arguments ---
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -136,6 +160,75 @@ echo ""
 echo "========================================"
 echo "MYSQL HARDENING"
 echo "========================================"
+echo ""
+
+# --- 0. MySQL Root Password Rotation ---
+log "Phase 0: MySQL Root Password Rotation"
+echo ""
+echo "Do you want to change the MySQL root password? (y/n)"
+read -r change_root_pass
+
+if [[ "$change_root_pass" =~ ^[Yy]$ ]]; then
+    prompt_password "MySQL root" NEW_MYSQL_ROOT_PASS
+
+    log "Changing MySQL root password..."
+
+    # Get all root user hosts
+    root_hosts=$($MYSQL_CMD -N -e "SELECT Host FROM mysql.user WHERE User='root';" 2>/dev/null)
+
+    if [[ -n "$root_hosts" ]]; then
+        while IFS= read -r host; do
+            [[ -z "$host" ]] && continue
+            # Use ALTER USER for MySQL 5.7+ / MariaDB 10.2+
+            if $MYSQL_CMD -e "ALTER USER 'root'@'$host' IDENTIFIED BY '$NEW_MYSQL_ROOT_PASS';" 2>/dev/null; then
+                log "Updated root@$host password"
+            else
+                # Fallback for older MySQL versions
+                $MYSQL_CMD -e "SET PASSWORD FOR 'root'@'$host' = PASSWORD('$NEW_MYSQL_ROOT_PASS');" 2>/dev/null && \
+                    log "Updated root@$host password (legacy method)" || \
+                    warn "Failed to update root@$host password"
+            fi
+        done <<< "$root_hosts"
+
+        $MYSQL_CMD -e "FLUSH PRIVILEGES;" 2>/dev/null
+        log "Root password changed successfully"
+
+        # Update ~/.my.cnf if it exists
+        if [[ -f "$CNF_FILE" ]]; then
+            log "Updating $CNF_FILE with new password..."
+            # Backup the cnf file
+            cp "$CNF_FILE" "${CNF_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+            # Update password in [client] section
+            if grep -q "^password" "$CNF_FILE" 2>/dev/null; then
+                sed -i "s/^password.*/password=$NEW_MYSQL_ROOT_PASS/" "$CNF_FILE"
+            elif grep -q "^\[client\]" "$CNF_FILE" 2>/dev/null; then
+                sed -i "/^\[client\]/a password=$NEW_MYSQL_ROOT_PASS" "$CNF_FILE"
+            fi
+            chmod 600 "$CNF_FILE"
+            log "Updated $CNF_FILE"
+        fi
+
+        # Rebuild MySQL command with new password for remaining operations
+        if [[ -n "$MYSQL_USER" ]]; then
+            MYSQL_CMD="mysql -u $MYSQL_USER -p$NEW_MYSQL_ROOT_PASS -h $MYSQL_HOST"
+        elif [[ -f "$CNF_FILE" ]]; then
+            # CNF file was updated, command should still work
+            MYSQL_CMD="mysql --defaults-extra-file=$CNF_FILE -h $MYSQL_HOST"
+        fi
+
+        # Verify new password works
+        if ! $MYSQL_CMD -e "SELECT 1" &>/dev/null; then
+            critical "Failed to connect with new password! Check credentials manually."
+            exit 2
+        fi
+        log "Verified connection with new password"
+    else
+        warn "No root users found in mysql.user table"
+    fi
+else
+    log "Skipping root password change"
+fi
+
 echo ""
 
 # --- 1. Remove anonymous users ---
