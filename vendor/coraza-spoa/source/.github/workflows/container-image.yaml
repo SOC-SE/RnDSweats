@@ -1,0 +1,77 @@
+name: "Build Container Image"
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # build a semver tagged image after release-please pr merge
+      - CHANGELOG.md
+      # build a snapshot tagged image after any app change
+      - main.go
+      - config.go
+      - go.sum
+      - go.mod
+      - internal/*
+      - example/Dockerfile
+      - example/coraza-spoa.yaml
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+
+      - name: Inspect builder
+        run: |
+          echo "Name:      ${{ steps.buildx.outputs.name }}"
+          echo "Endpoint:  ${{ steps.buildx.outputs.endpoint }}"
+          echo "Status:    ${{ steps.buildx.outputs.status }}"
+          echo "Flags:     ${{ steps.buildx.outputs.flags }}"
+          echo "Platforms: ${{ steps.buildx.outputs.platforms }}"
+
+      - name: Login to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47
+
+      - name: Get the tag from the new release
+        id: get-tag
+        if: contains(steps.changed-files.outputs.modified_files, 'CHANGELOG.md')
+        run: |
+          echo tag=$(grep --color=never --perl-regex --only-matching --max-count=1 '^## \[?\K[^\]\s]+' CHANGELOG.md) >> $GITHUB_OUTPUT
+
+      - name: Docker metadata
+        id: meta-main
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=snapshot,enable=${{ steps.get-tag.outputs.tag == '' }}
+            type=raw,value=${{ steps.get-tag.outputs.tag }},enable=${{ steps.get-tag.outputs.tag != '' }}
+
+      - name: Image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: .
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          file: example/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-main.outputs.tags }}
+          labels: ${{ steps.meta-main.outputs.labels }}

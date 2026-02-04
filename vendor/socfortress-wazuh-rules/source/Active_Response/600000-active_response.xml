@@ -1,0 +1,24 @@
+<group name="active_response,">
+ <rule id="600000" level="10">
+    <decoded_as>json</decoded_as>
+    <field name="active_response">windows_firewall</field>
+    <description>Windows Firewall Active Response triggered.</description>
+    <group>socfortress,</group>
+    <options>no_full_log</options>
+  </rule>
+  <rule id="600001" level="13">
+    <decoded_as>json</decoded_as>
+    <field name="copilot_action">true</field>
+    <description>Copilot-ACTION: Automation Event</description>
+    <options>no_full_log</options>
+  </rule>
+</group>
+<group name="sysmon_config,">
+ <rule id="600002" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="group">^SysmonConfigReload$</field>
+    <description>Sysmon config $(step).</description>
+    <group>socfortress,</group>
+    <options>no_full_log</options>
+  </rule>
+</group>
