@@ -544,6 +544,9 @@ event ssl_established(c: connection) &priority=2
 }
 
 # HASSH Detection for SSH connections
+# Only compiled if HASSH package is installed (provides SSH::Info$hassh field)
+# Install with: zkg install zeek/salesforce/hassh
+@ifdef ( HASSH::log_hassh )
 event ssh_auth_successful(c: connection, auth_method_none: bool)
 {
     if ( ! enable_hassh_detection )
@@ -586,6 +589,7 @@ event ssh_auth_successful(c: connection, auth_method_none: bool)
         }
     }
 }
+@endif
 ZEEKEOF
 
     #---------------------------------------------------------------------------
