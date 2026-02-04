@@ -163,10 +163,16 @@ function Invoke-Downloads {
         Expand-Archive -Path $downloadPathGitHub -DestinationPath $extractPathGitHub -Force
     }
 
-    # Install Sysmon
+    # Install Sysmon (if not already installed)
     if ((Test-Path "$extractPathSY\Sysmon64.exe") -and (Test-Path $sysmonConfigPath)) {
-        Write-Host "Installing Sysmon..."
-        & "$extractPathSY\Sysmon64.exe" -accepteula -i $sysmonConfigPath
+        $sysmonService = Get-Service -Name Sysmon64 -ErrorAction SilentlyContinue
+        if ($sysmonService) {
+            Write-Host "Sysmon already installed, updating config..."
+            & "$extractPathSY\Sysmon64.exe" -c $sysmonConfigPath 2>$null
+        } else {
+            Write-Host "Installing Sysmon..."
+            & "$extractPathSY\Sysmon64.exe" -accepteula -i $sysmonConfigPath 2>$null
+        }
     }
 
     Write-Host "[OK] Downloads complete" -ForegroundColor Green
@@ -368,12 +374,15 @@ function Invoke-Hardening {
     } catch {}
 
     #----------------------------------------------------------
-    # Disable dangerous features
+    # Disable dangerous features (if they exist)
     #----------------------------------------------------------
     Write-Host "Disabling dangerous features..."
-    dism /online /disable-feature /featurename:TFTP /NoRestart 2>$null
-    dism /online /disable-feature /featurename:TelnetClient /NoRestart 2>$null
-    dism /online /disable-feature /featurename:TelnetServer /NoRestart 2>$null
+    @('TFTP', 'TelnetClient', 'TelnetServer', 'SMB1Protocol') | ForEach-Object {
+        $feature = Get-WindowsOptionalFeature -Online -FeatureName $_ -ErrorAction SilentlyContinue
+        if ($feature -and $feature.State -eq 'Enabled') {
+            Disable-WindowsOptionalFeature -Online -FeatureName $_ -NoRestart -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
 
     #----------------------------------------------------------
     # Disable dangerous services
