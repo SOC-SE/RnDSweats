@@ -253,7 +253,7 @@ index = network
 disabled = 0
 
 [tcp://5140]
-sourcetype = technitium:syslog
+sourcetype = technitium:query
 index = network
 disabled = 0
 connection_host = ip
@@ -292,7 +292,7 @@ blacklist = \.(gz|bz2|zip)$|\.\d$
 
 [monitor:///var/log/syst/*audit*]
 index = linux
-sourcetype = linux_enume
+sourcetype = linux_enum
 crcSalt = <SOURCE>
 
 [monitor:///var/log/syst/security_scan_*.log]
@@ -369,8 +369,25 @@ crcSalt = <SOURCE>
 
 [monitor:///opt/technitium-dns/config/logs/*.log]
 index = linux
-sourcetype = technitium:querylog
+sourcetype = technitium:syslog
 crcSalt = <SOURCE>
+
+# -----------------------------------------------------------------------------
+# Honeypot (Cowrie SSH/Telnet)
+# -----------------------------------------------------------------------------
+
+[monitor:///opt/cowrie/var/log/cowrie/cowrie.json]
+index = linux
+sourcetype = cowrie
+crcSalt = <SOURCE>
+
+[monitor:///opt/cowrie/var/log/cowrie/cowrie.log]
+index = linux
+sourcetype = cowrie:text
+crcSalt = <SOURCE>
+
+
+
 EOF
 
 # Move custom props.conf if it exists
