@@ -429,9 +429,6 @@ export {
 
 # Load detection logic
 @load ./detection
-
-# Intel framework for fingerprint matching (works with any installed packages)
-@load ./intel_setup
 ZEEKEOF
 
     #---------------------------------------------------------------------------
@@ -489,80 +486,21 @@ ZEEKEOF
     #---------------------------------------------------------------------------
     cat > "$dest_dir/detection_ja3.zeek" << 'ZEEKEOF'
 ##! JA3 TLS Fingerprint Detection
-##! Note: JA3 detection requires the ja3 package to be installed
 ##! The ja3 package adds ja3/ja3s fields to ssl.log automatically
-##! For active alerting, use the Intel framework with known-bad JA3 hashes
-##! Or grep ssl.log for matches against ja3_signatures
-
-# This file intentionally minimal - detection handled by Intel framework
-# See: https://docs.zeek.org/en/current/frameworks/intel.html
+##! Correlate ssl.log ja3 field against ja3_signatures table in your SIEM
 ZEEKEOF
 
     cat > "$dest_dir/detection_ja4.zeek" << 'ZEEKEOF'
 ##! JA4 TLS Fingerprint Detection
-##! Note: JA4 detection requires the ja4 package to be installed
 ##! The ja4 package adds ja4/ja4s fields to ssl.log automatically
-
-# This file intentionally minimal - detection handled by Intel framework
+##! Correlate ssl.log ja4 field against ja4_signatures table in your SIEM
 ZEEKEOF
 
     cat > "$dest_dir/detection_hassh.zeek" << 'ZEEKEOF'
 ##! HASSH SSH Fingerprint Detection
-##! Note: HASSH detection requires the hassh package to be installed
 ##! The hassh package adds hassh/hasshServer fields to ssh.log automatically
-
-# This file intentionally minimal - detection handled by Intel framework
+##! Correlate ssh.log hassh field against hassh_signatures table in your SIEM
 ZEEKEOF
-
-    #---------------------------------------------------------------------------
-    # Intel Framework setup for fingerprint matching
-    #---------------------------------------------------------------------------
-    cat > "$dest_dir/intel_setup.zeek" << 'ZEEKEOF'
-##! Intel Framework Configuration for TLS/SSH Fingerprint Matching
-##! This enables matching JA3/JA4/HASSH hashes against known-bad indicators
-
-@load base/frameworks/intel
-@load frameworks/intel/seen
-@load frameworks/intel/do_notice
-
-module RedTeam;
-
-# Extend Intel framework to handle fingerprint types
-redef Intel::read_files += { @DIR + "/intel/ja3_intel.dat" };
-
-# Hook to generate notices on Intel matches
-hook Intel::match(s: Intel::Seen, items: set[Intel::Item]) &priority=5
-{
-    for ( item in items )
-    {
-        if ( item$indicator_type == Intel::FILE_HASH )
-        {
-            # JA3/JA4/HASSH matches come through as file hashes
-            NOTICE([
-                $note = Malware_Callback,
-                $msg = fmt("Intel match: %s - %s", item$indicator, item$meta$desc),
-                $sub = item$indicator
-            ]);
-        }
-    }
-}
-ZEEKEOF
-
-    # Create Intel data directory and sample file
-    mkdir -p "$dest_dir/intel"
-
-    cat > "$dest_dir/intel/ja3_intel.dat" << 'INTELDATAEOF'
-#fields	indicator	indicator_type	meta.source	meta.desc	meta.url
-fc54e0d16d9764783542f0146a98b300	Intel::FILE_HASH	SSLBL	AsyncRAT	https://sslbl.abuse.ch
-8916410db85077a5460817142dcbc8de	Intel::FILE_HASH	SSLBL	TrickBot	https://sslbl.abuse.ch
-51c64c77e60f3980eea90869b68c58a8	Intel::FILE_HASH	SSLBL	njRAT/Dridex	https://sslbl.abuse.ch
-a0e9f5d64349fb13191bc781f81f42e1	Intel::FILE_HASH	SSLBL	Cobalt Strike	https://sslbl.abuse.ch
-5d65ea3fb1d4aa7d826733f355cd4c51	Intel::FILE_HASH	SSLBL	Metasploit Meterpreter	https://sslbl.abuse.ch
-4d7a28d6f2263ed61de88ca66eb011e3	Intel::FILE_HASH	SSLBL	Remcos/Tofsee/Emotet	https://sslbl.abuse.ch
-e7d705a3286e19ea42f587b344ee6865	Intel::FILE_HASH	SSLBL	QuasarRAT/Tor	https://sslbl.abuse.ch
-ec7378c1a92f5a8dde7e8b7a1ddf33d1	Intel::FILE_HASH	hassh.io	Paramiko SSH	https://hassh.io
-06046964c022c6407d15a27b12a6a4fb	Intel::FILE_HASH	hassh.io	libssh (CS SSH)	https://hassh.io
-INTELDATAEOF
 
     log_success "Created TLS fingerprinting framework"
 }
