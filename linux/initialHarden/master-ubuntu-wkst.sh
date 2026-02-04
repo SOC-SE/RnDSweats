@@ -86,18 +86,9 @@ echo "========================================================"
 echo ""
 
 # ============================================================================
-# PHASE 1: INITIAL ENUMERATION
+# PHASE 1: GENERAL LINUX HARDENING
 # ============================================================================
-phase "PHASE 1: INITIAL ENUMERATION"
-if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
-    chmod +x "$LINUXDEV/masterEnum.sh"
-    bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_pre_$TIMESTAMP.log"
-fi
-
-# ============================================================================
-# PHASE 2: GENERAL LINUX HARDENING
-# ============================================================================
-phase "PHASE 2: GENERAL LINUX HARDENING"
+phase "PHASE 1: GENERAL LINUX HARDENING"
 run_script "$LINUXDEV/generalLinuxHarden.sh" "General Linux Hardening"
 
 # SSH removal
@@ -106,9 +97,9 @@ apt-get remove --purge -y openssh-server 2>/dev/null || true
 find / -name "authorized_keys" -type f -delete 2>/dev/null || true
 
 # ============================================================================
-# PHASE 3: FIREWALL CONFIGURATION
+# PHASE 2: FIREWALL CONFIGURATION
 # ============================================================================
-phase "PHASE 3: FIREWALL CONFIGURATION"
+phase "PHASE 2: FIREWALL CONFIGURATION"
 log "Configuring iptables firewall for workstation..."
 
 # Disable firewalld if present, use iptables only
@@ -194,24 +185,26 @@ netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables.rules
 log "Firewall configured: no inbound services (workstation), Salt(4505-4506), Wazuh(1514-1515), Splunk(9997)"
 
 # ============================================================================
-# PHASE 4: SYSTEM BACKUPS
+# PHASE 3: SYSTEM BACKUPS
 # ============================================================================
-phase "PHASE 4: SYSTEM BACKUPS"
+phase "PHASE 3: SYSTEM BACKUPS"
 run_script "$LINUXDEV/systemBackups.sh" "System Backups"
 
 # ============================================================================
-# PHASE 5: SYSTEM BASELINE
+# PHASE 4: SYSTEM BASELINE
 # ============================================================================
-phase "PHASE 5: SYSTEM BASELINE"
+phase "PHASE 4: SYSTEM BASELINE"
 log "Creating post-hardening system baseline..."
 run_script "$LINUXDEV/systemBaseline.sh" "System Baseline"
 
 # ============================================================================
-# PHASE 6: POST-HARDENING ENUMERATION
+# PHASE 5: POST-HARDENING ENUMERATION (Background)
 # ============================================================================
-phase "PHASE 6: POST-HARDENING ENUMERATION"
+phase "PHASE 5: POST-HARDENING ENUMERATION"
 if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
-    bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_post_$TIMESTAMP.log"
+    log "Starting enumeration in background..."
+    nohup bash "$LINUXDEV/masterEnum.sh" > "$LOG_DIR/enum_post_$TIMESTAMP.log" 2>&1 &
+    log "Enumeration running in background (PID: $!) - output: $LOG_DIR/enum_post_$TIMESTAMP.log"
 fi
 
 # ============================================================================

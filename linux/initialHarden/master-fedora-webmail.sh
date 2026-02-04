@@ -87,23 +87,9 @@ echo "========================================================"
 echo ""
 
 # ============================================================================
-# PHASE 1: INITIAL ENUMERATION
+# PHASE 1: GENERAL LINUX HARDENING
 # ============================================================================
-phase "PHASE 1: INITIAL ENUMERATION"
-log "Capturing pre-hardening system state..."
-
-if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
-    chmod +x "$LINUXDEV/masterEnum.sh"
-    bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_pre_$TIMESTAMP.log"
-    log "Pre-hardening enumeration saved to $LOG_DIR/enum_pre_$TIMESTAMP.log"
-else
-    warn "masterEnum.sh not found, skipping initial enumeration"
-fi
-
-# ============================================================================
-# PHASE 2: GENERAL LINUX HARDENING
-# ============================================================================
-phase "PHASE 2: GENERAL LINUX HARDENING"
+phase "PHASE 1: GENERAL LINUX HARDENING"
 run_script "$LINUXDEV/generalLinuxHarden.sh" "General Linux Hardening"
 
 # SSH removal
@@ -112,9 +98,9 @@ dnf remove -y openssh-server 2>/dev/null || yum remove -y openssh-server 2>/dev/
 find / -name "authorized_keys" -type f -delete 2>/dev/null || true
 
 # ============================================================================
-# PHASE 3: MAIL SERVER HARDENING
+# PHASE 2: MAIL SERVER HARDENING
 # ============================================================================
-phase "PHASE 3: MAIL SERVER HARDENING"
+phase "PHASE 2: MAIL SERVER HARDENING"
 
 # Detect mail services
 POSTFIX_ACTIVE=false
@@ -133,9 +119,9 @@ fi
 run_script "$LINUXDEV/mail_hardener.sh" "Mail Server Hardening"
 
 # ============================================================================
-# PHASE 4: FIREWALL CONFIGURATION
+# PHASE 3: FIREWALL CONFIGURATION
 # ============================================================================
-phase "PHASE 4: FIREWALL CONFIGURATION"
+phase "PHASE 3: FIREWALL CONFIGURATION"
 log "Configuring iptables firewall for mail services..."
 
 # Disable and remove cockpit
@@ -260,9 +246,9 @@ systemctl start iptables 2>/dev/null || true
 log "Firewall configured: SMTP(25), POP3(110), Submission(587), Salt(4505-4506), Wazuh(1514-1515), Splunk(9997)"
 
 # ============================================================================
-# PHASE 5: SYSTEM BACKUPS
+# PHASE 4: SYSTEM BACKUPS
 # ============================================================================
-phase "PHASE 5: SYSTEM BACKUPS"
+phase "PHASE 4: SYSTEM BACKUPS"
 run_script "$LINUXDEV/systemBackups.sh" "System Backups"
 
 # Additional mail-specific backups
@@ -277,21 +263,20 @@ mkdir -p "$BACKUP_DIR"
 log "Mail configs backed up to $BACKUP_DIR"
 
 # ============================================================================
-# PHASE 6: SYSTEM BASELINE
+# PHASE 5: SYSTEM BASELINE
 # ============================================================================
-phase "PHASE 6: SYSTEM BASELINE"
+phase "PHASE 5: SYSTEM BASELINE"
 log "Creating post-hardening system baseline..."
 run_script "$LINUXDEV/systemBaseline.sh" "System Baseline"
 
 # ============================================================================
-# PHASE 7: POST-HARDENING ENUMERATION
+# PHASE 6: POST-HARDENING ENUMERATION (Background)
 # ============================================================================
-phase "PHASE 7: POST-HARDENING ENUMERATION"
-log "Capturing post-hardening system state..."
-
+phase "PHASE 6: POST-HARDENING ENUMERATION"
 if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
-    bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_post_$TIMESTAMP.log"
-    log "Post-hardening enumeration saved to $LOG_DIR/enum_post_$TIMESTAMP.log"
+    log "Starting enumeration in background..."
+    nohup bash "$LINUXDEV/masterEnum.sh" > "$LOG_DIR/enum_post_$TIMESTAMP.log" 2>&1 &
+    log "Enumeration running in background (PID: $!) - output: $LOG_DIR/enum_post_$TIMESTAMP.log"
 fi
 
 # ============================================================================

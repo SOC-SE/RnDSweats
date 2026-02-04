@@ -135,21 +135,9 @@ echo "========================================================"
 echo ""
 
 # ============================================================================
-# PHASE 1: INITIAL ENUMERATION
+# PHASE 1: CREDENTIAL SETUP
 # ============================================================================
-phase "PHASE 1: INITIAL ENUMERATION"
-log "Capturing pre-hardening system state..."
-
-if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
-    chmod +x "$LINUXDEV/masterEnum.sh"
-    bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_pre_$TIMESTAMP.log"
-    log "Pre-hardening enumeration saved to $LOG_DIR/enum_pre_$TIMESTAMP.log"
-fi
-
-# ============================================================================
-# PHASE 2: CREDENTIAL SETUP
-# ============================================================================
-phase "PHASE 2: CREDENTIAL SETUP"
+phase "PHASE 1: CREDENTIAL SETUP"
 log "Setting up credentials for system and Splunk..."
 
 prompt_password "Root"
@@ -180,9 +168,9 @@ else
 fi
 
 # ============================================================================
-# PHASE 3: SPLUNK BACKUP, NUKE, REINSTALL
+# PHASE 2: SPLUNK BACKUP, NUKE, REINSTALL
 # ============================================================================
-phase "PHASE 3: SPLUNK BACKUP, NUKE & REINSTALL"
+phase "PHASE 2: SPLUNK BACKUP, NUKE & REINSTALL"
 log "This removes red team persistence from the original Splunk installation."
 
 # Backup original Splunk and licenses, then nuke
@@ -241,9 +229,9 @@ $SPLUNK_HOME/bin/splunk add index windows -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWO
 $SPLUNK_HOME/bin/splunk add index network -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
 
 # ============================================================================
-# PHASE 4: SPLUNK CONFIGURATION
+# PHASE 3: SPLUNK CONFIGURATION
 # ============================================================================
-phase "PHASE 4: SPLUNK CONFIGURATION"
+phase "PHASE 3: SPLUNK CONFIGURATION"
 
 # Lock down MongoDB to localhost
 log "Locking down MongoDB..."
@@ -470,9 +458,9 @@ $SPLUNK_HOME/bin/splunk enable listen 9997 -auth "$SPLUNK_USERNAME:$SPLUNK_PASSW
 log "Splunk reinstallation and configuration complete."
 
 # ============================================================================
-# PHASE 5: OS HARDENING
+# PHASE 4: OS HARDENING
 # ============================================================================
-phase "PHASE 5: OS HARDENING"
+phase "PHASE 4: OS HARDENING"
 
 # Legal banners
 log "Setting legal banners..."
@@ -518,9 +506,9 @@ systemctl disable firewalld 2>/dev/null || true
 dnf remove -y firewalld 2>/dev/null || yum remove -y firewalld 2>/dev/null || true
 
 # ============================================================================
-# PHASE 6: IPTABLES FIREWALL
+# PHASE 5: IPTABLES FIREWALL
 # ============================================================================
-phase "PHASE 6: IPTABLES FIREWALL"
+phase "PHASE 5: IPTABLES FIREWALL"
 log "Configuring strict iptables firewall..."
 
 # Install iptables services
@@ -623,9 +611,9 @@ systemctl start iptables 2>/dev/null || true
 log "Firewall configured: Splunk(8000,9997,514,5140), Wazuh(1514,1515,55000), Salt(4505,4506,8001,3000), DNS(53,5380)"
 
 # ============================================================================
-# PHASE 7: KERNEL HARDENING
+# PHASE 6: KERNEL HARDENING
 # ============================================================================
-phase "PHASE 7: KERNEL HARDENING"
+phase "PHASE 6: KERNEL HARDENING"
 log "Applying sysctl kernel hardening..."
 
 SYSCTL_HARDEN="/etc/sysctl.d/99-security-hardening.conf"
@@ -669,9 +657,9 @@ if [[ -f "$LINUXDEV/pamManager.sh" ]]; then
 fi
 
 # ============================================================================
-# PHASE 8: SYSTEM BACKUPS
+# PHASE 7: SYSTEM BACKUPS
 # ============================================================================
-phase "PHASE 8: SYSTEM BACKUPS"
+phase "PHASE 7: SYSTEM BACKUPS"
 run_script "$LINUXDEV/systemBackups.sh" "System Backups"
 
 # Splunk-specific post-hardening backup
@@ -684,19 +672,20 @@ if [[ -d "$SPLUNK_HOME" ]]; then
 fi
 
 # ============================================================================
-# PHASE 9: SYSTEM BASELINE
+# PHASE 8: SYSTEM BASELINE
 # ============================================================================
-phase "PHASE 9: SYSTEM BASELINE"
+phase "PHASE 8: SYSTEM BASELINE"
 log "Creating post-hardening system baseline..."
 run_script "$LINUXDEV/systemBaseline.sh" "System Baseline"
 
 # ============================================================================
-# PHASE 10: POST-HARDENING ENUMERATION
+# PHASE 9: POST-HARDENING ENUMERATION (Background)
 # ============================================================================
-phase "PHASE 10: POST-HARDENING ENUMERATION"
-
+phase "PHASE 9: POST-HARDENING ENUMERATION"
 if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
-    bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_post_$TIMESTAMP.log"
+    log "Starting enumeration in background..."
+    nohup bash "$LINUXDEV/masterEnum.sh" > "$LOG_DIR/enum_post_$TIMESTAMP.log" 2>&1 &
+    log "Enumeration running in background (PID: $!) - output: $LOG_DIR/enum_post_$TIMESTAMP.log"
 fi
 
 # ============================================================================

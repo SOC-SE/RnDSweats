@@ -89,23 +89,9 @@ echo "========================================================"
 echo ""
 
 # ============================================================================
-# PHASE 1: INITIAL ENUMERATION
+# PHASE 1: GENERAL LINUX HARDENING
 # ============================================================================
-phase "PHASE 1: INITIAL ENUMERATION"
-log "Capturing pre-hardening system state..."
-
-if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
-    chmod +x "$LINUXDEV/masterEnum.sh"
-    bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_pre_$TIMESTAMP.log"
-    log "Pre-hardening enumeration saved to $LOG_DIR/enum_pre_$TIMESTAMP.log"
-else
-    warn "masterEnum.sh not found, skipping initial enumeration"
-fi
-
-# ============================================================================
-# PHASE 2: GENERAL LINUX HARDENING
-# ============================================================================
-phase "PHASE 2: GENERAL LINUX HARDENING"
+phase "PHASE 1: GENERAL LINUX HARDENING"
 run_script "$LINUXDEV/generalLinuxHarden.sh" "General Linux Hardening"
 
 # SSH removal
@@ -114,9 +100,9 @@ apt-get remove --purge -y openssh-server 2>/dev/null || true
 find / -name "authorized_keys" -type f -delete 2>/dev/null || true
 
 # ============================================================================
-# PHASE 3: WEB SERVER HARDENING
+# PHASE 2: E-COMMERCE HARDENING
 # ============================================================================
-phase "PHASE 3: E-COMMERCE HARDENING"
+phase "PHASE 2: E-COMMERCE HARDENING"
 
 # Determine web server type
 if systemctl is-active --quiet apache2 2>/dev/null; then
@@ -133,9 +119,9 @@ fi
 run_script "$LINUXDEV/harden_ecom.sh" "E-Commerce Hardening (Apache/NGINX + OpenCart + PHP + DB)"
 
 # ============================================================================
-# PHASE 4: MYSQL HARDENING
+# PHASE 3: MYSQL HARDENING
 # ============================================================================
-phase "PHASE 4: MYSQL HARDENING"
+phase "PHASE 3: MYSQL HARDENING"
 
 MYSQL_HARDEN="$REPO_DIR/linux/postHardenTools/misc/MySQL/mysqlharden.sh"
 if [[ -f "$MYSQL_HARDEN" ]]; then
@@ -148,9 +134,9 @@ else
 fi
 
 # ============================================================================
-# PHASE 5: FIREWALL CONFIGURATION
+# PHASE 4: FIREWALL CONFIGURATION
 # ============================================================================
-phase "PHASE 5: FIREWALL CONFIGURATION"
+phase "PHASE 4: FIREWALL CONFIGURATION"
 log "Configuring iptables firewall for e-commerce services..."
 
 # Disable firewalld if present, use iptables only
@@ -240,27 +226,26 @@ netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables.rules
 log "Firewall configured: HTTP(80), MySQL(3306 localhost), Salt(4505-4506), Wazuh(1514-1515), Splunk(9997)"
 
 # ============================================================================
-# PHASE 6: SYSTEM BACKUPS
+# PHASE 5: SYSTEM BACKUPS
 # ============================================================================
-phase "PHASE 6: SYSTEM BACKUPS"
+phase "PHASE 5: SYSTEM BACKUPS"
 run_script "$LINUXDEV/systemBackups.sh" "System Backups"
 
 # ============================================================================
-# PHASE 7: SYSTEM BASELINE
+# PHASE 6: SYSTEM BASELINE
 # ============================================================================
-phase "PHASE 7: SYSTEM BASELINE"
+phase "PHASE 6: SYSTEM BASELINE"
 log "Creating post-hardening system baseline..."
 run_script "$LINUXDEV/systemBaseline.sh" "System Baseline"
 
 # ============================================================================
-# PHASE 8: POST-HARDENING ENUMERATION
+# PHASE 7: POST-HARDENING ENUMERATION (Background)
 # ============================================================================
-phase "PHASE 8: POST-HARDENING ENUMERATION"
-log "Capturing post-hardening system state..."
-
+phase "PHASE 7: POST-HARDENING ENUMERATION"
 if [[ -f "$LINUXDEV/masterEnum.sh" ]]; then
-    bash "$LINUXDEV/masterEnum.sh" 2>&1 | tee "$LOG_DIR/enum_post_$TIMESTAMP.log"
-    log "Post-hardening enumeration saved to $LOG_DIR/enum_post_$TIMESTAMP.log"
+    log "Starting enumeration in background..."
+    nohup bash "$LINUXDEV/masterEnum.sh" > "$LOG_DIR/enum_post_$TIMESTAMP.log" 2>&1 &
+    log "Enumeration running in background (PID: $!) - output: $LOG_DIR/enum_post_$TIMESTAMP.log"
 fi
 
 # ============================================================================
@@ -274,9 +259,8 @@ echo "========================================================"
 echo ""
 echo "Logs saved to: $LOG_DIR/"
 echo ""
-echo "Pre-hardening enum:  $LOG_DIR/enum_pre_$TIMESTAMP.log"
-echo "Post-hardening enum: $LOG_DIR/enum_post_$TIMESTAMP.log"
-echo "Master log:          $LOG_FILE"
+echo "Enumeration (background): $LOG_DIR/enum_post_$TIMESTAMP.log"
+echo "Master log:               $LOG_FILE"
 echo ""
 echo "NEXT STEPS:"
 echo "  1. Run normalizeToolsGeneral.sh and normalizeToolsSecurity.sh to install additional tools"
