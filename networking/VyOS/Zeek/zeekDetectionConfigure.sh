@@ -1306,25 +1306,33 @@ print_summary() {
     echo "  • SharpHound/BloodHound enumeration"
     echo "  • PetitPotam & PrintNightmare exploitation"
     echo ""
-    echo -e "${YELLOW}Next Steps:${NC}"
+    echo -e "${GREEN}Zeek Status:${NC}"
+    echo "  ✓ Configuration deployed"
+    echo "  ✓ Workers started (zeekctl deploy)"
+    echo "  ✓ Service enabled for boot persistence"
     echo ""
-    echo "  1. Install any missing packages:"
+    echo -e "${YELLOW}Optional Next Steps:${NC}"
+    echo ""
+    echo "  1. (If packages missing) Install fingerprinting packages:"
     echo "     zkg install zeek/salesforce/ja3"
     echo "     zkg install zeek/foxio/ja4"
     echo "     zkg install zeek/salesforce/hassh"
+    echo "     zeekctl deploy  # Redeploy after installing"
     echo ""
-    echo "  2. (Optional) Edit whitelists in:"
+    echo "  2. (Optional) Edit whitelists to reduce false positives:"
     echo -e "     ${BOLD}$SITE_DIR/local.zeek${NC}"
+    echo "     zeekctl deploy  # Redeploy after editing"
     echo ""
-    echo "  3. Deploy to your Zeek cluster:"
-    echo -e "     ${BOLD}zeekctl deploy${NC}"
+    echo -e "${GREEN}Monitor Logs:${NC}"
+    echo "  • /opt/zeek/logs/current/notice.log    - Attack alerts"
+    echo "  • /opt/zeek/logs/current/ssl.log       - TLS fingerprints"
+    echo "  • /opt/zeek/logs/current/ssh.log       - SSH fingerprints"
+    echo "  • /opt/zeek/logs/current/dce_rpc.log   - DCE-RPC activity"
     echo ""
-    echo "  4. Monitor logs:"
-    echo "     • notice.log     - Attack alerts"
-    echo "     • ssl.log        - TLS fingerprints (ja3, ja4)"
-    echo "     • ssh.log        - SSH fingerprints (hassh)"
-    echo "     • dce_rpc.log    - DCE-RPC activity"
-    echo "     • kerberos.log   - Kerberos activity"
+    echo -e "${GREEN}Useful Commands:${NC}"
+    echo "  zeekctl status              - Check worker status"
+    echo "  zeekctl deploy              - Redeploy after config changes"
+    echo "  tail -f /opt/zeek/logs/current/notice.log  - Live alerts"
     echo ""
     if [[ ${#DC_IPS[@]} -eq 0 ]]; then
         echo -e "${YELLOW}NOTE: No DC whitelist configured. DCSync alerts from legitimate${NC}"
@@ -1385,7 +1393,7 @@ echo -e "${CYAN}╚════════════════════�
 echo ""
 
 # Step 1: Detect Zeek
-log_step "1/8" "Detecting Zeek Installation"
+log_step "1/9" "Detecting Zeek Installation"
 if [[ -z "$ZEEK_DIR" ]]; then
     if ! detect_zeek; then
         log_error "Could not detect Zeek installation"
@@ -1409,11 +1417,11 @@ if ! check_write_permissions "$SITE_DIR"; then
 fi
 
 # Step 2: Install JA3 (required for TLS fingerprinting)
-log_step "2/8" "JA3 TLS Fingerprinting Package"
+log_step "2/9" "JA3 TLS Fingerprinting Package"
 install_ja3 || true  # Continue even if JA3 fails
 
 # Step 3: Install BZAR
-log_step "3/8" "MITRE BZAR Package"
+log_step "3/9" "MITRE BZAR Package"
 if [[ "$SKIP_BZAR" == true ]]; then
     log_info "Skipping BZAR installation (--skip-bzar)"
 else
@@ -1421,19 +1429,19 @@ else
 fi
 
 # Step 4: Install TLS Fingerprinting
-log_step "4/8" "TLS Fingerprinting Framework"
+log_step "4/9" "TLS Fingerprinting Framework"
 install_tls_fingerprinting
 
 # Step 5: Generate Fingerprints
-log_step "5/8" "Fingerprint Database"
+log_step "5/9" "Fingerprint Database"
 generate_fingerprints
 
 # Step 6: Install AD Attacks
-log_step "6/8" "AD Attack Detection"
+log_step "6/9" "AD Attack Detection"
 install_ad_attacks
 
 # Step 7: Collect Whitelists (optional, interactive)
-log_step "7/8" "Whitelist Configuration (Optional)"
+log_step "7/9" "Whitelist Configuration (Optional)"
 if [[ "$NON_INTERACTIVE" == true ]]; then
     log_info "Skipping whitelist configuration (non-interactive mode)"
     log_info "You can add whitelists later in local.zeek"
@@ -1442,22 +1450,43 @@ else
     echo -e "${YELLOW}Whitelists help reduce false positives but are OPTIONAL.${NC}"
     echo "You can configure these later by editing local.zeek"
     echo ""
-    
+
     if prompt_yes_no "Configure Domain Controller whitelist now? [y/N]" "n"; then
         prompt_ips "Enter Domain Controller IP addresses:" DC_IPS
     fi
-    
+
     if prompt_yes_no "Configure Admin workstation whitelist now? [y/N]" "n"; then
         prompt_ips "Enter Admin Workstation IP addresses:" ADMIN_IPS
     fi
 fi
 
 # Step 8: Create local.zeek
-log_step "8/8" "Creating Configuration"
+log_step "8/9" "Creating Configuration"
 create_local_zeek
 
-# Verify
+# Verify configuration syntax
 verify_installation || true
+
+# Step 9: Deploy Zeek and enable service
+log_step "9/9" "Deploying Zeek"
+log_info "Deploying Zeek configuration and starting workers..."
+if zeekctl deploy 2>&1; then
+    log_success "Zeek deployed and running"
+else
+    log_warning "zeekctl deploy had warnings (check above)"
+fi
+
+# Enable systemd service for persistence across reboots
+if systemctl is-enabled zeek &>/dev/null; then
+    log_success "Zeek service already enabled for boot"
+else
+    systemctl enable zeek 2>/dev/null && log_success "Enabled zeek service for boot persistence" || \
+    log_warning "Could not enable zeek service (may need manual: systemctl enable zeek)"
+fi
+
+# Show status
+log_info "Zeek status:"
+zeekctl status 2>&1 || true
 
 # Summary
 print_summary

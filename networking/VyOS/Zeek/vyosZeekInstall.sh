@@ -248,39 +248,33 @@ calculate_network_address() {
 detect_networks() {
     log_header "Configuring Local Networks"
 
+    # Check if user specified networks via -n flag
     if [[ -n "$LOCAL_NETWORKS" ]]; then
         log_success "Using specified networks: $LOCAL_NETWORKS"
         return
     fi
 
-    # Auto-detect from monitored interfaces
-    local detected_nets=()
-    for iface in "${MONITOR_INTERFACES[@]}"; do
-        local iface_ip_cidr
-        iface_ip_cidr=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP 'inet \K[0-9./]+' | head -1)
-        if [[ -n "$iface_ip_cidr" ]]; then
-            # Calculate actual network address from IP/CIDR
-            local network_addr
-            network_addr=$(calculate_network_address "$iface_ip_cidr")
-            detected_nets+=("$network_addr")
-            log_info "Detected network on $iface: $network_addr (from $iface_ip_cidr)"
-        fi
-    done
+    # Default networks for the lab environment
+    # User can override with -n flag or interactively
+    local default_networks="172.16.101.0/24,172.16.102.0/24,172.20.240.0/24,172.20.242.0/24"
+    LOCAL_NETWORKS="$default_networks"
+    log_info "Using default local networks:"
+    log_info "  • 172.16.101.0/24"
+    log_info "  • 172.16.102.0/24"
+    log_info "  • 172.20.240.0/24"
+    log_info "  • 172.20.242.0/24"
 
-    if [[ ${#detected_nets[@]} -gt 0 ]]; then
-        LOCAL_NETWORKS=$(IFS=,; echo "${detected_nets[*]}")
-        log_success "Auto-detected local networks: $LOCAL_NETWORKS"
-    else
-        log_warning "Could not auto-detect networks"
-        log_info "Zeek will treat all traffic as external (no 'Local' designation)"
-        LOCAL_NETWORKS=""
-    fi
-
-    # Prompt for confirmation in interactive mode
-    if [[ "$NON_INTERACTIVE" != true ]] && [[ -n "$LOCAL_NETWORKS" ]]; then
+    # Prompt for confirmation/override in interactive mode
+    if [[ "$NON_INTERACTIVE" != true ]]; then
         echo ""
+        echo -e "${YELLOW}Override with your networks or press Enter to accept defaults${NC}"
         read -r -p "Local networks [$LOCAL_NETWORKS]: " user_nets
-        [[ -n "$user_nets" ]] && LOCAL_NETWORKS="$user_nets"
+        if [[ -n "$user_nets" ]]; then
+            LOCAL_NETWORKS="$user_nets"
+            log_success "Using custom networks: $LOCAL_NETWORKS"
+        else
+            log_success "Using default networks"
+        fi
     fi
 }
 
