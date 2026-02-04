@@ -11,11 +11,6 @@
 # Cowrie runs its own self-contained SSH server — no system sshd needed.
 # All logs are JSON-structured for easy Splunk/SIEM ingestion.
 #
-# HONEYPOT ACCOUNT INTEGRATION:
-#   The master hardening scripts create a fake "sysadmin_backup" account with
-#   known credentials. When red team discovers and uses these creds via SSH,
-#   Cowrie captures the attempt. Monitor with: ./CowrieHoneypot.sh creds
-#
 # USAGE (run as root):
 #   ./CowrieHoneypot.sh install       Install and start Cowrie
 #   ./CowrieHoneypot.sh uninstall     Stop and remove Cowrie
