@@ -4,6 +4,8 @@
 # SC2155: Declare/assign separately - intentionally combined for readability in local vars
 # SC2178: False positive with nameref arrays
 #
+# Requires: Bash 4.0+ (for associative arrays)
+#
 #   masterEnum.sh
 #   
 #   This script is an amalgamation of several ideas, scripts, and small personal tools I've built up.
@@ -23,8 +25,14 @@ set -uo pipefail
 
 # Ensure we are root
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root." 
+   echo "This script must be run as root."
    exit 1
+fi
+
+# Ensure Bash 4.0+ (required for associative arrays)
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+    echo "This script requires Bash 4.0 or later (current: $BASH_VERSION)"
+    exit 1
 fi
 
 # Grab the hostname
@@ -1648,8 +1656,10 @@ get_persistence(){
     echo ""
     echo "=== World-Writable Files (Outside /tmp) ==="
     local world_writable
-    world_writable=$(set +o pipefail; find / -xdev -type f -perm -0002 ! -path "/tmp/*" ! -path "/var/tmp/*" ! -path "/dev/*" ! -path "/proc/*" ! -path "/sys/*" 2>/dev/null | head -20)
-    if [[ -n "$world_writable" ]]; then
+    world_writable=$(set +o pipefail; timeout 60 find / -xdev -type f -perm -0002 ! -path "/tmp/*" ! -path "/var/tmp/*" ! -path "/dev/*" ! -path "/proc/*" ! -path "/sys/*" 2>/dev/null | head -20)
+    if [[ $? -eq 124 ]]; then
+        echo "[TIMEOUT] Filesystem scan timed out after 60s"
+    elif [[ -n "$world_writable" ]]; then
         echo "[WARNING] World-writable files found:"
         echo "$world_writable" | sed 's/^/    /'
     else
@@ -1659,8 +1669,10 @@ get_persistence(){
     echo ""
     echo "=== Unowned Files ==="
     local unowned_files
-    unowned_files=$(set +o pipefail; find / -xdev \( -nouser -o -nogroup \) ! -path "/proc/*" ! -path "/sys/*" 2>/dev/null | head -20)
-    if [[ -n "$unowned_files" ]]; then
+    unowned_files=$(set +o pipefail; timeout 60 find / -xdev \( -nouser -o -nogroup \) ! -path "/proc/*" ! -path "/sys/*" 2>/dev/null | head -20)
+    if [[ $? -eq 124 ]]; then
+        echo "[TIMEOUT] Filesystem scan timed out after 60s"
+    elif [[ -n "$unowned_files" ]]; then
         echo "[WARNING] Unowned files found:"
         echo "$unowned_files" | sed 's/^/    /'
     else
@@ -2126,24 +2138,33 @@ get_privesc(){
     # Find and categorize SUID binaries
     enumerate_suid_binaries() {
         log "Enumerating SUID binaries"
-        
-        # Find all SUID binaries
+
+        # Find all SUID binaries (with 90s timeout to prevent hangs on slow filesystems)
+        local suid_list
+        suid_list=$(timeout 90 find / -xdev -perm -4000 -type f 2>/dev/null)
+        local find_exit=$?
+
+        if [[ $find_exit -eq 124 ]]; then
+            log "[TIMEOUT] SUID binary search timed out after 90s - results may be incomplete"
+            echo "[TIMEOUT] SUID binary search timed out after 90s - results may be incomplete"
+        fi
+
         while read -r suid_binary; do
             [[ -n "$suid_binary" ]] || continue
-            
+
             local binary_name
             binary_name=$(basename "$suid_binary")
-            
+
             # Get file details
             local file_details owner permissions
             file_details=$(ls -la "$suid_binary" 2>/dev/null) || continue
             owner=$(echo "$file_details" | awk '{print $3}')
             permissions=$(echo "$file_details" | awk '{print $1}')
-            
+
             # Get risk assessment
             local risk_flags
             risk_flags=$(get_suid_risk_flags "$suid_binary" "$binary_name" "$owner")
-            
+
             # Categorize the binary
             if [[ -n "$risk_flags" ]]; then
                 dangerous_suid+=("$suid_binary|$owner|$permissions|N/A|$risk_flags")
@@ -2153,43 +2174,52 @@ get_privesc(){
                 # Non-standard but not flagged as dangerous
                 dangerous_suid+=("$suid_binary|$owner|$permissions|N/A|[UNUSUAL] Non-standard SUID")
             fi
-            
-        done < <(find / -perm -4000 -type f 2>/dev/null)
+
+        done <<< "$suid_list"
     }
 
     # Find and categorize capabilities-enabled binaries
     enumerate_capabilities() {
         log "Enumerating capabilities-enabled binaries"
-        
+
         # Check if getcap is available
         if ! command -v getcap >/dev/null 2>&1; then
             log "getcap not found - skipping capabilities enumeration"
             return
         fi
-        
-        # Find all binaries with capabilities
+
+        # Find all binaries with capabilities (with 60s timeout)
+        local cap_list
+        cap_list=$(timeout 60 getcap -r / 2>/dev/null)
+        local getcap_exit=$?
+
+        if [[ $getcap_exit -eq 124 ]]; then
+            log "[TIMEOUT] Capabilities search timed out after 60s - results may be incomplete"
+            echo "[TIMEOUT] Capabilities search timed out after 60s - results may be incomplete"
+        fi
+
         while read -r cap_line; do
             [[ -n "$cap_line" ]] || continue
-            
+
             # Parse getcap output: /path/to/binary capabilities
             local binary_path capabilities
             binary_path=$(echo "$cap_line" | awk '{print $1}')
             capabilities=$(echo "$cap_line" | cut -d' ' -f2-)
-            
+
             # Get file details
             local file_details owner permissions
             file_details=$(ls -la "$binary_path" 2>/dev/null) || continue
             owner=$(echo "$file_details" | awk '{print $3}')
             permissions=$(echo "$file_details" | awk '{print $1}')
-            
+
             # Get risk assessment
             local risk_flags
             risk_flags=$(get_capability_risk_flags "$capabilities" "$binary_path")
-            
+
             # Add to capabilities array
             capabilities_binaries+=("$binary_path|$owner|$permissions|$capabilities|$risk_flags")
-            
-        done < <(getcap -r / 2>/dev/null)
+
+        done <<< "$cap_list"
     }
 
     # Function to print section header
