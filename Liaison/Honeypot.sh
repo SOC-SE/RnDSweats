@@ -230,15 +230,10 @@ EOF
         fi
         systemctl restart rsyslog >/dev/null 2>&1 || log_warn "rsyslog restart failed."
     }
-    command -v ufw &> /dev/null && {
-        ufw allow 22/tcp >/dev/null 2>&1
-        ufw allow "$HONEYPOT_PORT"/tcp >/dev/null 2>&1
-        ufw reload >/dev/null 2>&1
-    } || command -v firewall-cmd &> /dev/null && {
-        firewall-cmd --permanent --add-port=22/tcp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port="$HONEYPOT_PORT"/tcp >/dev/null 2>&1
-        firewall-cmd --reload >/dev/null 2>&1
-    }
+    for port in 22 "$HONEYPOT_PORT"; do
+        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || \
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+    done
     systemctl enable endlessh >/dev/null 2>&1
     systemctl restart endlessh >/dev/null 2>&1
 }

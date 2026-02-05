@@ -535,22 +535,11 @@ EOF
 configure_firewall() {
     info "Configuring firewall for mail services..."
 
-    if command -v firewall-cmd &>/dev/null; then
-        for svc in smtp smtps imap imaps pop3 pop3s; do
-            firewall-cmd --permanent --add-service="$svc" 2>/dev/null || true
-        done
-        [[ "$OS_FAMILY" == "rhel" ]] && firewall-cmd --permanent --add-service=http 2>/dev/null || true
-        firewall-cmd --reload 2>/dev/null || true
-        ok "firewalld configured"
-    elif command -v ufw &>/dev/null; then
-        ufw allow 25/tcp 2>/dev/null || true   # SMTP
-        ufw allow 110/tcp 2>/dev/null || true  # POP3
-        ufw allow 143/tcp 2>/dev/null || true  # IMAP
-        ufw allow 587/tcp 2>/dev/null || true  # Submission
-        ufw allow 993/tcp 2>/dev/null || true  # IMAPS
-        ufw allow 995/tcp 2>/dev/null || true  # POP3S
-        ok "ufw configured"
-    fi
+    for port in 25 110 143 587 993 995; do
+        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || \
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+    done
+    ok "iptables configured for mail services"
 }
 
 # --- Firewall Prompt ---
@@ -559,12 +548,12 @@ prompt_firewall_config() {
     echo -e "${YELLOW}┌─────────────────────────────────────────────────────────────┐${RESET}"
     echo -e "${YELLOW}│${RESET}  ${MAGENTA}Firewall Configuration${RESET}                                   ${YELLOW}│${RESET}"
     echo -e "${YELLOW}├─────────────────────────────────────────────────────────────┤${RESET}"
-    echo -e "${YELLOW}│${RESET}  This script can configure your firewall (ufw/firewalld)  ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  to allow mail service ports.                              ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  This script can configure iptables to allow mail service  ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  ports.                                                    ${YELLOW}│${RESET}"
     echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  ${RED}WARNING:${RESET} If you are using iptables directly or have      ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  custom firewall rules, enabling ufw may interfere with    ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  your existing configuration.                               ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  ${RED}WARNING:${RESET} This will add iptables INPUT ACCEPT rules.     ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  Ensure this does not conflict with your existing           ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  firewall configuration.                                    ${YELLOW}│${RESET}"
     echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
     echo -e "${YELLOW}│${RESET}  Ports to be opened: 25, 110, 143, 587, 993, 995           ${YELLOW}│${RESET}"
     echo -e "${YELLOW}└─────────────────────────────────────────────────────────────┘${RESET}"

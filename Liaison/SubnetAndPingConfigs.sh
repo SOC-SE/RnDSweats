@@ -140,17 +140,9 @@ configure_ipv4_ping() {
     fi
 
     # Firewall allow ICMP
-    if command -v ufw &> /dev/null; then
-        ufw allow proto icmp from any to any
-        ufw reload
-        log_info "UFW rule added for ICMPv4."
-    elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-protocol=icmp
-        firewall-cmd --reload
-        log_info "Firewalld rule added for ICMPv4."
-    else
-        log_warn "No supported firewall; ensure ICMP is allowed manually."
-    fi
+    iptables -C INPUT -p icmp -j ACCEPT 2>/dev/null || \
+        iptables -A INPUT -p icmp -j ACCEPT
+    log_info "iptables rule added for ICMPv4."
 
     # Test ping
     if ping -c 3 "$remote_ip" &> /dev/null; then
@@ -174,17 +166,9 @@ configure_ipv6_ping() {
     fi
 
     # Firewall allow ICMPv6
-    if command -v ufw &> /dev/null; then
-        ufw allow proto ipv6-icmp from any to any || ufw allow ipv6-icmp
-        ufw reload
-        log_info "UFW rule added for ICMPv6."
-    elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-protocol=ipv6-icmp
-        firewall-cmd --reload
-        log_info "Firewalld rule added for ICMPv6."
-    else
-        log_warn "No supported firewall; ensure ICMPv6 is allowed manually."
-    fi
+    ip6tables -C INPUT -p ipv6-icmp -j ACCEPT 2>/dev/null || \
+        ip6tables -A INPUT -p ipv6-icmp -j ACCEPT
+    log_info "iptables rule added for ICMPv6."
 
     # Test ping
     if ping6 -c 3 "$remote_ip" &> /dev/null; then
@@ -202,16 +186,9 @@ remove_ipv4_config() {
     ip addr del "$local_ip" dev "$iface"
     log_info "Removed $local_ip from $iface."
 
-    # Remove firewall rule (approximate reversal)
-    if command -v ufw &> /dev/null; then
-        ufw delete allow proto icmp from any to any
-        ufw reload
-        log_info "UFW ICMPv4 rule removed."
-    elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --remove-protocol=icmp
-        firewall-cmd --reload
-        log_info "Firewalld ICMPv4 rule removed."
-    fi
+    # Remove firewall rule
+    iptables -D INPUT -p icmp -j ACCEPT 2>/dev/null || true
+    log_info "iptables ICMPv4 rule removed."
 }
 
 # --- Remove IPv6 Config ---
@@ -223,15 +200,8 @@ remove_ipv6_config() {
     log_info "Removed $local_ip from $iface."
 
     # Remove firewall rule
-    if command -v ufw &> /dev/null; then
-        ufw delete allow proto ipv6-icmp from any to any
-        ufw reload
-        log_info "UFW ICMPv6 rule removed."
-    elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --remove-protocol=ipv6-icmp
-        firewall-cmd --reload
-        log_info "Firewalld ICMPv6 rule removed."
-    fi
+    ip6tables -D INPUT -p ipv6-icmp -j ACCEPT 2>/dev/null || true
+    log_info "iptables ICMPv6 rule removed."
 }
 
 # --- View Current Configs ---
@@ -240,10 +210,10 @@ view_configs() {
     ip -4 addr show
     log_info "Current IPv6 addresses:"
     ip -6 addr show
-    log_info "Firewall rules (if ufw):"
-    command -v ufw &> /dev/null && ufw status || echo "UFW not installed."
-    log_info "Firewall rules (if firewalld):"
-    command -v firewall-cmd &> /dev/null && firewall-cmd --list-all || echo "Firewalld not installed."
+    log_info "Firewall rules (iptables):"
+    iptables -L -n 2>/dev/null || echo "iptables not available."
+    log_info "Firewall rules (ip6tables):"
+    ip6tables -L -n 2>/dev/null || echo "ip6tables not available."
 }
 
 # --- Prompt for Mode ---

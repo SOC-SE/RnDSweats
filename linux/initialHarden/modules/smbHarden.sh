@@ -254,47 +254,15 @@ EOF
 configure_firewall() {
   log "Configuring firewall for Samba..."
 
-  case "$DISTRO_FAMILY" in
-    debian|arch)
-      if have_cmd ufw; then
-        ufw allow 139/tcp comment 'SMB NetBIOS'
-        ufw allow 445/tcp comment 'SMB'
-        ufw reload || true
-        log "UFW rules added for Samba"
-      elif have_cmd iptables; then
-        iptables -A INPUT -p tcp --dport 139 -j ACCEPT 2>/dev/null || true
-        iptables -A INPUT -p tcp --dport 445 -j ACCEPT 2>/dev/null || true
-        log "iptables rules added for Samba"
-      else
-        warn "No firewall tool available on this system"
-      fi
-      ;;
-    rhel|fedora)
-      if have_cmd firewall-cmd; then
-        firewall-cmd --permanent --add-service=samba || true
-        firewall-cmd --reload || true
-        log "firewalld rules added for Samba"
-      else
-        warn "firewalld not available on this system"
-      fi
-      ;;
-    alpine)
-      if have_cmd iptables; then
-        iptables -A INPUT -p tcp --dport 139 -j ACCEPT 2>/dev/null || true
-        iptables -A INPUT -p tcp --dport 445 -j ACCEPT 2>/dev/null || true
-        log "iptables rules added for Samba"
-        # Save rules if possible
-        if [[ -f /etc/init.d/iptables ]]; then
-          /etc/init.d/iptables save 2>/dev/null || true
-        fi
-      else
-        warn "iptables not available on this system"
-      fi
-      ;;
-    *)
-      warn "Unknown distro family, skipping firewall configuration"
-      ;;
-  esac
+  for port in 139 445; do
+    iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || \
+      iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+  done
+  log "iptables rules added for Samba"
+  # Save rules on Alpine if possible
+  if [[ -f /etc/init.d/iptables ]]; then
+    /etc/init.d/iptables save 2>/dev/null || true
+  fi
 }
 
 quick_smoke_test() {

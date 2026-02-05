@@ -608,23 +608,13 @@ setup_network_config() {
     # Detect external interface
     local ext_interface=$(ip route | grep default | awk '{print $5}' | head -1 || echo "eth0")
     
-    # Firewall (with duplicate check)
-    if command -v ufw &> /dev/null; then
-        ufw --force enable >> "$LOG_FILE" 2>&1 || true
-        ufw allow 22/tcp >> "$LOG_FILE" 2>&1 || true
-        ufw allow 1194/udp >> "$LOG_FILE" 2>&1 || true
-        ufw allow 51820/udp >> "$LOG_FILE" 2>&1 || true
-        ufw allow 443/tcp >> "$LOG_FILE" 2>&1 || true
-        ufw reload >> "$LOG_FILE" 2>&1 || true
-    elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-service=openvpn >> "$LOG_FILE" 2>&1 || true
-        firewall-cmd --permanent --add-port=51820/udp >> "$LOG_FILE" 2>&1 || true
-        firewall-cmd --permanent --add-port=443/tcp >> "$LOG_FILE" 2>&1 || true
-        firewall-cmd --reload >> "$LOG_FILE" 2>&1 || true
-    else
-        $INSTALL_CMD ufw >> "$LOG_FILE" 2>&1 || true
-        # Re-run if installed
-    fi
+    # Firewall (iptables with duplicate check)
+    for port_proto in 22/tcp 443/tcp 1194/udp 51820/udp; do
+        local port="${port_proto%/*}"
+        local proto="${port_proto#*/}"
+        iptables -C INPUT -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null || \
+            iptables -A INPUT -p "$proto" --dport "$port" -j ACCEPT
+    done
     
     # NAT with duplicate removal
     if command -v iptables >/dev/null 2>&1; then
