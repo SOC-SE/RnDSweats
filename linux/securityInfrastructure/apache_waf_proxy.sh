@@ -33,7 +33,7 @@
 #   --test-waf        Test WAF with sample attack patterns
 #   --dry-run         Show what would be done without making changes
 #   --detection-only  Enable WAF in detection-only mode (log but don't block)
-#   --paranoia N      Set OWASP CRS paranoia level (1-4, default: 1)
+#   --paranoia N      Set OWASP CRS paranoia level (1-4, default: 2)
 #   --apache-port N   Set Apache backend port (default: 8080)
 #   -h, --help        Show this help message
 #
@@ -59,7 +59,7 @@ readonly TIMESTAMP
 
 # Defaults
 APACHE_BACKEND_PORT=8080
-WAF_PARANOIA_LEVEL=1
+WAF_PARANOIA_LEVEL=2
 DETECTION_ONLY=false
 DRY_RUN=false
 
@@ -1382,9 +1382,9 @@ Options:
   --test-waf        Test WAF with sample attack patterns
   --dry-run         Show what would be done without making changes
   --detection-only  Enable WAF in detection-only mode (log but don't block)
-  --paranoia N      Set OWASP CRS paranoia level (1-4, default: 1)
+  --paranoia N      Set OWASP CRS paranoia level (1-4, default: 2)
                       1 = Low false positives, basic protection
-                      2 = Moderate protection
+                      2 = Moderate protection (default)
                       3 = High protection, more false positives
                       4 = Maximum protection, expect tuning needed
   --apache-port N   Set Apache backend port (default: 8080)
@@ -1397,8 +1397,8 @@ Examples:
   # Install in detection-only mode first (recommended for tuning)
   sudo $SCRIPT_NAME --install --detection-only
 
-  # Install with higher security (paranoia level 2)
-  sudo $SCRIPT_NAME --install --paranoia 2
+  # Install with higher security (paranoia level 3)
+  sudo $SCRIPT_NAME --install --paranoia 3
 
   # Preview changes without installing
   sudo $SCRIPT_NAME --install --dry-run
