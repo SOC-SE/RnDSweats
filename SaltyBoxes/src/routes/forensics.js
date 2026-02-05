@@ -141,15 +141,21 @@ router.post('/advanced', auditAction('forensics.advanced'), async (req, res) => 
 /**
  * POST /api/forensics/comprehensive
  * Comprehensive forensic collection with all options
+ *
+ * When skip_scans=true, collection runs fast (~30s) and returns immediately.
+ * Security scans can then be run separately via /api/forensics/scan for progressive display.
  */
 router.post('/comprehensive', auditAction('forensics.comprehensive'), async (req, res) => {
-  const { targets, memory_dump = false, volatility = false, quick_mode = false, skip_logs = false, auto_install = true, timeout = 900 } = req.body;
+  const { targets, memory_dump = false, volatility = false, quick_mode = false, skip_logs = false, skip_scans = false, auto_install = true, timeout = 900 } = req.body;
   if (!targets) {
     return res.status(400).json({ success: false, error: 'Targets required' });
   }
 
   const jobId = generateJobId();
-  const opts = { memory_dump, volatility, quick_mode, skip_logs, auto_install };
+  const opts = { memory_dump, volatility, quick_mode, skip_logs, skip_scans, auto_install };
+  // Use shorter timeout when skipping scans (collection only takes ~30-60s)
+  // But if memory dump/volatility is enabled, allow more time
+  const effectiveTimeout = skip_scans && !memory_dump ? Math.min(timeout, 180) : timeout;
   forensicJobs.set(jobId, { id: jobId, status: 'running', level: 'comprehensive', targets, options: opts, created: new Date().toISOString(), results: null });
 
   (async () => {
@@ -166,8 +172,21 @@ router.post('/comprehensive', auditAction('forensics.comprehensive'), async (req
         }
       }
       const script = buildCollectScript('comprehensive', opts);
-      const result = await saltClient.cmdScript(targets, script, { shell: '/bin/bash', timeout });
-      forensicJobs.set(jobId, { ...forensicJobs.get(jobId), status: 'completed', results: result, install_results: installResults });
+      const result = await saltClient.cmdScript(targets, script, { shell: '/bin/bash', timeout: effectiveTimeout });
+
+      // Extract tarball paths from results for each minion
+      const tarballPaths = {};
+      for (const [minion, output] of Object.entries(result)) {
+        if (typeof output === 'string') {
+          // Look for [TARBALL] marker in output
+          const tarballMatch = output.match(/\[TARBALL\] (.+\.tar\.gz)/);
+          if (tarballMatch) {
+            tarballPaths[minion] = tarballMatch[1].trim();
+          }
+        }
+      }
+
+      forensicJobs.set(jobId, { ...forensicJobs.get(jobId), status: 'completed', results: result, install_results: installResults, tarball_paths: tarballPaths });
     } catch (error) {
       forensicJobs.set(jobId, { ...forensicJobs.get(jobId), status: 'failed', error: error.message });
     }
@@ -195,6 +214,103 @@ router.get('/status/:id', async (req, res) => {
 router.get('/jobs', async (req, res) => {
   const jobs = Array.from(forensicJobs.values()).sort((a, b) => new Date(b.created) - new Date(a.created));
   res.json({ success: true, jobs });
+});
+
+/**
+ * POST /api/forensics/install-tools
+ * Install forensic tools on targets (standalone or before collection)
+ */
+router.post('/install-tools', auditAction('forensics.install_tools'), async (req, res) => {
+  const { targets, timeout = 300 } = req.body;
+  if (!targets) {
+    return res.status(400).json({ success: false, error: 'Targets required' });
+  }
+
+  const jobId = generateJobId();
+  forensicJobs.set(jobId, {
+    id: jobId,
+    status: 'running',
+    type: 'install-tools',
+    targets,
+    created: new Date().toISOString(),
+    results: null
+  });
+
+  (async () => {
+    try {
+      const script = buildToolInstallScript();
+      const result = await saltClient.cmdScript(targets, script, { shell: '/bin/bash', timeout });
+      forensicJobs.set(jobId, { ...forensicJobs.get(jobId), status: 'completed', results: result });
+      logger.info(`Forensic tools install job ${jobId} completed`);
+    } catch (error) {
+      forensicJobs.set(jobId, { ...forensicJobs.get(jobId), status: 'failed', error: error.message });
+      logger.error(`Forensic tools install job ${jobId} failed: ${error.message}`);
+    }
+  })();
+
+  res.json({ success: true, job_id: jobId, message: 'Tool installation started' });
+});
+
+/**
+ * POST /api/forensics/scan
+ * Run security scans separately (Phase 2 - slow scanners)
+ * This allows collection results to be displayed quickly while scans run in background
+ *
+ * The scan script automatically finds and updates the most recent collection tarball
+ * for each minion, creating a single combined artifact with both collection and scan results.
+ */
+router.post('/scan', auditAction('forensics.scan'), async (req, res) => {
+  const { targets, memory_dump = false, timeout = 600 } = req.body;
+  if (!targets) {
+    return res.status(400).json({ success: false, error: 'Targets required' });
+  }
+
+  const jobId = generateJobId();
+  forensicJobs.set(jobId, {
+    id: jobId,
+    status: 'running',
+    type: 'scan',
+    targets,
+    options: { memory_dump },
+    created: new Date().toISOString(),
+    results: null,
+    scan_progress: {}
+  });
+
+  (async () => {
+    try {
+      const script = buildScanScript({ memory_dump });
+      const result = await saltClient.cmdScript(targets, script, { shell: '/bin/bash', timeout });
+
+      // Parse scan results for summary
+      const scanSummary = {};
+      for (const [minion, output] of Object.entries(result)) {
+        if (typeof output === 'string') {
+          const summary = {};
+          // Extract [SCAN_RESULT] lines
+          const resultMatches = output.match(/\[SCAN_RESULT\] (\w+)=(.+)/g) || [];
+          for (const match of resultMatches) {
+            const m = match.match(/\[SCAN_RESULT\] (\w+)=(.+)/);
+            if (m) summary[m[1]] = m[2].trim();
+          }
+          scanSummary[minion] = summary;
+        }
+      }
+
+      forensicJobs.set(jobId, {
+        ...forensicJobs.get(jobId),
+        status: 'completed',
+        results: result,
+        scan_summary: scanSummary
+      });
+      logger.info(`Security scan job ${jobId} completed`);
+    } catch (error) {
+      forensicJobs.set(jobId, { ...forensicJobs.get(jobId), status: 'failed', error: error.message });
+      logger.error(`Security scan job ${jobId} failed: ${error.message}`);
+    }
+  })();
+
+  res.json({ success: true, job_id: jobId, message: 'Security scan started' });
 });
 
 // ============================================================
@@ -567,18 +683,18 @@ router.get('/timeline/:target', async (req, res) => {
       }
 
       // Build audit editor map: path -> last editor info
+      // Format: tab-separated: path\tauid\tcomm
       const editorMap = {};
       for (const line of auditText.split('\n')) {
-        if (!line.trim()) continue;
-        // PATH line contains name=, SYSCALL contains uid/auid
-        const nameMatch = line.match(/name=(\S+)/);
-        const uidMatch = line.match(/auid=(\S+)/);
-        const commMatch = line.match(/comm=(\S+)/);
-        if (nameMatch) {
-          const p = nameMatch[1].replace(/"/g, '');
-          const editor = uidMatch ? uidMatch[1].replace(/"/g, '') : '';
-          const comm = commMatch ? commMatch[1].replace(/"/g, '') : '';
-          editorMap[p] = editor + (comm ? ' via ' + comm : '');
+        if (!line.trim() || line.startsWith('#')) continue;
+        const cols = line.split('\t');
+        if (cols.length >= 2) {
+          const p = cols[0].trim();
+          const auid = cols[1] ? cols[1].trim() : '';
+          const comm = cols[2] ? cols[2].trim() : '';
+          if (p && auid) {
+            editorMap[p] = auid + (comm && comm !== 'stat' ? ' via ' + comm : '');
+          }
         }
       }
 
@@ -590,6 +706,7 @@ router.get('/timeline/:target', async (req, res) => {
         if (cols.length < 6) continue;
         const epoch = parseFloat(cols[0]) || 0;
         const p = cols[5];
+        if (p && (p.startsWith('/tmp/forensics/') || p.startsWith('/tmp/uac_scan_') || p.startsWith('/opt/uac/') || p.startsWith('/var/cache/salt/') || p.startsWith('/tmp/salt-'))) continue;
         const rawFlags = flagsMap[p] || '';
         // Translate lsattr flags to readable labels
         let flags = '';
@@ -612,7 +729,7 @@ router.get('/timeline/:target', async (req, res) => {
       res.json({ success: true, entries: entries.slice(0, maxEntries), source: 'tarball', note: 'Files modified by the forensic scan itself are excluded.' });
     } else {
       // Fallback: live find command
-      const script = `find /tmp/forensics/ /var/log/ /etc/ -maxdepth 2 -type f -printf '%T@ %m %u %s %p\\n' 2>/dev/null | sort -rn | head -${maxEntries}`;
+      const script = `find /var/log/ /etc/ -maxdepth 2 -type f -printf '%T@ %m %u %s %p\\n' 2>/dev/null | sort -rn | head -${maxEntries}`;
       const result = await saltClient.cmd(target, script, { shell: '/bin/bash', timeout: 60 });
 
       const entries = [];
@@ -621,8 +738,10 @@ router.get('/timeline/:target', async (req, res) => {
           for (const line of output.split('\n').filter(l => l.trim())) {
             const parts = line.split(' ');
             const mtime = parseFloat(parts[0]) || 0;
+            const filePath = parts.slice(4).join(' ');
+            if (filePath.startsWith('/tmp/forensics/') || filePath.startsWith('/tmp/uac_scan_') || filePath.startsWith('/opt/uac/') || filePath.startsWith('/var/cache/salt/') || filePath.startsWith('/tmp/salt-')) continue;
             entries.push({
-              path: parts.slice(4).join(' '),
+              path: filePath,
               time: new Date(mtime * 1000).toISOString(),
               perms: parts[1] || '',
               size: parseInt(parts[3]) || 0,
@@ -678,160 +797,20 @@ function severityLevel(sev) {
 }
 
 function buildToolInstallScript() {
-  return `#!/bin/bash
-set -o pipefail
-export DEBIAN_FRONTEND=noninteractive
-
-echo "[INSTALL] Detecting package manager..."
-if command -v apt-get >/dev/null 2>&1; then
-  echo "[INSTALL] Debian/Ubuntu detected, installing via apt-get..."
-  apt-get update -qq 2>&1 | tail -3
-  apt-get install -y -qq rkhunter chkrootkit clamav debsums aide yara lsof net-tools auditd git 2>&1 | tail -5
-  echo "[INSTALL] apt-get done"
-elif command -v dnf >/dev/null 2>&1; then
-  echo "[INSTALL] RHEL/Fedora detected, installing via dnf..."
-  dnf install -y -q epel-release 2>/dev/null || true
-  for pkg in rkhunter chkrootkit clamav clamd aide yara lsof net-tools audit git; do
-    dnf install -y -q $pkg 2>/dev/null || echo "[INSTALL] dnf: $pkg not available, skipping"
-  done
-  echo "[INSTALL] dnf done"
-elif command -v yum >/dev/null 2>&1; then
-  echo "[INSTALL] CentOS/older RHEL detected, installing via yum..."
-  yum install -y -q epel-release 2>/dev/null || true
-  for pkg in rkhunter chkrootkit clamav aide yara lsof net-tools audit git; do
-    yum install -y -q $pkg 2>/dev/null || true
-  done
-  echo "[INSTALL] yum done"
-fi
-
-# Install volatility3 if not present
-if ! command -v vol3 >/dev/null 2>&1 && ! python3 -c "import volatility3" 2>/dev/null; then
-  echo "[INSTALL] Installing volatility3 via pip..."
-  if ! command -v pip3 >/dev/null 2>&1; then
-    if command -v apt-get >/dev/null 2>&1; then
-      apt-get install -y -qq python3-pip 2>&1 | tail -3
-    elif command -v dnf >/dev/null 2>&1; then
-      dnf install -y -q python3-pip 2>/dev/null || true
-    elif command -v yum >/dev/null 2>&1; then
-      yum install -y -q python3-pip 2>/dev/null || true
-    fi
-  fi
-  if command -v pip3 >/dev/null 2>&1; then
-    pip3 install --break-system-packages volatility3 2>&1 | tail -3 || echo "[INSTALL] volatility3 install failed"
-  else
-    echo "[INSTALL] pip3 not available, skipping volatility3"
-  fi
-fi
-
-# Install UAC if not present
-if [ ! -d /opt/uac ]; then
-  echo "[INSTALL] Installing UAC (Unix-like Artifacts Collector)..."
-  git clone --depth 1 https://github.com/tclahr/uac /opt/uac 2>/dev/null && echo "[INSTALL] UAC installed to /opt/uac" || echo "[INSTALL] UAC install failed (no git or no network)"
-fi
-
-# Install AVML if not present (memory acquisition for volatility3 analysis)
-if ! command -v avml >/dev/null 2>&1 && [ ! -x /usr/local/bin/avml ]; then
-  echo "[INSTALL] Installing AVML (memory acquisition)..."
-  wget -q https://github.com/microsoft/avml/releases/latest/download/avml -O /usr/local/bin/avml 2>/dev/null && chmod +x /usr/local/bin/avml && echo "[INSTALL] AVML installed to /usr/local/bin/avml" || echo "[INSTALL] AVML install failed (no wget or no network)"
-fi
-
-# Initialize AIDE database if missing
-if command -v aide >/dev/null 2>&1; then
-  AIDE_CONF=""
-  [ -f /etc/aide/aide.conf ] && AIDE_CONF="--config /etc/aide/aide.conf"
-  if [ ! -f /var/lib/aide/aide.db ] && [ ! -f /var/lib/aide/aide.db.gz ]; then
-    echo "[INSTALL] Initializing AIDE database..."
-    aide --init $AIDE_CONF 2>/dev/null
-    if [ -f /var/lib/aide/aide.db.new ]; then
-      mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
-      echo "[INSTALL] AIDE database initialized"
-    elif [ -f /var/lib/aide/aide.db.new.gz ]; then
-      mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
-      echo "[INSTALL] AIDE database initialized"
-    else
-      echo "[INSTALL] AIDE init failed"
-    fi
-  fi
-fi
-
-# Update rkhunter properties DB (always, to capture newly installed packages/users)
-if command -v rkhunter >/dev/null 2>&1; then
-  echo "[INSTALL] Updating rkhunter properties database..."
-  rkhunter --propupd 2>/dev/null || echo "[INSTALL] rkhunter --propupd failed"
-fi
-
-# Initialize ClamAV DB if missing
-if command -v freshclam >/dev/null 2>&1; then
-  if [ ! -f /var/lib/clamav/main.cvd ] && [ ! -f /var/lib/clamav/main.cld ]; then
-    echo "[INSTALL] Initializing ClamAV database..."
-    timeout 60 freshclam --quiet 2>/dev/null || echo "[INSTALL] freshclam update skipped"
-  fi
-fi
-
-# Download YARA community rules if not present
-if command -v yara >/dev/null 2>&1; then
-  if [ ! -f /etc/yara/master_community_rules.yar ]; then
-    echo "[INSTALL] Downloading YARA community rules..."
-    CLONE_DIR="/tmp/signature-base"
-    YARA_DIR="/etc/yara"
-    mkdir -p "$YARA_DIR"
-    rm -rf "$CLONE_DIR"
-    if git clone --depth 1 https://github.com/neo23x0/signature-base.git "$CLONE_DIR" 2>/dev/null; then
-      # Remove problematic rules that break compilation
-      for pattern in "*3cx*" "*screenconnect*" "*vcruntime*" "*base64_pe*" "*poisonivy*" "*Linux_Sudops*" \\
-        "*gen_susp_obfuscation.yar*" "*apt_barracuda_esg_unc4841_jun23.yar*" "*apt_cobaltstrike.yar*" \\
-        "*apt_tetris.yar*" "*configured_vulns_ext_vars.yar*" "*expl_citrix_netscaler_adc_exploitation_cve_2023_3519.yar*" \\
-        "*expl_cleo_dec24.yar*" "*expl_commvault_cve_2025_57791.yar*" "*expl_outlook_cve_2023_23397.yar*" \\
-        "*gen_fake_amsi_dll.yar*" "*gen_gcti_cobaltstrike.yar*" "*gen_susp_js_obfuscatorio.yar*" \\
-        "*gen_susp_xor.yar*" "*gen_webshells_ext_vars.yar*" "*gen_xor_hunting.yar*" "*general_cloaking.yar*" \\
-        "*generic_anomalies.yar*" "*mal_lockbit_lnx_macos_apr23.yar*" "*thor-hacktools.yar*" \\
-        "*thor_inverse_matches.yar*" "*vuln_paloalto_cve_2024_3400_apr24.yar*" \\
-        "*yara-rules_vuln_drivers_strict_renamed.yar*" "*yara_mixed_ext_vars.yar*"; do
-        find "$CLONE_DIR/yara" -type f -name "$pattern" -delete 2>/dev/null || true
-      done
-      # Combine into master rule file
-      find "$CLONE_DIR/yara" -type f \\( -name "*.yar" -o -name "*.yara" \\) -print0 | xargs -0 cat > "$YARA_DIR/master_community_rules.yar" 2>/dev/null
-      chmod 644 "$YARA_DIR/master_community_rules.yar"
-      rm -rf "$CLONE_DIR"
-      if yara -C "$YARA_DIR/master_community_rules.yar" /dev/null 2>/dev/null; then
-        echo "[INSTALL] YARA rules compiled successfully"
-      else
-        echo "[INSTALL] YARA rules have compilation warnings (partial rules still usable)"
-      fi
-    else
-      echo "[INSTALL] YARA rules download failed (no git or no network)"
-    fi
-  else
-    echo "[INSTALL] YARA rules already present"
-  fi
-fi
-
-# Enable auditd
-if command -v auditctl >/dev/null 2>&1; then
-  systemctl enable auditd 2>/dev/null
-  systemctl start auditd 2>/dev/null
-  # Note: comprehensive audit rules are deployed via Salt state (linux.security.auditd)
-  # Only add minimal runtime rules here as a fallback
-  auditctl -w /etc/passwd -p wa -k etcpasswd 2>/dev/null
-  auditctl -w /etc/shadow -p wa -k etcpasswd 2>/dev/null
-  echo "[INSTALL] auditd configured"
-fi
-
-# Report installed tools
-echo "[INSTALL] === Tool availability ==="
-for tool in rkhunter chkrootkit clamscan aide debsums yara auditctl lsof avml; do
-  if command -v $tool >/dev/null 2>&1; then
-    echo "[INSTALL]   $tool: installed"
-  else
-    echo "[INSTALL]   $tool: NOT INSTALLED"
-  fi
-done
-[ -f /etc/yara/master_community_rules.yar ] && echo "[INSTALL]   yara-rules: present" || echo "[INSTALL]   yara-rules: NOT PRESENT"
-python3 -c "import volatility3" 2>/dev/null && echo "[INSTALL]   volatility3: installed" || echo "[INSTALL]   volatility3: NOT INSTALLED"
-[ -d /opt/uac ] && echo "[INSTALL]   uac: installed" || echo "[INSTALL]   uac: NOT INSTALLED"
-
-echo "[INSTALL] Tool installation complete"
+  // Read from external script file for maintainability and testability
+  const scriptPath = path.join(__dirname, '../../scripts/linux/security/install-forensics-tools.sh');
+  try {
+    return fs.readFileSync(scriptPath, 'utf8');
+  } catch (err) {
+    logger.error(`Failed to read install-forensics-tools.sh: ${err.message}`);
+    // Fallback to minimal inline script if file not found
+    return `#!/bin/bash
+set -euo pipefail
+echo "[ERROR] install-forensics-tools.sh not found at ${scriptPath}"
+echo "[ERROR] Please ensure the script exists in scripts/linux/security/"
+exit 1
 `;
+  }
 }
 
 function buildCollectScript(level, opts = {}) {
@@ -901,6 +880,18 @@ ps auxf > "$FDIR/processes/ps_full.txt" 2>/dev/null
 # --- Files ---
 find /tmp /var/tmp -type f -mtime -1 -ls > "$FDIR/files/recent_tmp.txt" 2>/dev/null
 
+# --- File Timeline & Editor Tracking ---
+echo "# Files modified in last 7 days" > "$FDIR/files/file_timeline.txt"
+timeout 60 bash -c 'find / -xdev -type f -mmin -10080 -printf "%T@\\t%M\\t%s\\t%u\\t%g\\t%p\\n" 2>/dev/null | grep -vE "(/tmp/forensics/|/tmp/uac_|/opt/uac/|/var/lib/rkhunter/|/var/lib/clamav/|/var/lib/aide/|/var/cache/salt/|/tmp/salt-|/var/log/salt/)" | sort -rn | head -2000' >> "$FDIR/files/file_timeline.txt"
+
+if command -v ausearch >/dev/null 2>&1; then
+  ausearch -ts today -i -sc open,openat,creat,rename,unlink,chmod,chown 2>/dev/null | awk '/^type=PATH/{p="";for(i=1;i<=NF;i++){if($i~/^name=/){gsub(/name=/,"",$i);gsub(/"/,"",$i);p=$i}}} /^type=SYSCALL/{a="";c="";for(i=1;i<=NF;i++){if($i~/^auid=/){gsub(/auid=/,"",$i);gsub(/"/,"",$i);a=$i}if($i~/^comm=/){gsub(/comm=/,"",$i);gsub(/"/,"",$i);c=$i}};if(p&&a)print p"\t"a"\t"c;p=""}' 2>/dev/null | sort -t'	' -k1,1 -u > "$FDIR/files/audit_editors.txt"
+fi
+if [ ! -s "$FDIR/files/audit_editors.txt" ]; then
+  echo "# stat ownership fallback" > "$FDIR/files/audit_editors.txt"
+  find /etc /usr/bin /usr/sbin /home -type f -mmin -10080 -printf "%p\t%u\tstat\n" 2>/dev/null | head -2000 >> "$FDIR/files/audit_editors.txt"
+fi
+
 echo "Standard collection complete"
 `;
 
@@ -931,6 +922,19 @@ cat /root/.bash_history > "$FDIR/users/root_history.txt" 2>/dev/null
 cp /var/log/auth.log "$FDIR/logs/auth.log" 2>/dev/null || true
 cp /var/log/syslog "$FDIR/logs/syslog.log" 2>/dev/null || true
 cp /var/log/secure "$FDIR/logs/secure.log" 2>/dev/null || true
+
+# --- File Timeline & Editor Tracking ---
+echo "# Files modified in last 7 days" > "$FDIR/files/file_timeline.txt"
+timeout 90 bash -c 'find / -xdev -type f -mmin -10080 -printf "%T@\\t%M\\t%s\\t%u\\t%g\\t%p\\n" 2>/dev/null | grep -vE "(/tmp/forensics/|/tmp/uac_|/opt/uac/|/var/lib/rkhunter/|/var/lib/clamav/|/var/lib/aide/|/var/cache/salt/|/tmp/salt-|/var/log/salt/)" | sort -rn | head -3000' >> "$FDIR/files/file_timeline.txt"
+timeout 30 bash -c 'lsattr -R /etc /usr/bin /usr/sbin /home 2>/dev/null' > "$FDIR/files/lsattr.txt"
+
+if command -v ausearch >/dev/null 2>&1; then
+  ausearch -ts today -i -sc open,openat,creat,rename,unlink,chmod,chown 2>/dev/null | awk '/^type=PATH/{p="";for(i=1;i<=NF;i++){if($i~/^name=/){gsub(/name=/,"",$i);gsub(/"/,"",$i);p=$i}}} /^type=SYSCALL/{a="";c="";for(i=1;i<=NF;i++){if($i~/^auid=/){gsub(/auid=/,"",$i);gsub(/"/,"",$i);a=$i}if($i~/^comm=/){gsub(/comm=/,"",$i);gsub(/"/,"",$i);c=$i}};if(p&&a)print p"\t"a"\t"c;p=""}' 2>/dev/null | sort -t'	' -k1,1 -u > "$FDIR/files/audit_editors.txt"
+fi
+if [ ! -s "$FDIR/files/audit_editors.txt" ]; then
+  echo "# stat ownership fallback" > "$FDIR/files/audit_editors.txt"
+  find /etc /usr/bin /usr/sbin /home -type f -mmin -10080 -printf "%p\t%u\tstat\n" 2>/dev/null | head -2000 >> "$FDIR/files/audit_editors.txt"
+fi
 
 echo "Advanced collection complete"
 `;
@@ -1077,22 +1081,42 @@ timeout 15 bash -c '[ -f /.dockerenv ] && echo "FOUND: /.dockerenv"; grep -q doc
 timeout 10 bash -c 'docker ps -a 2>/dev/null; echo ""; docker images 2>/dev/null; echo ""; podman ps -a 2>/dev/null; podman images 2>/dev/null' > "$FDIR/files/docker_podman.txt"
 timeout 60 bash -c 'find /var/www /srv/www /opt -type f \\( -name "*.php" -o -name "*.jsp" -o -name "*.asp" -o -name "*.aspx" \\) -exec grep -lE "(eval|exec|system|passthru|shell_exec|popen|proc_open|base64_decode|assert)" {} \\; 2>/dev/null' > "$FDIR/files/webshell_scan.txt"
 echo "# NOTE: Files modified by the forensic scan itself are excluded from this timeline." > "$FDIR/files/file_timeline.txt"
-timeout 120 bash -c 'find / -xdev -type f -mmin -10080 -printf "%T@\\t%M\\t%s\\t%u\\t%g\\t%p\\n" 2>/dev/null | grep -vE "^[0-9.]+\\t[^ ]+\\t[0-9]+\\t[^ ]+\\t[^ ]+\\t(/tmp/forensics/|/tmp/uac_|/opt/uac/|/var/lib/rkhunter/|/var/lib/clamav/|/var/lib/aide/|/var/cache/salt/|/tmp/salt-|/var/log/salt/)" | sort -rn | head -5000' >> "$FDIR/files/file_timeline.txt"
+timeout 120 bash -c 'find / -xdev -type f -mmin -10080 -printf "%T@\\t%M\\t%s\\t%u\\t%g\\t%p\\n" 2>/dev/null | grep -vE "(/tmp/forensics/|/tmp/uac_|/opt/uac/|/var/lib/rkhunter/|/var/lib/clamav/|/var/lib/aide/|/var/cache/salt/|/tmp/salt-|/var/log/salt/)" | sort -rn | head -5000' >> "$FDIR/files/file_timeline.txt"
 timeout 30 bash -c 'lsattr -R /etc /usr/bin /usr/sbin /home 2>/dev/null' > "$FDIR/files/lsattr.txt"
-timeout 30 bash -c 'ausearch -ts recent -i 2>/dev/null | awk "/^type=PATH/{ path=\\$0 } /^type=SYSCALL/{ if(path) print path \\"\\t\\" \\$0; path=\\"\\" }" 2>/dev/null' > "$FDIR/files/audit_editors.txt"
+# Generate audit_editors.txt with tab-separated: path\tauid\tcomm
+# Try ausearch first, fall back to stat ownership
+if command -v ausearch >/dev/null 2>&1; then
+  ausearch -ts today -i -sc open,openat,creat,rename,unlink,chmod,chown 2>/dev/null | \
+    awk '/^type=PATH/{p="";for(i=1;i<=NF;i++){if($i~/^name=/){gsub(/name=/,"",$i);gsub(/"/,"",$i);p=$i}}} /^type=SYSCALL/{a="";c="";for(i=1;i<=NF;i++){if($i~/^auid=/){gsub(/auid=/,"",$i);gsub(/"/,"",$i);a=$i}if($i~/^comm=/){gsub(/comm=/,"",$i);gsub(/"/,"",$i);c=$i}};if(p&&a)print p"\t"a"\t"c;p=""}' \
+    2>/dev/null | sort -t'	' -k1,1 -u > "$FDIR/files/audit_editors.txt"
+fi
+if [ ! -s "$FDIR/files/audit_editors.txt" ]; then
+  echo "# auditd data unavailable - using stat ownership as fallback" > "$FDIR/files/audit_editors.txt"
+  find /etc /usr/bin /usr/sbin /home -type f -mmin -10080 -printf "%p\t%u\tstat\n" 2>/dev/null | head -2000 >> "$FDIR/files/audit_editors.txt"
+fi
 
 # =============================================
 # LOGS
 # =============================================
 ${opts.skip_logs ? '# Logs skipped by user option' : `
-cp /var/log/auth.log "$FDIR/logs/auth.log" 2>/dev/null || true
-cp /var/log/syslog "$FDIR/logs/syslog.log" 2>/dev/null || true
-cp /var/log/secure "$FDIR/logs/secure.log" 2>/dev/null || true
-cp /var/log/kern.log "$FDIR/logs/kern.log" 2>/dev/null || true
-cp /var/log/daemon.log "$FDIR/logs/daemon.log" 2>/dev/null || true
-cp /var/log/dpkg.log "$FDIR/logs/dpkg.log" 2>/dev/null || true
-cp /var/log/apt/history.log "$FDIR/logs/apt_history.log" 2>/dev/null || true
-cp /var/log/salt/minion "$FDIR/logs/salt_minion.log" 2>/dev/null || true
+# Comprehensive /var/log collection - preserves directory structure
+mkdir -p "$FDIR/logs/var_log"
+timeout 120 bash -c '
+SKIP_BINS="lastlog btmp wtmp faillog"
+find /var/log -type f 2>/dev/null | while read -r f; do
+  fname=$(basename "$f")
+  skip=0
+  for b in $SKIP_BINS; do [ "$fname" = "$b" ] && skip=1 && break; done
+  [ $skip -eq 1 ] && continue
+  case "$f" in /var/log/journal/*/*.journal*) continue;; esac
+  fsize=$(stat -c%s "$f" 2>/dev/null || echo 0)
+  [ "$fsize" -gt 52428800 ] && continue
+  relpath=$(echo "$f" | sed "s|^/var/log/||")
+  reldir=$(dirname "$relpath")
+  mkdir -p "'"$FDIR/logs/var_log"'/$reldir"
+  cp "$f" "'"$FDIR/logs/var_log"'/$relpath" 2>/dev/null
+done
+' || true
 timeout 10 bash -c 'journalctl --no-pager -n 200 2>/dev/null' > "$FDIR/logs/journal_recent.txt" || true
 `}
 timeout 15 bash -c 'find /var/log -maxdepth 2 -type f -empty -ls 2>/dev/null; echo ""; echo "=== Log sizes ==="; ls -laS /var/log/*.log /var/log/auth.log /var/log/syslog /var/log/secure 2>/dev/null; echo ""; echo "=== Log timestamps ==="; stat /var/log/auth.log /var/log/syslog /var/log/secure 2>/dev/null' > "$FDIR/logs/log_tampering_check.txt"
@@ -1101,7 +1125,12 @@ timeout 10 bash -c 'auditctl -l 2>/dev/null || echo "(auditd not available)"; ec
 # =============================================
 # SECURITY SCANNING (tool-based, sequential to prevent OOM)
 # Each scanner runs one at a time to avoid memory exhaustion
+# When skip_scans is set, scanners run separately via /api/forensics/scan
 # =============================================
+${opts.skip_scans ? `
+echo "[SCAN] Collection complete — security scans will start automatically (Phase 2)"
+echo "[SCAN] Scans run separately for faster initial results"
+` : `
 echo "[SCAN] Starting security scanners (sequential)..."
 
 echo "[SCAN] 1-2/7 rkhunter + chkrootkit (concurrent)..."
@@ -1131,7 +1160,7 @@ timeout 180 bash -c 'if command -v clamscan >/dev/null 2>&1; then
     for p in /tmp /dev/shm /var/tmp /var/www /run /usr/local/bin /opt; do
       [ -d "$p" ] && SCAN_PATHS="$SCAN_PATHS $p"
     done
-    clamscan --infected --recursive --max-filesize=10M --max-scansize=100M --max-recursion=5 --max-files=1000 $SCAN_PATHS 2>&1
+    clamscan --infected --recursive --max-filesize=10M --max-scansize=100M --max-recursion=5 --max-files=1000 $SCAN_PATHS 2>/dev/null
   fi
 else echo "clamscan not installed - use Auto-Install Tools to install"; fi' > "$FDIR/scanning/clamav_results.txt" 2>&1
 echo "[SCAN] 3/7 ClamAV done"
@@ -1235,6 +1264,7 @@ else
 fi' > "$FDIR/scanning/uac_results.txt"
 echo "[SCAN] 7/7 UAC done"
 echo "[SCAN] All scanners complete"
+`}
 
 # =============================================
 # MEMORY
@@ -1262,8 +1292,9 @@ fi' > "$FDIR/memory/avml_acquisition.txt"
 cat /proc/buddyinfo > "$FDIR/memory/buddyinfo.txt" 2>/dev/null || true
 `}
 
+${opts.memory_dump ? `
 # =============================================
-# VOLATILITY3 ANALYSIS (runs after memory dump so dump is available)
+# VOLATILITY3 ANALYSIS (only runs when memory dump is enabled)
 # =============================================
 echo "[ANALYSIS] Running Volatility3 analysis..."
 timeout 300 bash -c 'VOL3=""
@@ -1304,7 +1335,7 @@ else
     echo "--- linux.elfs (injected ELFs) ---"
     $VOL3 -f "$MEMDUMP" linux.elfs 2>&1 || echo "(elfs failed)"
   else
-    echo "No memory dump found at $MEMDUMP — enable memory dump option to run full analysis"
+    echo "AVML memory dump not found at $MEMDUMP"
   fi
 fi' > "$FDIR/scanning/volatility_results.txt" 2>&1
 echo "[ANALYSIS] Volatility3 done"
@@ -1314,6 +1345,10 @@ if [ -f "$FDIR/memory/memory.lime" ]; then
   echo "[CLEANUP] Removing memory dump ($(ls -lh "$FDIR/memory/memory.lime" | awk '{print $5}')) after analysis"
   rm -f "$FDIR/memory/memory.lime"
 fi
+` : `
+# Memory dump not enabled - skip volatility analysis
+echo "[ANALYSIS] Volatility skipped (memory dump not enabled)"
+`}
 
 echo "Comprehensive collection complete"
 `;
@@ -1330,12 +1365,295 @@ echo "Comprehensive collection complete"
 
   // Create tarball from temp dir, then clean up loose files
   script += `
-tar czf "$OUTDIR/forensics_${level}_\${HOST}_\${TS}.tar.gz" -C "$FDIR" . 2>/dev/null
+TARBALL="$OUTDIR/forensics_${level}_\${HOST}_\${TS}.tar.gz"
+tar czf "$TARBALL" -C "$FDIR" . 2>/dev/null
 rm -rf "$FDIR"
-echo "FORENSICS_DONE: $OUTDIR"
+echo ""
+echo "Collection saved to: $OUTDIR"
+echo "[TARBALL] $TARBALL"
+echo "FORENSICS_DONE:$OUTDIR"
 `;
 
   return script;
+}
+
+/**
+ * Build script for security scanning only (Phase 2)
+ * Runs slow scanners: rkhunter, chkrootkit, clamav, aide, debsums, yara, uac
+ *
+ * When tarball_path is provided, extracts it first, adds scan results, then updates it.
+ * This creates a single combined artifact with both collection and scan results.
+ */
+function buildScanScript(opts = {}) {
+  const memoryDump = opts.memory_dump || false;
+
+  return `#!/bin/bash
+set -o pipefail
+export OUTDIR="/tmp/forensics"
+export FDIR="/tmp/forensics_work_$$"
+export SCAN_DIR="$FDIR/scanning"
+export HOST=$(hostname -s 2>/dev/null || echo "unknown")
+
+# Cleanup trap
+cleanup() { pkill -P $$ 2>/dev/null || true; }
+trap cleanup EXIT TERM INT
+
+echo "[SCAN_PHASE] Starting security scanners..."
+echo "[SCAN_PHASE] Timestamp: $(date -Iseconds)"
+
+# Find the most recent collection tarball for this host
+TARBALL=$(ls -t "$OUTDIR"/forensics_*_\${HOST}_*.tar.gz 2>/dev/null | head -1)
+
+if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
+  echo "[SCAN_PHASE] Found collection tarball: $TARBALL"
+  mkdir -p "$FDIR"
+  tar xzf "$TARBALL" -C "$FDIR" 2>/dev/null
+  echo "[SCAN_PHASE] Extracted $(find "$FDIR" -type f | wc -l) files"
+else
+  echo "[SCAN_PHASE] No collection tarball found, creating standalone scan"
+  mkdir -p "$FDIR"
+  TARBALL=""
+fi
+mkdir -p "$SCAN_DIR"
+
+# =============================================
+# 1-2. RKHUNTER + CHKROOTKIT (concurrent)
+# =============================================
+echo "[SCAN_STATUS] rkhunter:running chkrootkit:running"
+timeout 120 bash -c 'if command -v rkhunter >/dev/null 2>&1; then
+  rkhunter --propupd 2>/dev/null || true
+  rkhunter --check --skip-keypress --report-warnings-only 2>/dev/null
+else echo "rkhunter not installed"; fi' > "$SCAN_DIR/rkhunter_results.txt" 2>&1 &
+RKH_PID=$!
+timeout 90 bash -c 'if command -v chkrootkit >/dev/null 2>&1; then chkrootkit 2>/dev/null; else echo "chkrootkit not installed"; fi' > "$SCAN_DIR/chkrootkit_results.txt" 2>&1 &
+CHK_PID=$!
+wait $RKH_PID $CHK_PID
+echo "[SCAN_STATUS] rkhunter:done chkrootkit:done"
+echo "[SCAN_RESULT] rkhunter=$(wc -l < "$SCAN_DIR/rkhunter_results.txt" 2>/dev/null || echo 0) lines"
+echo "[SCAN_RESULT] chkrootkit=$(wc -l < "$SCAN_DIR/chkrootkit_results.txt" 2>/dev/null || echo 0) lines"
+
+# =============================================
+# 3. CLAMAV
+# =============================================
+echo "[SCAN_STATUS] clamav:running"
+timeout 180 bash -c 'if command -v clamscan >/dev/null 2>&1; then
+  AVAIL_MB=$(awk "/MemAvailable/{print int(\\$2/1024)}" /proc/meminfo)
+  if [ "$AVAIL_MB" -lt 800 ]; then
+    echo "Skipping ClamAV (only $AVAIL_MB MB available, need 800MB)"
+  else
+    if [ ! -f /var/lib/clamav/main.cvd ] && [ ! -f /var/lib/clamav/main.cld ]; then
+      timeout 60 freshclam --quiet 2>/dev/null || true
+    fi
+    SCAN_PATHS=""
+    for p in /tmp /dev/shm /var/tmp /var/www /run /usr/local/bin /opt; do
+      [ -d "$p" ] && SCAN_PATHS="$SCAN_PATHS $p"
+    done
+    clamscan --infected --recursive --max-filesize=10M --max-scansize=100M --max-recursion=5 --max-files=1000 $SCAN_PATHS 2>/dev/null
+  fi
+else echo "clamscan not installed"; fi' > "$SCAN_DIR/clamav_results.txt" 2>&1
+echo "[SCAN_STATUS] clamav:done"
+CLAM_INFECTED=$(grep -c "FOUND$" "$SCAN_DIR/clamav_results.txt" 2>/dev/null || echo 0)
+echo "[SCAN_RESULT] clamav=$CLAM_INFECTED infected"
+
+# =============================================
+# 4. AIDE
+# =============================================
+echo "[SCAN_STATUS] aide:running"
+timeout 90 bash -c 'if command -v aide >/dev/null 2>&1; then
+  AIDE_CONF=""
+  [ -f /etc/aide/aide.conf ] && AIDE_CONF="--config /etc/aide/aide.conf"
+  if [ ! -f /var/lib/aide/aide.db ] && [ ! -f /var/lib/aide/aide.db.gz ]; then
+    aide --init $AIDE_CONF 2>&1 | tail -5
+    [ -f /var/lib/aide/aide.db.new ] && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+    [ -f /var/lib/aide/aide.db.new.gz ] && mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+  fi
+  aide --check $AIDE_CONF 2>/dev/null || true
+else echo "aide not installed"; fi' > "$SCAN_DIR/aide_results.txt" 2>&1
+echo "[SCAN_STATUS] aide:done"
+AIDE_CHANGES=$(grep -cE "^(changed|added|removed):" "$SCAN_DIR/aide_results.txt" 2>/dev/null || echo 0)
+echo "[SCAN_RESULT] aide=$AIDE_CHANGES changes"
+
+# =============================================
+# 5. DEBSUMS
+# =============================================
+echo "[SCAN_STATUS] debsums:running"
+timeout 90 bash -c 'if command -v debsums >/dev/null 2>&1; then
+  echo "=== Changed files ==="
+  debsums -c 2>/dev/null || echo "(none)"
+  echo ""
+  echo "=== Missing files ==="
+  debsums -l 2>/dev/null | head -50
+else echo "debsums not installed (Debian/Ubuntu only)"; fi' > "$SCAN_DIR/debsums_results.txt" 2>&1
+echo "[SCAN_STATUS] debsums:done"
+DEBSUMS_CHANGED=$(grep -v "^===" "$SCAN_DIR/debsums_results.txt" 2>/dev/null | grep -c "." || echo 0)
+echo "[SCAN_RESULT] debsums=$DEBSUMS_CHANGED files"
+
+# =============================================
+# 6. YARA
+# =============================================
+echo "[SCAN_STATUS] yara:running"
+timeout 120 bash -c 'if command -v yara >/dev/null 2>&1; then
+  RULES=""
+  [ -f /etc/yara/master_community_rules.yar ] && RULES="/etc/yara/master_community_rules.yar"
+  [ -z "$RULES" ] && for rdir in /opt/yara-rules /etc/yara /usr/share/yara; do [ -d "$rdir" ] && RULES="$rdir"; done
+  if [ -n "$RULES" ]; then
+    echo "Scanning with: $RULES"
+    if [ -f "$RULES" ]; then
+      # Scan only regular files to avoid flex scanner errors on sockets/pipes
+      for scandir in /tmp /dev/shm /var/tmp /var/www /run /usr/local/bin /opt; do
+        [ -d "$scandir" ] && find "$scandir" -type f -size -10M 2>/dev/null | head -500 | xargs -r yara -r "$RULES" 2>/dev/null || true
+      done
+    else
+      find "$RULES" -name "*.yar" -o -name "*.yara" 2>/dev/null | head -10 | while read r; do
+        find /tmp /dev/shm /var/tmp -type f -size -10M 2>/dev/null | head -500 | xargs -r yara -r "$r" 2>/dev/null || true
+      done
+    fi
+  else
+    echo "No YARA rules found"
+  fi
+else echo "yara not installed"; fi' > "$SCAN_DIR/yara_results.txt" 2>&1
+echo "[SCAN_STATUS] yara:done"
+YARA_MATCHES=$(grep -cv "^Scanning\\|^$\\|^yara\\|^No YARA" "$SCAN_DIR/yara_results.txt" 2>/dev/null || echo 0)
+echo "[SCAN_RESULT] yara=$YARA_MATCHES matches"
+
+# =============================================
+# 7. UAC (optional, slower)
+# =============================================
+echo "[SCAN_STATUS] uac:running"
+# Export SCAN_DIR for the subshell and run UAC with proper output capture
+export SCAN_DIR
+timeout 300 bash -c '
+if [ -d /opt/uac ] && [ -x /opt/uac/uac ]; then
+  UAC_OUT="/tmp/uac_scan_$$"
+  mkdir -p "$UAC_OUT"
+  cd /opt/uac
+  echo "Running UAC ir_triage profile..."
+  ./uac -p ir_triage "$UAC_OUT" 2>&1
+  echo ""
+  if ls "$UAC_OUT"/uac-*.tar.gz 1>/dev/null 2>&1; then
+    UAC_TAR=$(ls -t "$UAC_OUT"/uac-*.tar.gz | head -1)
+    if [ -n "$SCAN_DIR" ] && [ -d "$SCAN_DIR" ]; then
+      cp "$UAC_TAR" "$SCAN_DIR/" 2>/dev/null && echo "UAC tarball copied to: $SCAN_DIR/$(basename "$UAC_TAR")"
+    else
+      echo "UAC tarball: $UAC_TAR (SCAN_DIR not set, not copied)"
+    fi
+    echo "UAC tarball size: $(ls -lh "$UAC_TAR" | awk "{print \$5}")"
+  else
+    echo "No UAC tarball found in $UAC_OUT"
+    ls -la "$UAC_OUT" 2>/dev/null
+  fi
+  rm -rf "$UAC_OUT"
+else
+  echo "UAC not installed at /opt/uac/uac"
+fi' > "$SCAN_DIR/uac_results.txt" 2>&1
+echo "[SCAN_STATUS] uac:done"
+
+${memoryDump ? `
+# =============================================
+# 8. MEMORY DUMP + VOLATILITY (using AVML)
+# =============================================
+echo "[SCAN_STATUS] memory:running"
+export SCAN_DIR
+timeout 600 bash -c '
+MEMDUMP="$SCAN_DIR/memory.lime"
+echo "Acquiring memory with AVML to: $MEMDUMP"
+if command -v avml >/dev/null 2>&1; then
+  avml "$MEMDUMP" 2>&1
+  if [ -f "$MEMDUMP" ]; then
+    echo "Memory dump acquired: $(ls -lh "$MEMDUMP")"
+  else
+    echo "ERROR: AVML ran but no dump created"
+  fi
+elif [ -x /opt/avml/avml ]; then
+  /opt/avml/avml "$MEMDUMP" 2>&1
+  if [ -f "$MEMDUMP" ]; then
+    echo "Memory dump acquired: $(ls -lh "$MEMDUMP")"
+  fi
+else
+  echo "ERROR: AVML not installed, cannot acquire memory"
+fi' > "$SCAN_DIR/memory_acquisition.txt" 2>&1
+echo "[SCAN_STATUS] memory:done"
+
+echo "[SCAN_STATUS] volatility:running"
+export SCAN_DIR
+timeout 300 bash -c '
+MEMDUMP="$SCAN_DIR/memory.lime"
+echo "Analyzing memory dump: $MEMDUMP"
+
+# Find Volatility3
+VOL3=""
+if command -v vol >/dev/null 2>&1; then VOL3="vol"
+elif command -v vol3 >/dev/null 2>&1; then VOL3="vol3"
+elif [ -x /opt/volatility3-venv/bin/vol ]; then VOL3="/opt/volatility3-venv/bin/vol"
+fi
+
+if [ -z "$VOL3" ]; then
+  echo "ERROR: Volatility3 not found"
+elif [ ! -f "$MEMDUMP" ]; then
+  echo "ERROR: Memory dump not found at $MEMDUMP"
+else
+  echo "Using Volatility3: $VOL3"
+  echo ""
+  echo "=== linux.pslist ==="
+  $VOL3 -f "$MEMDUMP" linux.pslist 2>&1 || echo "(pslist failed)"
+  echo ""
+  echo "=== linux.bash ==="
+  $VOL3 -f "$MEMDUMP" linux.bash 2>&1 || echo "(bash history failed)"
+  echo ""
+  echo "=== linux.check_syscall ==="
+  $VOL3 -f "$MEMDUMP" linux.check_syscall 2>&1 || echo "(syscall check failed)"
+  # Remove dump after analysis to save space
+  rm -f "$MEMDUMP"
+  echo ""
+  echo "Memory dump removed after analysis"
+fi' > "$SCAN_DIR/volatility_results.txt" 2>&1
+echo "[SCAN_STATUS] volatility:done"
+` : `
+echo "[SCAN_STATUS] memory:skipped volatility:skipped"
+`}
+
+# =============================================
+# SUMMARY
+# =============================================
+echo ""
+echo "[SCAN_PHASE] All scanners complete"
+echo "[SCAN_SUMMARY]"
+echo "  rkhunter: $([ -f "$SCAN_DIR/rkhunter_results.txt" ] && echo "done" || echo "failed")"
+echo "  chkrootkit: $([ -f "$SCAN_DIR/chkrootkit_results.txt" ] && echo "done" || echo "failed")"
+echo "  clamav: $CLAM_INFECTED infected files"
+echo "  aide: $AIDE_CHANGES changes detected"
+echo "  debsums: $DEBSUMS_CHANGED modified files"
+echo "  yara: $YARA_MATCHES matches"
+echo "  uac: $([ -f "$SCAN_DIR/uac_results.txt" ] && echo "done" || echo "skipped")"
+${memoryDump ? 'echo "  memory: done"' : 'echo "  memory: skipped"'}
+
+# =============================================
+# UPDATE TARBALL WITH SCAN RESULTS
+# =============================================
+if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
+  echo ""
+  echo "[SCAN_PHASE] Updating tarball with scan results..."
+  # Re-create tarball with both collection and scan data
+  tar czf "$TARBALL" -C "$FDIR" . 2>/dev/null
+  echo "[SCAN_PHASE] Updated: $TARBALL ($(du -h "$TARBALL" | cut -f1))"
+  echo "[TARBALL_UPDATED] $TARBALL"
+else
+  # No original tarball - create new one with just scan results
+  HOST=$(hostname -s 2>/dev/null || echo "unknown")
+  TS=$(date +%Y%m%d_%H%M%S)
+  NEW_TARBALL="$OUTDIR/forensics_scan_\${HOST}_\${TS}.tar.gz"
+  mkdir -p "$OUTDIR"
+  tar czf "$NEW_TARBALL" -C "$FDIR" . 2>/dev/null
+  echo "[SCAN_PHASE] Created: $NEW_TARBALL"
+  echo "[TARBALL_CREATED] $NEW_TARBALL"
+fi
+
+# Cleanup work directory
+rm -rf "$FDIR"
+
+echo ""
+echo "SCAN_DONE"
+`;
 }
 
 function buildAnalysisScript() {

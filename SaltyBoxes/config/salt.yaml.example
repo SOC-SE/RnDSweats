@@ -3,7 +3,7 @@
 
 api:
   # Salt API URL (include protocol and port)
-  url: "https://localhost:8001"
+  url: "https://127.0.0.1:8001"
 
   # Authentication method: pam, file, ldap
   eauth: "pam"

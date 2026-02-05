@@ -226,105 +226,6 @@ verify_installation() {
     return 0
 }
 
-# ==============================================================================
-# SPLUNK FORWARDER INTEGRATION - Query Log Configuration
-# ==============================================================================
-# This section configures Technitium DNS to write query logs to a file that
-# the Splunk Universal Forwarder can monitor. Logs are written to:
-#   /opt/technitium-dns/config/logs/
-#
-# Configure your Splunk Forwarder inputs.conf to monitor:
-#   [monitor:///opt/technitium-dns/config/logs/*.log]
-#   sourcetype = technitium:dns:query
-#   index = dns
-# ==============================================================================
-
-configure_query_logging() {
-    print_header "Configuring Query Logging for Splunk Integration"
-
-    local api_url="http://localhost:${WEB_PORT}/api"
-    local log_dir="/etc/dns/logs"
-    local host_log_dir="${INSTALL_DIR}/config/logs"
-
-    # Create logs directory on host (maps to /etc/dns/logs in container)
-    print_info "Creating log directory for Splunk Forwarder access..."
-    mkdir -p "$host_log_dir"
-    chmod 755 "$host_log_dir"
-    print_success "Created log directory: $host_log_dir"
-
-    # Wait for API to be ready
-    print_info "Waiting for Technitium API to be available..."
-    local max_attempts=15
-    local attempt=1
-
-    while [ $attempt -le $max_attempts ]; do
-        if curl -s -o /dev/null -w "%{http_code}" "${api_url}/user/login" 2>/dev/null | grep -q "200\|400"; then
-            print_success "API is available"
-            break
-        fi
-        print_info "Waiting for API... (attempt $attempt/$max_attempts)"
-        sleep 2
-        ((attempt++))
-    done
-
-    if [ $attempt -gt $max_attempts ]; then
-        print_warning "Could not connect to API. Query logging must be configured manually."
-        print_info "Enable in Web GUI: Settings → Logging → Enable Query Logging"
-        print_info "Set log folder to: ${log_dir}"
-        return 1
-    fi
-
-    # Get authentication token using default credentials
-    print_info "Authenticating with Technitium API (default credentials)..."
-    local login_response
-    login_response=$(curl -s "${api_url}/user/login" -d "user=admin&pass=admin" 2>/dev/null)
-
-    local token
-    token=$(echo "$login_response" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-
-    if [ -z "$token" ]; then
-        print_warning "Could not authenticate with default credentials."
-        print_warning "If you changed the admin password, configure logging manually."
-        print_info "Enable in Web GUI: Settings → Logging → Enable Query Logging"
-        print_info "Set log folder to: ${log_dir}"
-        return 1
-    fi
-    print_success "Authenticated successfully"
-
-    # Enable query logging via API
-    print_info "Enabling DNS query logging..."
-    local settings_response
-    settings_response=$(curl -s "${api_url}/settings/set?token=${token}" \
-        -d "enableLogging=true" \
-        -d "logQueries=true" \
-        -d "useLocalTime=true" \
-        -d "logFolder=${log_dir}" 2>/dev/null)
-
-    if echo "$settings_response" | grep -q '"status":"ok"'; then
-        print_success "Query logging enabled successfully"
-        echo ""
-        echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${GREEN}║           SPLUNK FORWARDER CONFIGURATION                     ║${NC}"
-        echo -e "${GREEN}╠══════════════════════════════════════════════════════════════╣${NC}"
-        echo -e "${GREEN}║${NC} Log files location: ${YELLOW}${host_log_dir}${NC}"
-        echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC} Add to Splunk Forwarder inputs.conf:                         ${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC}   ${YELLOW}[monitor://${host_log_dir}/*.log]${NC}"
-        echo -e "${GREEN}║${NC}   ${YELLOW}sourcetype = technitium:dns:query${NC}"
-        echo -e "${GREEN}║${NC}   ${YELLOW}index = dns${NC}"
-        echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
-        echo ""
-    else
-        print_warning "Could not enable query logging via API"
-        print_info "Response: $settings_response"
-        print_info "Enable manually in Web GUI: Settings → Logging"
-        print_info "Set log folder to: ${log_dir}"
-        return 1
-    fi
-
-    return 0
-}
-
 # Display final information
 show_completion_info() {
     local host_ip
@@ -343,8 +244,7 @@ show_completion_info() {
     echo -e "  Stop:         ${YELLOW}docker stop $CONTAINER_NAME${NC}"
     echo -e "  Start:        ${YELLOW}docker start $CONTAINER_NAME${NC}"
     echo -e "  Uninstall:    ${YELLOW}cd $INSTALL_DIR && docker compose down${NC}"
-    echo -e "\n${BLUE}Configuration Location:${NC} ${YELLOW}$INSTALL_DIR/config${NC}"
-    echo -e "${BLUE}DNS Query Logs:${NC}         ${YELLOW}$INSTALL_DIR/config/logs${NC}\n"
+    echo -e "\n${BLUE}Configuration Location:${NC} ${YELLOW}$INSTALL_DIR/config${NC}\n"
 }
 
 # ==============================================================================
@@ -363,9 +263,6 @@ main() {
     start_container
     
     if verify_installation; then
-        # Configure query logging for Splunk Forwarder integration
-        configure_query_logging
-
         show_completion_info
         exit 0
     else

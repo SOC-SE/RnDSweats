@@ -39,7 +39,7 @@ const DEFAULT_APP_CONFIG = {
 
 const DEFAULT_SALT_CONFIG = {
   api: {
-    url: 'https://localhost:8001',
+    url: 'https://127.0.0.1:8001',
     eauth: 'pam',
     username: '',
     password: '',

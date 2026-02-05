@@ -373,6 +373,65 @@ router.post('/security', auditAction('reports.security'), async (req, res) => {
 });
 
 /**
+ * POST /api/reports/comprehensive
+ * Generate comprehensive system report for targets
+ * Includes: status, security checks, users, services, processes, log file listing
+ */
+router.post('/comprehensive', auditAction('reports.comprehensive'), async (req, res) => {
+  const { targets } = req.body;
+
+  if (!targets || (Array.isArray(targets) && targets.length === 0)) {
+    return res.status(400).json({ success: false, error: 'Targets are required' });
+  }
+
+  const targetStr = Array.isArray(targets) ? targets.join(',') : targets;
+
+  try {
+    // Run all collection commands in parallel
+    const [statusInfo, users, services, processes, logFiles, networkInfo] = await Promise.all([
+      saltClient.run({ client: 'local', tgt: targetStr, tgt_type: Array.isArray(targets) ? 'list' : 'glob', fun: 'cmd.run', arg: ['hostname -f 2>/dev/null; echo "---"; uname -a 2>/dev/null; echo "---"; uptime 2>/dev/null; echo "---"; free -h 2>/dev/null; echo "---"; df -h 2>/dev/null'], kwarg: { timeout: 30 } }),
+      saltClient.run({ client: 'local', tgt: targetStr, tgt_type: Array.isArray(targets) ? 'list' : 'glob', fun: 'cmd.run', arg: ['cat /etc/passwd 2>/dev/null | awk -F: \'$3>=1000 || $3==0 {print $1":"$3":"$7}\' || net user 2>nul'], kwarg: { timeout: 30 } }),
+      saltClient.run({ client: 'local', tgt: targetStr, tgt_type: Array.isArray(targets) ? 'list' : 'glob', fun: 'cmd.run', arg: ['systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | head -50 || sc query state= active 2>nul | findstr SERVICE_NAME | head -50'], kwarg: { timeout: 30 } }),
+      saltClient.run({ client: 'local', tgt: targetStr, tgt_type: Array.isArray(targets) ? 'list' : 'glob', fun: 'cmd.run', arg: ['ps aux --sort=-%cpu 2>/dev/null | head -25 || tasklist /V 2>nul | head -25'], kwarg: { timeout: 30 } }),
+      saltClient.run({ client: 'local', tgt: targetStr, tgt_type: Array.isArray(targets) ? 'list' : 'glob', fun: 'cmd.run', arg: ['find /var/log -type f -printf "%s\\t%T@\\t%p\\n" 2>/dev/null | sort -rn -k2 | head -100'], kwarg: { timeout: 30 } }),
+      saltClient.run({ client: 'local', tgt: targetStr, tgt_type: Array.isArray(targets) ? 'list' : 'glob', fun: 'cmd.run', arg: ['ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || netstat -an 2>nul | findstr LISTENING'], kwarg: { timeout: 30 } })
+    ]);
+
+    const report = {
+      generated: new Date().toISOString(),
+      targets: Array.isArray(targets) ? targets : [targets],
+      minions: {}
+    };
+
+    // Combine results per minion
+    const allMinions = new Set([
+      ...Object.keys(statusInfo || {}),
+      ...Object.keys(users || {}),
+      ...Object.keys(services || {}),
+      ...Object.keys(processes || {}),
+      ...Object.keys(logFiles || {}),
+      ...Object.keys(networkInfo || {})
+    ]);
+
+    for (const minion of allMinions) {
+      report.minions[minion] = {
+        status: statusInfo[minion] || 'N/A',
+        users: users[minion] || 'N/A',
+        running_services: services[minion] || 'N/A',
+        top_processes: processes[minion] || 'N/A',
+        log_files: logFiles[minion] || 'N/A',
+        listening_ports: networkInfo[minion] || 'N/A'
+      };
+    }
+
+    res.json({ success: true, report });
+  } catch (error) {
+    logger.error('Failed to generate comprehensive report', error);
+    res.status(500).json({ success: false, error: 'Failed to generate report', details: error.message });
+  }
+});
+
+/**
  * GET /api/reports/export/:type
  * Export report in various formats
  *

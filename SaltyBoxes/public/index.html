@@ -84,6 +84,7 @@
           <div class="nav-item" data-view="logs">Logs</div>
           <div class="nav-item" data-view="forensics">Forensics</div>
           <div class="nav-item" data-view="suspicious">Suspicious</div>
+          <div class="nav-item" data-view="monitoring">Monitoring</div>
           <div class="nav-item" data-view="passwords">User Management</div>
           <div class="nav-item" data-view="audit">Audit Log</div>
           <div class="nav-item" data-view="reports">Reports</div>
@@ -552,6 +553,20 @@
                   <button id="report-security-btn" class="btn btn-primary">Generate</button>
                 </div>
               </div>
+              <div class="report-card">
+                <div class="report-card-header">Comprehensive System Report</div>
+                <div class="report-card-description">
+                  Collect system status, users, services, processes, network ports,
+                  and /var/log file listing from targets. Downloads as JSON.
+                </div>
+                <div class="report-card-actions">
+                  <select id="report-comprehensive-target">
+                    <option value="">Select target...</option>
+                    <option value="*">All Minions</option>
+                  </select>
+                  <button id="report-comprehensive-btn" class="btn btn-primary">Generate</button>
+                </div>
+              </div>
             </div>
             <div class="report-output">
               <div class="report-output-header">
@@ -760,6 +775,8 @@
               </div>
               <button id="logs-load-btn" class="btn btn-primary">Load Log</button>
               <button id="logs-refresh-btn" class="btn btn-small">Refresh</button>
+              <button id="logs-tail-btn" class="btn btn-small">Live Tail</button>
+              <span id="logs-tail-indicator" class="status-badge hidden">STREAMING</span>
             </div>
             <div class="logs-search">
               <input type="text" id="logs-filter" class="filter-input" placeholder="Filter log lines...">
@@ -816,6 +833,94 @@
             </div>
             <div id="suspicious-list" class="suspicious-list">
               <div class="loading">Select target(s) and click Scan to check for suspicious items</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Monitoring View -->
+        <div id="view-monitoring" class="view hidden">
+          <div class="view-header">
+            <h2>Monitoring</h2>
+          </div>
+          <div class="monitoring-panel" style="display: flex; flex-direction: column; gap: var(--spacing-md);">
+            <!-- Baselines -->
+            <div style="border: 1px solid var(--border-color); padding: var(--spacing-md);">
+              <h3>Baselines</h3>
+              <p class="section-description">Capture a snapshot of system state to detect future changes.</p>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="mon-baseline-name">Name</label>
+                  <input type="text" id="mon-baseline-name" placeholder="e.g., Initial State">
+                </div>
+                <div class="form-group">
+                  <label for="mon-baseline-target">Target</label>
+                  <input type="text" id="mon-baseline-target" value="*" placeholder="e.g., * or web-*">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="checkbox-group">
+                  <label><input type="checkbox" class="mon-check-type" value="users" checked> Users</label>
+                </div>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" class="mon-check-type" value="services" checked> Services</label>
+                </div>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" class="mon-check-type" value="network" checked> Network</label>
+                </div>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" class="mon-check-type" value="cron" checked> Cron</label>
+                </div>
+                <div class="checkbox-group">
+                  <label><input type="checkbox" class="mon-check-type" value="processes"> Processes</label>
+                </div>
+                <button id="mon-create-baseline-btn" class="btn btn-primary">Create Baseline</button>
+              </div>
+              <div id="mon-baselines-list" style="margin-top: var(--spacing-sm);">
+                <div class="loading">No baselines yet</div>
+              </div>
+            </div>
+
+            <!-- Schedules -->
+            <div style="border: 1px solid var(--border-color); padding: var(--spacing-md);">
+              <h3>Scheduled Checks</h3>
+              <p class="section-description">Run periodic comparisons against a baseline.</p>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="mon-schedule-baseline">Baseline</label>
+                  <select id="mon-schedule-baseline">
+                    <option value="">Select baseline...</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="mon-schedule-interval">Interval (min)</label>
+                  <input type="number" id="mon-schedule-interval" value="5" min="1" max="1440" style="width: 80px;">
+                </div>
+                <div class="form-group">
+                  <label for="mon-schedule-name">Name</label>
+                  <input type="text" id="mon-schedule-name" placeholder="Optional name">
+                </div>
+                <button id="mon-create-schedule-btn" class="btn btn-primary">Create Schedule</button>
+              </div>
+              <div id="mon-schedules-list" style="margin-top: var(--spacing-sm);">
+                <div class="loading">No schedules</div>
+              </div>
+            </div>
+
+            <!-- Check Now + Changes Feed -->
+            <div style="border: 1px solid var(--border-color); padding: var(--spacing-md);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-sm);">
+                <h3>Detected Changes</h3>
+                <div>
+                  <select id="mon-check-now-baseline" style="margin-right: 4px;">
+                    <option value="">Select baseline...</option>
+                  </select>
+                  <button id="mon-check-now-btn" class="btn btn-primary">Check Now</button>
+                  <button id="mon-refresh-changes-btn" class="btn btn-small">Refresh</button>
+                </div>
+              </div>
+              <div id="mon-changes-feed" class="suspicious-list" style="max-height: 400px; overflow-y: auto;">
+                <div class="loading">No changes detected</div>
+              </div>
             </div>
           </div>
         </div>
@@ -933,6 +1038,37 @@
                   <!-- Dynamic content -->
                 </div>
               </div>
+            </div>
+
+            <!-- Bulk Password Rotation -->
+            <div class="bulk-rotation-panel" style="margin-top: var(--spacing-md); border: 1px solid var(--border-color); padding: var(--spacing-md);">
+              <h3>Bulk Password Rotation</h3>
+              <p class="section-description">Change a user's password across all (or selected) minions at once. Auto-detects OS.</p>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="bulk-rot-username">Username</label>
+                  <input type="text" id="bulk-rot-username" placeholder="e.g., root or Administrator">
+                </div>
+                <div class="form-group">
+                  <label for="bulk-rot-password">New Password</label>
+                  <input type="password" id="bulk-rot-password" placeholder="8+ characters" minlength="8">
+                </div>
+                <div class="form-group">
+                  <label for="bulk-rot-confirm">Confirm</label>
+                  <input type="password" id="bulk-rot-confirm" placeholder="Confirm password">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="bulk-rot-target">Target</label>
+                  <select id="bulk-rot-target">
+                    <option value="*">All Minions (*)</option>
+                    <option value="selected">Selected Devices</option>
+                  </select>
+                </div>
+                <button id="bulk-rot-btn" class="btn btn-primary">Rotate Password</button>
+              </div>
+              <div id="bulk-rot-results" class="hidden" style="margin-top: var(--spacing-sm);"></div>
             </div>
 
             <!-- Output Panel -->

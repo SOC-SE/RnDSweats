@@ -346,4 +346,121 @@ router.get('/:target/search', auditAction('logs.search'), async (req, res) => {
   }
 });
 
+/**
+ * GET /api/logs/:target/tail
+ * SSE endpoint for live log tailing
+ *
+ * Query params:
+ *   path: string - Log file path
+ *   lines: number - Number of lines per poll (default: 50)
+ */
+router.get('/:target/tail', async (req, res) => {
+  const { target } = req.params;
+  const { path: logPath, lines = 50 } = req.query;
+
+  if (!target || !logPath) {
+    return res.status(400).json({ success: false, error: 'Target and path are required' });
+  }
+
+  const numLines = Math.min(Math.max(parseInt(lines, 10) || 50, 10), 500);
+
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  let previousLines = [];
+  const startTime = Date.now();
+  const maxDuration = 30 * 60 * 1000; // 30 minutes
+  const pollInterval = 2000;
+  let stopped = false;
+
+  sendEvent('status', { status: 'streaming', target, path: logPath });
+
+  // Determine kernel for OS-appropriate tail command
+  let kernel = 'Linux';
+  try {
+    kernel = await saltClient.getKernel(target);
+  } catch {}
+
+  const poll = setInterval(async () => {
+    if (stopped) return;
+
+    try {
+      if (Date.now() - startTime > maxDuration) {
+        sendEvent('status', { status: 'timeout' });
+        clearInterval(poll);
+        res.end();
+        return;
+      }
+
+      let command;
+      if (kernel === 'Windows') {
+        command = `powershell -Command "Get-Content -Path '${logPath}' -Tail ${numLines} -ErrorAction SilentlyContinue"`;
+      } else {
+        command = `tail -n ${numLines} "${logPath}" 2>/dev/null`;
+      }
+
+      const result = await saltClient.run({
+        client: 'local',
+        tgt: target,
+        fun: 'cmd.run',
+        arg: [command],
+        kwarg: { timeout: 10 }
+      });
+
+      const output = result[target];
+      if (!output || typeof output !== 'string') return;
+
+      const currentLines = output.split('\n');
+
+      // Find new lines by comparing with previous snapshot
+      if (previousLines.length === 0) {
+        // First poll - send all lines
+        sendEvent('lines', { lines: currentLines });
+      } else {
+        // Find where previous content ends in current content
+        const lastPrev = previousLines[previousLines.length - 1];
+        let newStartIdx = -1;
+
+        // Search backwards from end of current for last known previous line
+        for (let i = currentLines.length - 1; i >= 0; i--) {
+          if (currentLines[i] === lastPrev) {
+            newStartIdx = i + 1;
+            break;
+          }
+        }
+
+        if (newStartIdx > 0 && newStartIdx < currentLines.length) {
+          const newLines = currentLines.slice(newStartIdx);
+          if (newLines.length > 0) {
+            sendEvent('lines', { lines: newLines });
+          }
+        } else if (newStartIdx === -1) {
+          // Content changed completely, send all
+          sendEvent('lines', { lines: currentLines });
+        }
+        // If newStartIdx === currentLines.length, no new lines
+      }
+
+      previousLines = currentLines;
+
+    } catch (error) {
+      sendEvent('error', { message: error.message });
+    }
+  }, pollInterval);
+
+  // Clean up on client disconnect
+  req.on('close', () => {
+    stopped = true;
+    clearInterval(poll);
+  });
+});
+
 module.exports = router;

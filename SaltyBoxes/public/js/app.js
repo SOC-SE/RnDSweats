@@ -402,6 +402,9 @@
       case 'reports':
         populateSecurityTargetSelect();
         break;
+      case 'monitoring':
+        loadMonitoringView();
+        break;
       case 'passwords':
         populateSingleDeviceSelects();
         renderInlineDeviceSelector('pwd');
@@ -2607,6 +2610,7 @@
   let logsData = [];
   let currentLogsTarget = null;
   let currentLogSources = [];
+  let logTailEventSource = null;
 
   async function loadLogSources() {
     const target = document.getElementById('logs-single-target').value;
@@ -2718,6 +2722,94 @@
     }).join('');
 
     contentEl.innerHTML = html;
+  }
+
+  function startLogTail() {
+    const target = document.getElementById('logs-single-target').value;
+    const source = document.getElementById('logs-source').value;
+    const contentEl = document.getElementById('logs-content');
+    const indicator = document.getElementById('logs-tail-indicator');
+    const tailBtn = document.getElementById('logs-tail-btn');
+
+    if (!target) { showToast('Select a device', 'warning'); return; }
+    if (!source || source.startsWith('event:')) { showToast('Select a file-based log source', 'warning'); return; }
+
+    // Stop any existing tail
+    stopLogTail();
+
+    contentEl.innerHTML = '<div class="loading">Starting live tail...</div>';
+    indicator.classList.remove('hidden');
+    tailBtn.textContent = 'Stop Tail';
+    tailBtn.classList.add('btn-danger');
+
+    const url = `${API_BASE}/api/logs/${encodeURIComponent(target)}/tail?path=${encodeURIComponent(source)}&lines=50`;
+    const es = new EventSource(url, { withCredentials: true });
+    logTailEventSource = es;
+    let firstBatch = true;
+
+    es.addEventListener('lines', (e) => {
+      const data = JSON.parse(e.data);
+      if (firstBatch) {
+        contentEl.innerHTML = '';
+        firstBatch = false;
+      }
+      for (const line of data.lines) {
+        const div = document.createElement('div');
+        div.className = 'log-line';
+        const lower = line.toLowerCase();
+        if (lower.includes('error') || lower.includes('fail') || lower.includes('crit')) {
+          div.classList.add('error');
+        } else if (lower.includes('warn')) {
+          div.classList.add('warning');
+        }
+        div.textContent = line;
+        contentEl.appendChild(div);
+      }
+      // Auto-scroll to bottom
+      contentEl.scrollTop = contentEl.scrollHeight;
+      // Update line count
+      const countEl = document.getElementById('logs-count');
+      if (countEl) countEl.textContent = `${contentEl.children.length} lines (live)`;
+    });
+
+    es.addEventListener('status', (e) => {
+      const data = JSON.parse(e.data);
+      if (data.status === 'timeout') {
+        stopLogTail();
+        showToast('Live tail timed out (30 min limit)', 'warning');
+      }
+    });
+
+    es.addEventListener('error', () => {
+      stopLogTail();
+      showToast('Live tail connection lost', 'error');
+    });
+
+    es.onerror = () => {
+      stopLogTail();
+    };
+  }
+
+  function stopLogTail() {
+    if (logTailEventSource) {
+      logTailEventSource.close();
+      logTailEventSource = null;
+    }
+    const indicator = document.getElementById('logs-tail-indicator');
+    const tailBtn = document.getElementById('logs-tail-btn');
+    if (indicator) indicator.classList.add('hidden');
+    if (tailBtn) {
+      tailBtn.textContent = 'Live Tail';
+      tailBtn.classList.remove('btn-danger');
+    }
+  }
+
+  function toggleLogTail() {
+    if (logTailEventSource) {
+      stopLogTail();
+    } else {
+      startLogTail();
+    }
   }
 
   // ============================================================
@@ -3010,13 +3102,65 @@
     showToast('Report downloaded', 'success');
   }
 
+  async function generateComprehensiveReport() {
+    const target = document.getElementById('report-comprehensive-target').value;
+    if (!target) { showToast('Select a target', 'warning'); return; }
+
+    const contentEl = document.getElementById('report-content');
+    contentEl.textContent = 'Generating comprehensive report...';
+
+    try {
+      const targets = target === '*' ? '*' : [target];
+      const result = await api('/api/reports/comprehensive', {
+        method: 'POST',
+        body: JSON.stringify({ targets })
+      });
+
+      const report = result.report;
+      let output = `=== Comprehensive System Report ===\nGenerated: ${report.generated}\n\n`;
+
+      for (const [minion, data] of Object.entries(report.minions)) {
+        output += `${'='.repeat(60)}\n  ${minion}\n${'='.repeat(60)}\n\n`;
+        output += `--- System Status ---\n${data.status}\n\n`;
+        output += `--- Users ---\n${data.users}\n\n`;
+        output += `--- Running Services ---\n${data.running_services}\n\n`;
+        output += `--- Top Processes ---\n${data.top_processes}\n\n`;
+        output += `--- Listening Ports ---\n${data.listening_ports}\n\n`;
+        output += `--- Log Files ---\n${data.log_files}\n\n`;
+      }
+
+      contentEl.textContent = output;
+
+      // Auto-download JSON
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `comprehensive-report-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('Comprehensive report generated and downloaded', 'success');
+    } catch (error) {
+      contentEl.textContent = `Error: ${error.message}`;
+      showToast('Report generation failed', 'error');
+    }
+  }
+
   function populateSecurityTargetSelect() {
-    const select = document.getElementById('report-security-target');
-    select.innerHTML = '<option value="">Select target...</option>' +
+    const opts = '<option value="">Select target...</option>' +
       '<option value="*">All Minions</option>' +
       state.devices.map(d =>
         `<option value="${escapeHtml(d.id)}">${escapeHtml(d.id)}</option>`
       ).join('');
+
+    const select = document.getElementById('report-security-target');
+    select.innerHTML = opts;
+
+    const compSelect = document.getElementById('report-comprehensive-target');
+    if (compSelect) compSelect.innerHTML = opts;
   }
 
   // ============================================================
@@ -3448,6 +3592,245 @@
   }
 
   // ============================================================
+  // Monitoring (Scheduled Checks with Change Detection)
+  // ============================================================
+
+  async function loadMonitoringView() {
+    await Promise.all([loadBaselines(), loadSchedules(), loadChanges()]);
+  }
+
+  async function loadBaselines() {
+    const listEl = document.getElementById('mon-baselines-list');
+    try {
+      const result = await api('/api/monitoring/baselines');
+      const baselines = result.baselines || [];
+
+      if (baselines.length === 0) {
+        listEl.innerHTML = '<div class="loading">No baselines yet</div>';
+      } else {
+        let html = '<table class="results-table"><thead><tr><th>Name</th><th>Targets</th><th>Checks</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+        for (const b of baselines) {
+          html += `<tr>
+            <td>${escapeHtml(b.name)}</td>
+            <td>${escapeHtml(b.targets)}</td>
+            <td>${escapeHtml(b.checks.join(', '))}</td>
+            <td>${new Date(b.created).toLocaleString()}</td>
+            <td><button class="btn btn-small btn-danger" onclick="window._monDeleteBaseline('${escapeHtml(b.id)}')">Delete</button></td>
+          </tr>`;
+        }
+        html += '</tbody></table>';
+        listEl.innerHTML = html;
+      }
+
+      // Populate baseline dropdowns
+      const opts = '<option value="">Select baseline...</option>' +
+        baselines.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+      document.getElementById('mon-schedule-baseline').innerHTML = opts;
+      document.getElementById('mon-check-now-baseline').innerHTML = opts;
+    } catch (error) {
+      listEl.innerHTML = `<div class="loading">Error: ${escapeHtml(error.message)}</div>`;
+    }
+  }
+
+  async function loadSchedules() {
+    const listEl = document.getElementById('mon-schedules-list');
+    try {
+      const result = await api('/api/monitoring/schedules');
+      const schedules = result.schedules || [];
+
+      if (schedules.length === 0) {
+        listEl.innerHTML = '<div class="loading">No schedules</div>';
+      } else {
+        let html = '<table class="results-table"><thead><tr><th>Name</th><th>Interval</th><th>Baseline</th><th>Last Run</th><th>Actions</th></tr></thead><tbody>';
+        for (const s of schedules) {
+          html += `<tr>
+            <td>${escapeHtml(s.name)}</td>
+            <td>${s.intervalMinutes} min</td>
+            <td>${escapeHtml(s.baselineId)}</td>
+            <td>${s.lastRun ? new Date(s.lastRun).toLocaleString() : 'Never'}</td>
+            <td><button class="btn btn-small btn-danger" onclick="window._monDeleteSchedule('${escapeHtml(s.id)}')">Delete</button></td>
+          </tr>`;
+        }
+        html += '</tbody></table>';
+        listEl.innerHTML = html;
+      }
+    } catch (error) {
+      listEl.innerHTML = `<div class="loading">Error: ${escapeHtml(error.message)}</div>`;
+    }
+  }
+
+  async function loadChanges() {
+    const feedEl = document.getElementById('mon-changes-feed');
+    try {
+      const result = await api('/api/monitoring/changes?limit=200');
+      const changes = result.changes || [];
+
+      if (changes.length === 0) {
+        feedEl.innerHTML = '<div class="loading">No changes detected</div>';
+      } else {
+        let html = '';
+        for (const c of changes) {
+          const sevClass = c.severity === 'high' ? 'finding-critical' : c.severity === 'medium' ? 'finding-high' : 'finding-medium';
+          const icon = c.changeType === 'added' ? '+' : '-';
+          html += `<div class="suspicious-item ${sevClass}" style="padding: 8px; margin-bottom: 4px;">
+            <div style="display: flex; justify-content: space-between;">
+              <strong>[${escapeHtml(c.severity.toUpperCase())}] ${escapeHtml(c.minion)} - ${escapeHtml(c.checkType)} (${icon}${escapeHtml(c.changeType)})</strong>
+              <span class="text-muted">${new Date(c.timestamp).toLocaleString()}</span>
+            </div>
+            <div style="margin-top: 4px; font-family: monospace; font-size: 0.85em; white-space: pre-wrap;">${escapeHtml(c.items.slice(0, 10).join('\n'))}${c.items.length > 10 ? '\n... and ' + (c.items.length - 10) + ' more' : ''}</div>
+          </div>`;
+        }
+        feedEl.innerHTML = html;
+      }
+    } catch (error) {
+      feedEl.innerHTML = `<div class="loading">Error: ${escapeHtml(error.message)}</div>`;
+    }
+  }
+
+  async function createBaseline() {
+    const name = document.getElementById('mon-baseline-name').value.trim() || 'Baseline';
+    const targets = document.getElementById('mon-baseline-target').value.trim() || '*';
+    const checks = Array.from(document.querySelectorAll('.mon-check-type:checked')).map(cb => cb.value);
+
+    if (checks.length === 0) { showToast('Select at least one check type', 'warning'); return; }
+
+    try {
+      showToast('Creating baseline...', 'info');
+      await api('/api/monitoring/baseline', {
+        method: 'POST',
+        body: JSON.stringify({ name, targets, checks })
+      });
+      showToast('Baseline created', 'success');
+      await loadBaselines();
+    } catch (error) {
+      showToast(`Failed: ${error.message}`, 'error');
+    }
+  }
+
+  async function createSchedule() {
+    const baselineId = document.getElementById('mon-schedule-baseline').value;
+    const intervalMinutes = parseInt(document.getElementById('mon-schedule-interval').value) || 5;
+    const name = document.getElementById('mon-schedule-name').value.trim();
+
+    if (!baselineId) { showToast('Select a baseline', 'warning'); return; }
+
+    try {
+      await api('/api/monitoring/schedule', {
+        method: 'POST',
+        body: JSON.stringify({ baselineId, intervalMinutes, name: name || undefined })
+      });
+      showToast(`Schedule created: every ${intervalMinutes} min`, 'success');
+      await loadSchedules();
+    } catch (error) {
+      showToast(`Failed: ${error.message}`, 'error');
+    }
+  }
+
+  async function monitorCheckNow() {
+    const baselineId = document.getElementById('mon-check-now-baseline').value;
+    if (!baselineId) { showToast('Select a baseline', 'warning'); return; }
+
+    try {
+      showToast('Running check...', 'info');
+      const result = await api('/api/monitoring/check', {
+        method: 'POST',
+        body: JSON.stringify({ baselineId })
+      });
+      showToast(`Check complete: ${result.total} change(s) detected`, result.total > 0 ? 'warning' : 'success');
+      await loadChanges();
+    } catch (error) {
+      showToast(`Check failed: ${error.message}`, 'error');
+    }
+  }
+
+  // Expose delete handlers to onclick
+  window._monDeleteBaseline = async function(id) {
+    try {
+      await api(`/api/monitoring/baselines/${id}`, { method: 'DELETE' });
+      showToast('Baseline deleted', 'success');
+      await loadBaselines();
+    } catch (error) {
+      showToast(`Failed: ${error.message}`, 'error');
+    }
+  };
+
+  window._monDeleteSchedule = async function(id) {
+    try {
+      await api(`/api/monitoring/schedules/${id}`, { method: 'DELETE' });
+      showToast('Schedule deleted', 'success');
+      await loadSchedules();
+    } catch (error) {
+      showToast(`Failed: ${error.message}`, 'error');
+    }
+  };
+
+  // Bulk password rotation
+  async function bulkRotatePassword() {
+    const username = document.getElementById('bulk-rot-username').value.trim();
+    const password = document.getElementById('bulk-rot-password').value;
+    const confirm = document.getElementById('bulk-rot-confirm').value;
+    const targetSel = document.getElementById('bulk-rot-target').value;
+    const resultsEl = document.getElementById('bulk-rot-results');
+    const outputEl = document.getElementById('pwd-output');
+
+    if (!username) { showToast('Enter a username', 'warning'); return; }
+    if (!password) { showToast('Enter a password', 'warning'); return; }
+    if (password.length < 8) { showToast('Password must be at least 8 characters', 'warning'); return; }
+    if (password !== confirm) { showToast('Passwords do not match', 'error'); return; }
+
+    let targets;
+    if (targetSel === 'selected') {
+      const sel = getUserManagementTargets();
+      if (!sel) return;
+      targets = sel;
+    } else {
+      targets = '*';
+    }
+
+    const targetDesc = Array.isArray(targets) ? targets.join(', ') : targets;
+
+    showConfirmModal(
+      'Bulk Password Rotation',
+      `Change password for "${username}" on: ${targetDesc}?`,
+      async () => {
+        outputEl.textContent = 'Rotating password...';
+        resultsEl.classList.remove('hidden');
+        resultsEl.innerHTML = '<div class="loading">Rotating password across minions...</div>';
+
+        try {
+          const result = await api('/api/passwords/change', {
+            method: 'POST',
+            body: JSON.stringify({ targets, username, password })
+          });
+
+          let output = `Bulk password rotation: ${username}\n`;
+          output += `Total: ${result.summary.total}, Success: ${result.summary.success}, Failed: ${result.summary.failed}\n\n`;
+
+          let tableHtml = '<table class="results-table"><thead><tr><th>Minion</th><th>Status</th><th>Details</th></tr></thead><tbody>';
+          for (const [minion, data] of Object.entries(result.results)) {
+            const ok = data.success;
+            output += `-- ${minion} -- ${ok ? 'SUCCESS' : 'FAILED: ' + (data.error || 'Unknown')}\n`;
+            tableHtml += `<tr><td>${escapeHtml(minion)}</td><td class="${ok ? 'status-online' : 'status-offline'}">${ok ? 'OK' : 'FAIL'}</td><td>${escapeHtml(ok ? (data.message || 'Password changed') : (data.error || 'Unknown error'))}</td></tr>`;
+          }
+          tableHtml += '</tbody></table>';
+
+          resultsEl.innerHTML = tableHtml;
+          outputEl.textContent = output;
+          showToast(`Password rotated on ${result.summary.success}/${result.summary.total} devices`, result.summary.failed > 0 ? 'warning' : 'success');
+
+          // Clear password fields
+          document.getElementById('bulk-rot-password').value = '';
+          document.getElementById('bulk-rot-confirm').value = '';
+        } catch (error) {
+          outputEl.textContent = `Error: ${error.message}`;
+          resultsEl.innerHTML = `<div class="loading">Error: ${escapeHtml(error.message)}</div>`;
+          showToast('Bulk rotation failed', 'error');
+        }
+      }
+    );
+  }
+
+  // ============================================================
   // Forensics
   // ============================================================
 
@@ -3585,12 +3968,15 @@
     if (autoInstall) {
       outputEl.textContent = 'Installing missing forensics tools...';
       try {
-        const installCmd = 'export DEBIAN_FRONTEND=noninteractive; if command -v apt-get >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq rkhunter chkrootkit clamav clamav-daemon debsums aide yara strace ltrace tcpdump auditd lsof net-tools python3-pip git 2>&1 | tail -10; elif command -v dnf >/dev/null 2>&1; then dnf install -y rkhunter clamav strace ltrace tcpdump audit lsof net-tools python3-pip git 2>&1 | tail -10; elif command -v yum >/dev/null 2>&1; then yum install -y rkhunter clamav strace ltrace tcpdump audit lsof net-tools python3-pip git 2>&1 | tail -10; fi; echo ""; echo "=== Installing volatility3 via pip ==="; pip3 install volatility3 2>&1 | tail -5 || pip3 install --break-system-packages volatility3 2>&1 | tail -5 || echo "volatility3 pip install failed"; echo ""; echo "=== Installing AVML (memory acquisition) ==="; if ! command -v avml >/dev/null 2>&1; then ARCH=$(uname -m); if [ "$ARCH" = "x86_64" ]; then wget -q https://github.com/microsoft/avml/releases/latest/download/avml -O /usr/local/bin/avml && chmod +x /usr/local/bin/avml && echo "AVML installed" || echo "AVML download failed"; else echo "AVML only supports x86_64 (current: $ARCH)"; fi; else echo "AVML already installed"; fi; echo ""; echo "=== Installing UAC (Unix-like Artifacts Collector) ==="; if [ ! -d /opt/uac ]; then git clone --depth 1 https://github.com/tclahr/uac /opt/uac 2>&1 | tail -5 && chmod +x /opt/uac/uac && echo "UAC installed to /opt/uac" || echo "UAC clone failed"; else echo "UAC already installed at /opt/uac"; fi; echo ""; echo "=== Enabling auditd ==="; systemctl enable auditd 2>/dev/null; systemctl start auditd 2>/dev/null; echo "=== Adding audit watches ==="; auditctl -w /etc/passwd -p wa -k user_changes 2>/dev/null; auditctl -w /etc/shadow -p wa -k shadow_changes 2>/dev/null; auditctl -w /etc/sudoers -p wa -k sudoers_changes 2>/dev/null; auditctl -w /etc/ssh/sshd_config -p wa -k sshd_config 2>/dev/null; auditctl -w /etc/crontab -p wa -k crontab_changes 2>/dev/null; auditctl -w /etc/cron.d/ -p wa -k cron_d_changes 2>/dev/null; auditctl -w /etc/pam.d/ -p wa -k pam_changes 2>/dev/null; auditctl -w /etc/ld.so.preload -p wa -k ld_preload 2>/dev/null; auditctl -w /etc/profile.d/ -p wa -k profile_d 2>/dev/null; auditctl -w /etc/systemd/system/ -p wa -k systemd_changes 2>/dev/null; auditctl -w /tmp -p x -k tmp_exec 2>/dev/null; auditctl -w /dev/shm -p x -k shm_exec 2>/dev/null; echo ""; echo "=== Initializing ClamAV DB ==="; freshclam --quiet 2>/dev/null || echo "freshclam update skipped"; echo "Install and audit setup complete"';
-        await api('/api/commands/run', {
+        const installResult = await api('/api/forensics/install-tools', {
           method: 'POST',
-          body: JSON.stringify({ targets, command: installCmd, shell: 'bash', timeout: 120 })
+          body: JSON.stringify({ targets, timeout: 300 })
         });
-        outputEl.textContent = 'Tool installation done. Starting collection...';
+        if (installResult.job_id) {
+          // Wait for install job to complete before proceeding
+          await waitForForensicsInstallJob(installResult.job_id, outputEl);
+        }
+        outputEl.textContent = 'Tool installation complete. Starting collection...';
       } catch (e) {
         outputEl.textContent = `Install warning: ${e.message}. Proceeding with collection...`;
       }
@@ -3605,6 +3991,8 @@
       endpoint = '/api/forensics/advanced';
     } else if (level === 'comprehensive') {
       endpoint = '/api/forensics/comprehensive';
+      // Two-phase collection: skip inline scans for fast results, run scans separately
+      body.skip_scans = true;
       if (document.getElementById('fr-opt-memory').checked) body.memory_dump = true;
       if (document.getElementById('fr-opt-volatility').checked) body.volatility = true;
       if (document.getElementById('fr-opt-quick').checked) body.quick_mode = true;
@@ -3641,17 +4029,88 @@
     }
   }
 
-  async function pollForensicsJob(jobId) {
+  /**
+   * Wait for a forensics install job to complete (blocking poll)
+   */
+  async function waitForForensicsInstallJob(jobId, outputEl, maxWaitMs = 300000) {
+    const startTime = Date.now();
+    while (Date.now() - startTime < maxWaitMs) {
+      const result = await api(`/api/forensics/status/${jobId}`);
+      const status = result.status || (result.job && result.job.status);
+      if (status === 'completed') {
+        // Parse results for any failures
+        const results = result.results || (result.job && result.job.results);
+        if (results) {
+          let failCount = 0;
+          for (const output of Object.values(results)) {
+            if (typeof output === 'string' && output.includes('[RESULT] FAILED:')) {
+              failCount += (output.match(/\[RESULT\] FAILED:/g) || []).length;
+            }
+          }
+          if (failCount > 0) {
+            outputEl.textContent = `Tool install complete (${failCount} tools failed - check logs). Starting collection...`;
+          }
+        }
+        return result;
+      }
+      if (status === 'failed') {
+        throw new Error(result.error || (result.job && result.job.error) || 'Install job failed');
+      }
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      outputEl.textContent = `Installing forensics tools... (${elapsed}s)`;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    throw new Error('Timeout waiting for tool installation');
+  }
+
+  async function pollForensicsJob(jobId, scanJobId = null) {
     const outputEl = document.getElementById('fr-collect-output');
+    let collectionOutput = '';
+    let scanOutput = '';
+
     const poll = async () => {
       try {
         const result = await api(`/api/forensics/status/${jobId}`);
-        const status = result.status || (result.job && result.job.status) || 'unknown';
-        const results = result.results || (result.job && result.job.results);
-        const error = result.error || (result.job && result.job.error);
+        const job = result.job || result;
+        const status = job.status || 'unknown';
+        const results = job.results;
+        const error = job.error;
+        const options = job.options || {};
+
         if (status === 'completed' && results) {
-          outputEl.textContent = formatForensicsResults(results);
+          collectionOutput = formatForensicsResults(results);
           loadForensicsJobs();
+
+          // Check if this was a skip_scans collection (Phase 1)
+          if (options.skip_scans && !scanJobId) {
+            // Display collection results immediately
+            outputEl.textContent = collectionOutput + '\n\n══ Phase 2: Security Scans ══\nRunning rkhunter, chkrootkit, ClamAV, AIDE, debsums, YARA, UAC...\nResults will be merged into the collection tarball.';
+            showToast('Collection complete - starting security scans', 'success');
+
+            // Kick off Phase 2 security scans
+            // The scan script auto-discovers and updates the most recent tarball for each host
+            try {
+              const targets = job.targets;
+              const scanResult = await api('/api/forensics/scan', {
+                method: 'POST',
+                body: JSON.stringify({
+                  targets,
+                  memory_dump: options.memory_dump || false,
+                  timeout: 1200
+                })
+              });
+              if (scanResult.success && scanResult.job_id) {
+                // Continue polling with the scan job
+                pollForensicsJob(jobId, scanResult.job_id);
+              }
+            } catch (scanErr) {
+              outputEl.textContent = collectionOutput + `\n\n[SCAN ERROR] ${scanErr.message}`;
+            }
+            return;
+          }
+
+          // Normal completion (no skip_scans or scans already done)
+          outputEl.textContent = collectionOutput;
           showToast('Collection complete', 'success');
           return;
         } else if (status === 'failed') {
@@ -3660,14 +4119,96 @@
           showToast('Collection failed', 'error');
           return;
         }
+
+        // Still running - show progress
         const elapsed = result.elapsed_ms ? ` (${Math.round(result.elapsed_ms / 1000)}s)` : '';
-        outputEl.textContent = `Job ${jobId}: ${status}${elapsed}`;
+        outputEl.textContent = `Collecting artifacts... ${status}${elapsed}`;
         loadForensicsJobs();
         setTimeout(poll, 3000);
       } catch (err) {
         outputEl.textContent = `Poll error: ${err.message}`;
       }
     };
+
+    // If we have a scan job to poll, poll that instead
+    if (scanJobId) {
+      const pollScan = async () => {
+        try {
+          const result = await api(`/api/forensics/status/${scanJobId}`);
+          const job = result.job || result;
+          const status = job.status || 'unknown';
+          const scanSummary = job.scan_summary;
+
+          if (status === 'completed') {
+            // Format scan summary
+            scanOutput = '\n\n══════════════════════════════════════════\n';
+            scanOutput += '           SECURITY SCAN RESULTS          \n';
+            scanOutput += '══════════════════════════════════════════\n';
+            if (scanSummary && Object.keys(scanSummary).length > 0) {
+              let hasResults = false;
+              for (const [minion, summary] of Object.entries(scanSummary)) {
+                scanOutput += `\n── ${minion} ──\n`;
+                if (Object.keys(summary).length > 0) {
+                  hasResults = true;
+                  for (const [scanner, result] of Object.entries(summary)) {
+                    scanOutput += `  ${scanner}: ${result}\n`;
+                  }
+                } else {
+                  // Check if scan timed out by looking at raw results
+                  const rawResults = job.results || {};
+                  const rawOutput = rawResults[minion] || '';
+                  if (typeof rawOutput === 'string' && rawOutput.includes('Timed out')) {
+                    scanOutput += '  Scans timed out — partial results may be in the tarball.\n';
+                    scanOutput += '  Try increasing the timeout or running fewer scanners.\n';
+                  } else {
+                    scanOutput += '  No scan results parsed. Check /tmp/forensics/scanning/\n';
+                  }
+                }
+              }
+            } else {
+              scanOutput += 'Scan results available in /tmp/forensics/scanning/\n';
+            }
+            outputEl.textContent = collectionOutput + scanOutput;
+            loadForensicsJobs();
+            showToast('Security scans complete', 'success');
+            return;
+          } else if (status === 'failed') {
+            outputEl.textContent = collectionOutput + `\n\n[SCAN FAILED] ${job.error || 'Unknown error'}`;
+            loadForensicsJobs();
+            return;
+          }
+
+          // Still running - show progress with scan status
+          const results = job.results;
+          let scanProgress = '';
+          if (results) {
+            for (const output of Object.values(results)) {
+              if (typeof output === 'string') {
+                const statusMatch = output.match(/\[SCAN_STATUS\] (.+)/g);
+                if (statusMatch) {
+                  scanProgress = statusMatch[statusMatch.length - 1].replace('[SCAN_STATUS] ', '');
+                }
+              }
+            }
+          }
+          outputEl.textContent = collectionOutput + `\n\n══ Phase 2: Security Scans ══\nRunning... ${scanProgress}`;
+          setTimeout(pollScan, 3000);
+        } catch (err) {
+          outputEl.textContent = collectionOutput + `\n\n[SCAN ERROR] ${err.message}`;
+        }
+      };
+      // Get the collection output first
+      try {
+        const result = await api(`/api/forensics/status/${jobId}`);
+        const job = result.job || result;
+        if (job.results) {
+          collectionOutput = formatForensicsResults(job.results);
+        }
+      } catch (e) { /* ignore */ }
+      setTimeout(pollScan, 1000);
+      return;
+    }
+
     setTimeout(poll, 2000);
   }
 
@@ -3677,28 +4218,65 @@
     for (const [minion, output] of Object.entries(results)) {
       out += `── ${minion} ──────────────────────────────\n`;
       if (output === false) {
-        out += '[ERROR] Salt returned false — the minion may be offline, the command timed out, or the Salt minion rejected the execution. Check minion connectivity with a ping.\n\n';
+        out += '[ERROR] Salt returned false — minion may be offline or timed out.\n\n';
       } else if (output === '' || output === null || output === undefined) {
         out += '[WARNING] Empty response from minion.\n\n';
       } else if (typeof output === 'string') {
-        // Look for FORENSICS_DONE marker to provide a summary
-        if (output.includes('FORENSICS_DONE:')) {
+        // Look for FORENSICS_DONE marker to provide a concise summary
+        if (output.includes('FORENSICS_DONE')) {
           const lines = output.split('\n');
+
+          // Extract tarball path
+          const tarballLine = lines.find(l => l.includes('[TARBALL]'));
+          const tarball = tarballLine ? tarballLine.replace('[TARBALL] ', '').trim() : '';
+
+          // Extract collection path
           const doneLine = lines.find(l => l.includes('FORENSICS_DONE:'));
           const path = doneLine ? doneLine.split('FORENSICS_DONE:')[1].trim() : '/tmp/forensics';
-          const completedSteps = lines.filter(l => l.includes('complete')).map(l => l.trim());
-          out += `Collection saved to: ${path}\n`;
-          if (completedSteps.length > 0) {
-            out += `Steps completed:\n${completedSteps.map(s => `  - ${s}`).join('\n')}\n`;
+
+          // Extract key status markers ([SCAN], [ANALYSIS], [CLEANUP])
+          const statusLines = lines.filter(l => /^\[(?:SCAN|ANALYSIS|CLEANUP)\]/.test(l.trim()));
+          const statusSet = new Set(statusLines.map(l => l.trim()));
+
+          // Extract completion markers not already in statusLines
+          const completedSteps = lines
+            .filter(l => /\bcomplete\b/i.test(l) && !/echo/i.test(l))
+            .map(l => l.trim())
+            .filter(l => !statusSet.has(l));
+
+          // Extract warnings/errors (skip grep/echo noise)
+          const issues = lines.filter(l =>
+            /error|fail|not installed|not found|not available/i.test(l) &&
+            !/grep|echo|timeout.*bash/i.test(l) &&
+            !l.includes('FORENSICS_DONE')
+          );
+
+          // Build concise output
+          if (tarball) out += `Tarball: ${tarball}\n`;
+          else out += `Collection: ${path}\n`;
+
+          if (statusLines.length > 0) {
+            out += statusLines.map(l => l.trim()).join('\n') + '\n';
           }
-          // Show any errors/warnings from the output
-          const issues = lines.filter(l => /error|fail|not installed|not found|not available/i.test(l) && !/grep|echo/i.test(l));
+
+          if (completedSteps.length > 0) {
+            out += completedSteps.join('\n') + '\n';
+          }
+
           if (issues.length > 0) {
-            out += `\nWarnings/Issues:\n${issues.slice(0, 20).map(s => `  ! ${s.trim()}`).join('\n')}\n`;
+            out += `\nWarnings (${issues.length}):\n${issues.slice(0, 10).map(s => `  ! ${s.trim()}`).join('\n')}\n`;
           }
           out += '\n';
         } else {
-          out += output + '\n\n';
+          // No FORENSICS_DONE marker — show raw but truncated
+          const lines = output.split('\n');
+          if (lines.length > 40) {
+            out += lines.slice(0, 15).join('\n') + '\n';
+            out += `  ... (${lines.length - 30} lines omitted) ...\n`;
+            out += lines.slice(-15).join('\n') + '\n\n';
+          } else {
+            out += output + '\n\n';
+          }
         }
       } else {
         out += JSON.stringify(output, null, 2) + '\n\n';
@@ -4439,9 +5017,10 @@
 
     // Logs
     document.getElementById('logs-single-target').addEventListener('change', loadLogSources);
-    document.getElementById('logs-load-btn').addEventListener('click', loadLogs);
-    document.getElementById('logs-refresh-btn').addEventListener('click', loadLogs);
+    document.getElementById('logs-load-btn').addEventListener('click', () => { stopLogTail(); loadLogs(); });
+    document.getElementById('logs-refresh-btn').addEventListener('click', () => { stopLogTail(); loadLogs(); });
     document.getElementById('logs-filter').addEventListener('input', renderLogsList);
+    document.getElementById('logs-tail-btn').addEventListener('click', toggleLogTail);
 
     // Suspicious
     document.getElementById('susp-scan-btn').addEventListener('click', () => scanSuspicious(false));
@@ -4464,6 +5043,7 @@
     document.getElementById('report-security-btn').addEventListener('click', generateSecurityReport);
     document.getElementById('report-copy-btn').addEventListener('click', copyReport);
     document.getElementById('report-download-btn').addEventListener('click', downloadReport);
+    document.getElementById('report-comprehensive-btn').addEventListener('click', generateComprehensiveReport);
 
     // Forensics
     document.querySelectorAll('.forensics-tab').forEach(tab => {
@@ -4566,6 +5146,15 @@
     document.getElementById('pwd-select-linux').addEventListener('click', () => { inlineSelectorSelectLinux('pwd'); updateShellSelectorVisibility(); });
     document.getElementById('pwd-select-windows').addEventListener('click', () => { inlineSelectorSelectWindows('pwd'); updateShellSelectorVisibility(); });
     document.getElementById('pwd-select-none').addEventListener('click', () => { inlineSelectorSelectNone('pwd'); updateShellSelectorVisibility(); });
+
+    // Monitoring
+    document.getElementById('mon-create-baseline-btn').addEventListener('click', createBaseline);
+    document.getElementById('mon-create-schedule-btn').addEventListener('click', createSchedule);
+    document.getElementById('mon-check-now-btn').addEventListener('click', monitorCheckNow);
+    document.getElementById('mon-refresh-changes-btn').addEventListener('click', loadChanges);
+
+    // Bulk password rotation
+    document.getElementById('bulk-rot-btn').addEventListener('click', bulkRotatePassword);
 
     // Keys
     document.getElementById('refresh-keys-btn').addEventListener('click', loadKeys);

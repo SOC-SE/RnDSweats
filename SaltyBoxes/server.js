@@ -42,6 +42,7 @@ const logsRoutes = require('./src/routes/logs');
 const suspiciousRoutes = require('./src/routes/suspicious');
 const reportsRoutes = require('./src/routes/reports');
 const forensicsRoutes = require('./src/routes/forensics');
+const monitoringRoutes = require('./src/routes/monitoring');
 
 // Initialize Express
 const app = express();
@@ -206,6 +207,9 @@ app.use('/api/reports', reportsRoutes);
 // Forensics routes
 app.use('/api/forensics', forensicsRoutes);
 
+// Monitoring routes (scheduled checks with change detection)
+app.use('/api/monitoring', monitoringRoutes);
+
 // ============================================================
 // Error Handling
 // ============================================================
@@ -300,6 +304,9 @@ const server = app.listen(PORT, HOST, () => {
 // Graceful shutdown
 const shutdown = (signal) => {
   logger.info(`Received ${signal}, shutting down gracefully`);
+
+  // Shut down monitoring scheduler
+  try { require('./src/lib/scheduler').shutdown(); } catch {}
 
   server.close(() => {
     logger.info('HTTP server closed');
