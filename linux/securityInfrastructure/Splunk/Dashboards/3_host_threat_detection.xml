@@ -1,0 +1,481 @@
+<form version="1.1">
+  <label>Host Threat Detection</label>
+  <description>All host-level detections - Sysmon, PowerShell, AD attacks, Falco, Wazuh, FIM, malware, WAF, persistence</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time_token">
+      <label>Time Range</label>
+      <default>
+        <earliest>-4h@m</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="text" token="host_filter">
+      <label>Host Filter</label>
+      <default>*</default>
+    </input>
+  </fieldset>
+
+  <!-- ============================================================ -->
+  <!-- Row 1: 5 KPI Cards -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <single>
+        <title>Wazuh Critical (Level 12+)</title>
+        <search>
+          <query>
+index=linux sourcetype=wazuh:alerts host=$host_filter$
+| spath path=rule.level output=wazuh_level
+| where wazuh_level &gt;= 12
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="underLabel">Critical HIDS Alerts</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Sysmon Suspicious Procs</title>
+        <search>
+          <query>
+index=windows sourcetype="WinEventLog:Sysmon" EventCode=1 host=$host_filter$
+| search Image IN ("*\\powershell.exe","*\\cmd.exe","*\\wscript.exe","*\\cscript.exe","*\\mshta.exe","*\\certutil.exe","*\\bitsadmin.exe","*\\rundll32.exe","*\\regsvr32.exe","*\\msiexec.exe","*\\whoami.exe","*\\net.exe","*\\net1.exe","*\\nltest.exe","*\\dsquery.exe","*\\csvde.exe","*\\ldifde.exe","*\\tasklist.exe","*\\qprocess.exe","*\\psexec.exe")
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[5,25]</option>
+        <option name="underLabel">LOLBins Executed</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>FIM Changes</title>
+        <search>
+          <query>
+(index=linux sourcetype=webfim host=$host_filter$) OR
+(index=linux sourcetype=wazuh:alerts host=$host_filter$ data.syscheck.path=*)
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[0,10]</option>
+        <option name="underLabel">File Integrity Events</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Malware / AV Hits</title>
+        <search>
+          <query>
+(index=linux sourcetype=yara host=$host_filter$) OR
+(index=linux sourcetype="linux_av:events" host=$host_filter$) OR
+(index=windows sourcetype="WinEventLog:Defender" EventCode IN (1116,1117) host=$host_filter$)
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="underLabel">YARA + LMD + Defender</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>WAF Blocks</title>
+        <search>
+          <query>
+(index=linux sourcetype=modsecurity host=$host_filter$) OR
+(index=linux sourcetype="coraza:audit" host=$host_filter$)
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[0,10]</option>
+        <option name="underLabel">ModSecurity + Coraza</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 2: Suspicious Process Execution + PowerShell ScriptBlock -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Suspicious Process Execution (Sysmon)</title>
+      <table>
+        <search>
+          <query>
+index=windows sourcetype="WinEventLog:Sysmon" EventCode=1 host=$host_filter$
+| search Image IN ("*\\powershell.exe","*\\cmd.exe","*\\wscript.exe","*\\cscript.exe","*\\mshta.exe","*\\certutil.exe","*\\bitsadmin.exe","*\\rundll32.exe","*\\regsvr32.exe","*\\msiexec.exe","*\\whoami.exe","*\\net.exe","*\\net1.exe","*\\nltest.exe","*\\dsquery.exe","*\\csvde.exe","*\\ldifde.exe","*\\tasklist.exe","*\\psexec.exe")
+| eval proc=replace(Image, ".*\\\\", "")
+| eval is_obfuscated=if(match(CommandLine, "(\^|`|\+|%|\\$\\{|\\[char\\])"), "YES", "NO")
+| table _time, host, User, proc, CommandLine, ParentImage, is_obfuscated
+| sort -_time
+| rename proc as "Process", CommandLine as "Command Line", ParentImage as "Parent Process", is_obfuscated as "Obfuscated?"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Obfuscated?">
+          <colorPalette type="map">{"YES":#DC4E41,"NO":#53A051}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>PowerShell ScriptBlock Logging</title>
+      <table>
+        <search>
+          <query>
+index=windows sourcetype="WinEventLog:PowerShell" EventCode=4104 host=$host_filter$
+| eval suspicious=if(match(ScriptBlockText, "(?i)(invoke-mimikatz|invoke-expression|iex|downloadstring|downloadfile|encodedcommand|bypass|reflection\.assembly|net\.webclient|invoke-webrequest|start-bitstransfer|invoke-shellcode|get-credential|convertto-securestring)"), "YES", "NO")
+| where suspicious="YES"
+| eval snippet=substr(ScriptBlockText, 1, 200)
+| table _time, host, snippet
+| sort -_time
+| rename snippet as "Script Block (first 200 chars)"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 3: AD/Windows Attack Detections -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Active Directory / Windows Attack Detections (Zeek)</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:notice note IN ("DCSync_Attack", "PsExec_Lateral_Movement", "WMI_Lateral_Movement", "DCOM_Lateral_Movement", "AT_Job_Lateral_Movement", "Kerberoasting_Detected", "SharpHound_Enumeration", "PetitPotam_Attack", "PrintNightmare_Attack", "Admin_Share_Lateral_Movement", "ASREP_Roasting", "Golden_Ticket_Detected", "Suspicious_LDAP_Query")
+| eval mitre=case(
+    note=="DCSync_Attack", "T1003.006 - DCSync",
+    note=="PsExec_Lateral_Movement", "T1021.002 - SMB/Admin Shares",
+    note=="WMI_Lateral_Movement", "T1047 - WMI",
+    note=="DCOM_Lateral_Movement", "T1021.003 - DCOM",
+    note=="AT_Job_Lateral_Movement", "T1053.002 - AT",
+    note=="Kerberoasting_Detected", "T1558.003 - Kerberoasting",
+    note=="SharpHound_Enumeration", "T1087.002 - Domain Account Discovery",
+    note=="PetitPotam_Attack", "T1187 - Forced Authentication",
+    note=="PrintNightmare_Attack", "T1068 - Exploitation for Privilege Escalation",
+    note=="Admin_Share_Lateral_Movement", "T1021.002 - SMB/Admin Shares",
+    note=="ASREP_Roasting", "T1558.004 - AS-REP Roasting",
+    note=="Golden_Ticket_Detected", "T1558.001 - Golden Ticket",
+    note=="Suspicious_LDAP_Query", "T1087 - Account Discovery",
+    1=1, "Unknown"
+)
+| eval severity=case(
+    match(note, "DCSync|Golden_Ticket|PetitPotam|PrintNightmare"), "CRITICAL",
+    match(note, "PsExec|WMI|DCOM|Kerberoast|ASREP"), "HIGH",
+    match(note, "SharpHound|Admin_Share|AT_Job"), "MEDIUM",
+    1=1, "LOW"
+)
+| table _time, severity, note, mitre, id.orig_h, id.resp_h, msg
+| sort -_time
+| rename note as "Detection", mitre as "MITRE ATT&amp;CK", id.orig_h as "Source", id.resp_h as "Target", msg as "Details"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="severity">
+          <colorPalette type="map">{"CRITICAL":#DC4E41,"HIGH":#F1813F,"MEDIUM":#F8BE34,"LOW":#53A051}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 4: Falco Runtime Alerts + Wazuh Critical -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Falco Runtime Alerts</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=falco:alerts host=$host_filter$
+| spath
+| table _time, host, priority, rule, output
+| sort -_time
+| rename priority as "Priority", rule as "Rule", output as "Details"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Priority">
+          <colorPalette type="map">{"Critical":#DC4E41,"Error":#F1813F,"Warning":#F8BE34,"Notice":#53A051,"Informational":#708794,"Debug":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Wazuh Alerts (Level 7+)</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=wazuh:alerts host=$host_filter$
+| spath
+| where 'rule.level' &gt;= 7
+| table _time, host, rule.level, rule.description, rule.mitre.id{}, agent.name
+| sort -_time
+| rename rule.level as "Level", rule.description as "Description", "rule.mitre.id{}" as "MITRE ID", agent.name as "Agent"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Level">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" midColor="#F8BE34" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax" minValue="7" maxValue="15"></scale>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 5: Web FIM Changes + Wazuh Syscheck FIM -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Web File Integrity Changes</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=webfim host=$host_filter$
+| table _time, host, file_path, action, user, details
+| sort -_time
+| rename file_path as "File", action as "Action", user as "User", details as "Details"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Action">
+          <colorPalette type="map">{"modified":#F8BE34,"created":#53A051,"deleted":#DC4E41}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Wazuh Syscheck FIM</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=wazuh:alerts host=$host_filter$ data.syscheck.path=*
+| spath
+| table _time, host, data.syscheck.path, data.syscheck.event, data.syscheck.md5_after, data.syscheck.uname_after
+| sort -_time
+| rename data.syscheck.path as "File Path", data.syscheck.event as "Event", data.syscheck.md5_after as "MD5", data.syscheck.uname_after as "User"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 6: Malware Detection Feed -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Malware Detection Feed (Unified)</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=yara host=$host_filter$) OR
+(index=linux sourcetype="linux_av:events" host=$host_filter$) OR
+(index=windows sourcetype="WinEventLog:Defender" EventCode IN (1116,1117) host=$host_filter$)
+| eval detection_source=case(
+    sourcetype=="yara", "YARA",
+    sourcetype=="linux_av:events", "Linux Maldet",
+    sourcetype=="WinEventLog:Defender", "Windows Defender",
+    1=1, sourcetype
+)
+| eval detail=coalesce(rule_name, threat_name, "Threat Name" , _raw)
+| table _time, host, detection_source, detail, file_path
+| sort -_time
+| rename detection_source as "Engine", detail as "Detection", file_path as "File Path"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Engine">
+          <colorPalette type="map">{"YARA":#DC4E41,"Linux Maldet":#F1813F,"Windows Defender":#F8BE34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 7: WAF Alert Feed -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>WAF Alert Feed (ModSecurity + Coraza)</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=modsecurity host=$host_filter$) OR
+(index=linux sourcetype="coraza:audit" host=$host_filter$)
+| eval waf_engine=case(
+    sourcetype=="modsecurity", "ModSecurity",
+    sourcetype=="coraza:audit", "Coraza",
+    1=1, sourcetype
+)
+| rex field=_raw "\[id \"(?&lt;rule_id&gt;\d+)\"\]"
+| rex field=_raw "\[msg \"(?&lt;rule_msg&gt;[^\"]+)\"\]"
+| rex field=_raw "\[severity \"(?&lt;severity&gt;[^\"]+)\"\]"
+| rex field=_raw "\[uri \"(?&lt;uri&gt;[^\"]+)\"\]"
+| table _time, host, waf_engine, severity, rule_id, rule_msg, uri, src_ip
+| sort -_time
+| rename waf_engine as "WAF", severity as "Severity", rule_id as "Rule ID", rule_msg as "Rule", uri as "URI", src_ip as "Source IP"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Severity">
+          <colorPalette type="map">{"CRITICAL":#DC4E41,"critical":#DC4E41,"ERROR":#F1813F,"error":#F1813F,"WARNING":#F8BE34,"warning":#F8BE34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 8: Persistence Mechanisms -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Persistence Mechanisms</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=linux_secure host=$host_filter$ ("useradd" OR "usermod" OR "groupadd" OR "passwd"))
+OR (index=linux sourcetype=linux_secure host=$host_filter$ "CRON")
+OR (index=windows sourcetype="WinEventLog:Security" EventCode IN (4720,4726,4728,4732,4756) host=$host_filter$)
+OR (index=windows sourcetype="WinEventLog:Sysmon" EventCode IN (11,12,13) host=$host_filter$
+    TargetObject IN ("*\\CurrentVersion\\Run*","*\\CurrentVersion\\RunOnce*","*\\Services\\*","*\\Scheduled Tasks*"))
+OR (index=linux sourcetype=linux_security_scan host=$host_filter$)
+| eval category=case(
+    match(_raw, "useradd|usermod|groupadd|passwd") AND sourcetype=="linux_secure", "User/Group Change",
+    match(_raw, "CRON"), "Cron Modification",
+    sourcetype=="WinEventLog:Security" AND EventCode IN ("4720","4726"), "Windows User Change",
+    sourcetype=="WinEventLog:Security" AND EventCode IN ("4728","4732","4756"), "Windows Group Change",
+    sourcetype=="WinEventLog:Sysmon" AND match(TargetObject, "Run"), "Windows Startup Persistence",
+    sourcetype=="WinEventLog:Sysmon" AND match(TargetObject, "Services"), "Windows Service Install",
+    sourcetype=="linux_security_scan", "Security Scan Finding",
+    1=1, "Other"
+)
+| table _time, host, category, _raw
+| eval detail=substr(_raw, 1, 200)
+| fields _time, host, category, detail
+| sort -_time
+| rename category as "Type", detail as "Details"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Type">
+          <colorPalette type="map">{"User/Group Change":#F1813F,"Cron Modification":#DC4E41,"Windows User Change":#F1813F,"Windows Group Change":#F1813F,"Windows Startup Persistence":#DC4E41,"Windows Service Install":#DC4E41,"Security Scan Finding":#F8BE34,"Other":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+</form>

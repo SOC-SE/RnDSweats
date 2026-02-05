@@ -1,0 +1,375 @@
+<form version="1.1">
+  <label>Forensic Investigation</label>
+  <description>Deep-dive per-host/per-IP investigation tool - timeline, lateral movement, TTY, transfers, SSL, SMB, DCE-RPC</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time_token">
+      <label>Time Range</label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="text" token="host_token">
+      <label>Host (hostname)</label>
+      <default>*</default>
+    </input>
+    <input type="text" token="ip_token">
+      <label>IP Address</label>
+      <default>*</default>
+    </input>
+  </fieldset>
+
+  <!-- ============================================================ -->
+  <!-- Row 1: Complete Host Activity Timeline -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Complete Host Activity Timeline</title>
+      <table>
+        <search>
+          <query>
+(index=linux host=$host_token$) OR
+(index=windows host=$host_token$) OR
+(index=network (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$))
+| eval category=case(
+    sourcetype=="linux_secure" AND match(_raw, "Accepted|Failed"), "Auth",
+    sourcetype=="WinEventLog:Security" AND EventCode IN ("4624","4625","4634"), "Auth",
+    sourcetype=="WinEventLog:Sysmon" AND EventCode=="1", "Execution",
+    sourcetype=="linux_secure" AND match(_raw, "sudo:"), "Execution",
+    sourcetype IN ("zeek:conn","zeek:dns","zeek:http","zeek:ssl","zeek:ssh"), "Network",
+    sourcetype IN ("zeek:notice","suricata:fast"), "Detection",
+    sourcetype IN ("wazuh:alerts","falco:alerts"), "SIEM",
+    sourcetype=="iptables", "Firewall",
+    sourcetype IN ("webfim","linux_security_scan","yara","linux_av:events"), "Monitor",
+    sourcetype=="cowrie", "Honeypot",
+    sourcetype IN ("modsecurity","coraza:audit"), "WAF",
+    1=1, "Other"
+)
+| eval summary=case(
+    sourcetype=="linux_secure", substr(_raw, 1, 120),
+    sourcetype=="zeek:notice", note . ": " . msg,
+    sourcetype=="suricata:fast", _raw,
+    sourcetype=="wazuh:alerts", spath(_raw, "rule.description"),
+    sourcetype=="falco:alerts", spath(_raw, "rule"),
+    sourcetype=="cowrie", spath(_raw, "eventid") . " " . spath(_raw, "message"),
+    1=1, substr(_raw, 1, 120)
+)
+| table _time, category, sourcetype, host, summary
+| sort -_time
+| rename category as "Category", sourcetype as "Source Type", summary as "Summary"
+| head 100
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Category">
+          <colorPalette type="map">{"Auth":#006D9C,"Execution":#F1813F,"Network":#708794,"Detection":#DC4E41,"SIEM":#DC4E41,"Firewall":#F8BE34,"Monitor":#53A051,"Honeypot":#A2CC3E,"WAF":#F8BE34,"Other":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 2: All Network Activity for IP + DNS Queries -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>All Network Connections for IP</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:conn (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$)
+| eval direction=if(id.orig_h="$ip_token$", "OUTBOUND", "INBOUND")
+| eval peer=if(id.orig_h="$ip_token$", id.resp_h, id.orig_h)
+| eval orig_MB=round(orig_bytes/1048576, 3), resp_MB=round(resp_bytes/1048576, 3)
+| table _time, direction, peer, id.resp_p, proto, service, conn_state, orig_MB, resp_MB, duration
+| sort -_time
+| rename direction as "Dir", peer as "Peer", id.resp_p as "Port", proto as "Proto", conn_state as "State", orig_MB as "Orig (MB)", resp_MB as "Resp (MB)", duration as "Duration (s)"
+| head 100
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">15</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Dir">
+          <colorPalette type="map">{"OUTBOUND":#F1813F,"INBOUND":#006D9C}</colorPalette>
+        </format>
+        <format type="color" field="State">
+          <colorPalette type="map">{"SF":#53A051,"S0":#DC4E41,"REJ":#DC4E41,"RSTO":#F1813F,"RSTOS0":#DC4E41,"SH":#F8BE34,"SHR":#F8BE34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>DNS Queries from IP</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:dns id.orig_h=$ip_token$
+| table _time, query, qtype_name, rcode_name, answers
+| sort -_time
+| rename query as "Query", qtype_name as "Type", rcode_name as "Response", answers as "Answers"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">15</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Response">
+          <colorPalette type="map">{"NOERROR":#53A051,"NXDOMAIN":#F1813F,"SERVFAIL":#DC4E41,"REFUSED":#DC4E41}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 3: Lateral Movement Map -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Lateral Movement Map</title>
+      <table>
+        <search>
+          <query>
+(index=network sourcetype=zeek:conn id.resp_p IN (22,445,3389,135,5985,5986) (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$))
+OR (index=network sourcetype=zeek:notice note IN ("PsExec_Lateral_Movement","WMI_Lateral_Movement","DCOM_Lateral_Movement","Admin_Share_Lateral_Movement") (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$))
+OR (index=network sourcetype=zeek:dce_rpc (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$))
+| eval method=case(
+    sourcetype=="zeek:notice", note,
+    id.resp_p=="22", "SSH",
+    id.resp_p=="445", "SMB",
+    id.resp_p=="3389", "RDP",
+    id.resp_p=="135", "DCE-RPC/WMI",
+    id.resp_p IN ("5985","5986"), "WinRM",
+    sourcetype=="zeek:dce_rpc", "DCE-RPC: " . endpoint . "::" . operation,
+    1=1, "Port " . id.resp_p
+)
+| stats count, min(_time) as first_seen, max(_time) as last_seen, values(method) as methods by id.orig_h, id.resp_h
+| eval first_seen=strftime(first_seen, "%H:%M:%S"), last_seen=strftime(last_seen, "%H:%M:%S")
+| sort -count
+| rename id.orig_h as "Source", id.resp_h as "Destination", count as "Connections", methods as "Methods"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">15</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Methods">
+          <colorPalette type="map">{"SSH":#006D9C,"SMB":#F1813F,"RDP":#F8BE34,"DCE-RPC/WMI":#DC4E41,"WinRM":#DC4E41}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 4: TTY Session Monitoring -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>TTY Session Monitoring</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=ttymon host=$host_token$
+| rex field=_raw "(?&lt;session_action&gt;NEW SESSION|CLOSED)\s+user=(?&lt;tty_user&gt;\S+)\s+tty=(?&lt;tty&gt;\S+)"
+| rex field=_raw "from=(?&lt;from_ip&gt;\S+)"
+| table _time, host, session_action, tty_user, tty, from_ip
+| sort -_time
+| rename session_action as "Action", tty_user as "User", tty as "TTY", from_ip as "Source IP"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">15</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Action">
+          <colorPalette type="map">{"NEW SESSION":#53A051,"CLOSED":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 5: Largest Data Transfers + File Transfers -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Largest Data Transfers</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:conn (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$)
+| eval total_bytes=orig_bytes+resp_bytes
+| eval total_MB=round(total_bytes/1048576, 2)
+| eval orig_MB=round(orig_bytes/1048576, 2), resp_MB=round(resp_bytes/1048576, 2)
+| sort -total_bytes
+| table _time, id.orig_h, id.resp_h, id.resp_p, service, orig_MB, resp_MB, total_MB, duration
+| rename id.orig_h as "Source", id.resp_h as "Destination", id.resp_p as "Port", orig_MB as "Sent (MB)", resp_MB as "Received (MB)", total_MB as "Total (MB)", duration as "Duration (s)"
+| head 20
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Total (MB)">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" midColor="#F8BE34" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax"></scale>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>File Transfers (Zeek Files Log)</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:files
+| where tx_hosts=$ip_token$ OR rx_hosts=$ip_token$ OR "$ip_token$"="*"
+| eval size_KB=round(total_bytes/1024, 2)
+| table _time, tx_hosts, rx_hosts, mime_type, filename, size_KB, md5, sha1
+| sort -_time
+| rename tx_hosts as "Sender", rx_hosts as "Receiver", mime_type as "MIME Type", filename as "Filename", size_KB as "Size (KB)", md5 as "MD5", sha1 as "SHA1"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 6: Long-Duration Connections + SSL Certificates -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Long-Duration Connections (C2 Indicator)</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:conn (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$)
+| where duration &gt; 60
+| eval duration_min=round(duration/60, 1)
+| eval orig_MB=round(orig_bytes/1048576, 3), resp_MB=round(resp_bytes/1048576, 3)
+| sort -duration
+| table _time, id.orig_h, id.resp_h, id.resp_p, service, conn_state, duration_min, orig_MB, resp_MB
+| rename id.orig_h as "Source", id.resp_h as "Destination", id.resp_p as "Port", conn_state as "State", duration_min as "Duration (min)", orig_MB as "Sent (MB)", resp_MB as "Recv (MB)"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Duration (min)">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" midColor="#F8BE34" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax"></scale>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>SSL Certificates</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:ssl (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$)
+| table _time, id.orig_h, id.resp_h, id.resp_p, server_name, issuer, subject, version
+| sort -_time
+| rename id.orig_h as "Client", id.resp_h as "Server", id.resp_p as "Port", server_name as "SNI", issuer as "Issuer", subject as "Subject", version as "TLS Version"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 7: SMB Share Access + DCE-RPC Calls -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>SMB Share Access</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:smb_mapping (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$)
+| table _time, id.orig_h, id.resp_h, path, share_type
+| sort -_time
+| rename id.orig_h as "Client", id.resp_h as "Server", path as "Share Path", share_type as "Type"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>DCE-RPC Calls</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:dce_rpc (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$)
+| stats count as calls, values(operation) as operations by id.orig_h, id.resp_h, endpoint
+| sort -calls
+| rename id.orig_h as "Client", id.resp_h as "Server", endpoint as "Endpoint", calls as "Calls", operations as "Operations"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Endpoint">
+          <colorPalette type="map">{"srvsvc":#006D9C,"samr":#F1813F,"lsarpc":#F8BE34,"drsuapi":#DC4E41,"IRemoteWinspool":#DC4E41,"epmapper":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+</form>

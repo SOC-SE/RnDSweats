@@ -1,0 +1,549 @@
+<form version="1.1">
+  <label>Infrastructure Health &amp; Service Monitoring</label>
+  <description>Service health, log gap detection, host/sourcetype health - detects when red team kills logging</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time_token">
+      <label>Time Range</label>
+      <default>
+        <earliest>-4h@m</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+  </fieldset>
+
+  <!-- ============================================================ -->
+  <!-- Row 1: 5 KPI Cards -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <single>
+        <title>Hosts Reporting</title>
+        <search>
+          <query>
+index=linux OR index=windows OR index=network
+| stats dc(host) as count
+          </query>
+          <earliest>-15m@m</earliest>
+          <latest>now</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="underLabel">Last 15 Minutes</option>
+        <option name="useColors">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Total Events</title>
+        <search>
+          <query>
+index=linux OR index=windows OR index=network
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="underLabel">All Indexes</option>
+        <option name="useColors">0</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Service Failures</title>
+        <search>
+          <query>
+(index=linux sourcetype=syslog ("Failed" OR "failed" OR "error" OR "ERROR") ("systemd" OR "service"))
+OR (index=windows sourcetype="WinEventLog:System" EventCode=7034)
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[5,20]</option>
+        <option name="underLabel">Systemd + Windows</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Config / Package Changes</title>
+        <search>
+          <query>
+(index=linux sourcetype="vyos:config") OR
+(index=linux sourcetype=package)
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[0,5]</option>
+        <option name="underLabel">VyOS + Packages</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Wazuh Active Responses</title>
+        <search>
+          <query>
+index=linux sourcetype="wazuh:active_responses"
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="underLabel">Auto-Responses</option>
+        <option name="useColors">0</option>
+      </single>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 2: Events Per Host Timeline + Events Per Sourcetype -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Events Per Host Timeline</title>
+      <chart>
+        <search>
+          <query>
+index=linux OR index=windows OR index=network
+| timechart span=5m count by host limit=20
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="height">300</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Events Per Sourcetype</title>
+      <chart>
+        <search>
+          <query>
+index=linux OR index=windows OR index=network
+| stats count by sourcetype
+| sort -count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">pie</option>
+        <option name="charting.drilldown">none</option>
+        <option name="height">300</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 3: Host Last Seen + Sourcetype Health Check -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Host Last Seen (Log Gap Detection)</title>
+      <table>
+        <search>
+          <query>
+index=linux OR index=windows OR index=network
+| stats latest(_time) as last_event, count as total_events, dc(sourcetype) as sourcetypes by host
+| eval age_min=round((now()-last_event)/60, 1)
+| eval status=case(
+    age_min &lt;= 5, "ACTIVE",
+    age_min &lt;= 15, "WARNING",
+    1=1, "SILENT"
+)
+| eval last_seen=strftime(last_event, "%Y-%m-%d %H:%M:%S")
+| sort -age_min
+| table host, status, last_seen, age_min, total_events, sourcetypes
+| rename host as "Host", status as "Status", last_seen as "Last Event", age_min as "Age (min)", total_events as "Events", sourcetypes as "Source Types"
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Status">
+          <colorPalette type="map">{"ACTIVE":#53A051,"WARNING":#F8BE34,"SILENT":#DC4E41}</colorPalette>
+        </format>
+        <format type="color" field="Age (min)">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" midColor="#F8BE34" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax" minValue="0" maxValue="30"></scale>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Sourcetype Health Check</title>
+      <table>
+        <search>
+          <query>
+index=linux OR index=windows OR index=network
+| stats latest(_time) as last_event, count as total_events, dc(host) as reporting_hosts by sourcetype
+| eval age_min=round((now()-last_event)/60, 1)
+| eval status=case(
+    age_min &lt;= 5, "ACTIVE",
+    age_min &lt;= 15, "WARNING",
+    1=1, "SILENT"
+)
+| eval last_seen=strftime(last_event, "%Y-%m-%d %H:%M:%S")
+| sort -age_min
+| table sourcetype, status, last_seen, age_min, total_events, reporting_hosts
+| rename sourcetype as "Source Type", status as "Status", last_seen as "Last Event", age_min as "Age (min)", total_events as "Events", reporting_hosts as "Hosts"
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Status">
+          <colorPalette type="map">{"ACTIVE":#53A051,"WARNING":#F8BE34,"SILENT":#DC4E41}</colorPalette>
+        </format>
+        <format type="color" field="Age (min)">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" midColor="#F8BE34" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax" minValue="0" maxValue="30"></scale>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 4: VyOS Config Changes + Package Changes -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>VyOS Configuration Changes</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype="vyos:config"
+| table _time, host, _raw
+| eval detail=substr(_raw, 1, 200)
+| fields _time, host, detail
+| sort -_time
+| rename detail as "Change Details"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Package Changes (apt/yum)</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=package
+| table _time, host, _raw
+| eval detail=substr(_raw, 1, 200)
+| fields _time, host, detail
+| sort -_time
+| rename detail as "Package Activity"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 5: Web Server Error Rates + Web Error Details -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Web Server Error Timeline</title>
+      <chart>
+        <search>
+          <query>
+(index=linux sourcetype IN ("nginx:error", "apache:error")) OR
+(index=linux sourcetype IN ("nginx:access", "apache:access") (status&gt;=400 OR status_code&gt;=400))
+| eval error_source=case(
+    sourcetype=="nginx:error", "Nginx Error",
+    sourcetype=="apache:error", "Apache Error",
+    sourcetype=="nginx:access", "Nginx 4xx/5xx",
+    sourcetype=="apache:access", "Apache 4xx/5xx",
+    1=1, sourcetype
+)
+| timechart span=5m count by error_source
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="height">250</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>HTTP Error Details</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype IN ("nginx:access", "apache:access")
+| rex field=_raw "\"(?&lt;method&gt;\w+)\s+(?&lt;uri&gt;[^\s]+)\s+HTTP"
+| rex field=_raw "\"\s+(?&lt;http_status&gt;\d{3})\s+"
+| where http_status &gt;= 400
+| stats count by host, http_status, uri, method
+| sort -count
+| rename http_status as "Status", uri as "URI", method as "Method", count as "Count"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Status">
+          <colorPalette type="map">{"400":#F8BE34,"401":#F1813F,"403":#F1813F,"404":#F8BE34,"500":#DC4E41,"502":#DC4E41,"503":#DC4E41}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 6: Database Errors + Mail Server Activity -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Database Errors</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype="mysql:error") OR
+(index=linux sourcetype="postgresql:log" ("ERROR" OR "FATAL")) OR
+(index=linux sourcetype=redis ("ERROR" OR "WARNING"))
+| eval db_type=case(
+    sourcetype=="mysql:error", "MySQL",
+    sourcetype=="postgresql:log", "PostgreSQL",
+    sourcetype=="redis", "Redis",
+    1=1, sourcetype
+)
+| table _time, host, db_type, _raw
+| eval detail=substr(_raw, 1, 200)
+| fields _time, host, db_type, detail
+| sort -_time
+| rename db_type as "Database", detail as "Error Details"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Database">
+          <colorPalette type="map">{"MySQL":#006D9C,"PostgreSQL":#53A051,"Redis":#DC4E41}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Mail Server Activity</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=postfix) OR
+(index=linux sourcetype=dovecot)
+| eval mail_source=case(
+    sourcetype=="postfix", "Postfix",
+    sourcetype=="dovecot", "Dovecot",
+    1=1, sourcetype
+)
+| eval status=case(
+    match(_raw, "reject|denied|error|failed"), "REJECTED",
+    match(_raw, "delivered|sent|stored"), "DELIVERED",
+    match(_raw, "bounced|deferred"), "BOUNCED",
+    match(_raw, "Login|login|auth"), "AUTH",
+    1=1, "OTHER"
+)
+| stats count by host, mail_source, status
+| sort -count
+| rename mail_source as "Service", status as "Status", count as "Events"
+| head 20
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Status">
+          <colorPalette type="map">{"REJECTED":#DC4E41,"DELIVERED":#53A051,"BOUNCED":#F8BE34,"AUTH":#006D9C,"OTHER":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 7: Service Failure Feed + Salt Orchestration -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Service Failure Feed</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=syslog "systemd" ("Failed" OR "failed" OR "Stopped" OR "error"))
+OR (index=windows sourcetype="WinEventLog:System" EventCode IN (7034,7036,7040))
+| eval service_source=case(
+    sourcetype=="syslog", "Linux systemd",
+    sourcetype=="WinEventLog:System", "Windows Service",
+    1=1, sourcetype
+)
+| table _time, host, service_source, _raw
+| eval detail=substr(_raw, 1, 200)
+| fields _time, host, service_source, detail
+| sort -_time
+| rename service_source as "Source", detail as "Details"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Salt Orchestration</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype="salt:master") OR
+(index=linux sourcetype="salt:minion")
+| eval salt_role=case(
+    sourcetype=="salt:master", "Master",
+    sourcetype=="salt:minion", "Minion",
+    1=1, sourcetype
+)
+| table _time, host, salt_role, _raw
+| eval detail=substr(_raw, 1, 200)
+| fields _time, host, salt_role, detail
+| sort -_time
+| rename salt_role as "Role", detail as "Activity"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 8: Docker Container Logs + Proxmox Access -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Docker Container Logs</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype="docker:json"
+| spath
+| table _time, host, container_name, log, stream
+| sort -_time
+| rename container_name as "Container", log as "Log Output", stream as "Stream"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Stream">
+          <colorPalette type="map">{"stdout":#53A051,"stderr":#DC4E41}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Proxmox Hypervisor Access</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype="proxmox:access"
+| table _time, host, user, method, path, status
+| sort -_time
+| rename user as "User", method as "Method", path as "API Path", status as "Status"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</form>

@@ -1,0 +1,358 @@
+<form version="1.1">
+  <label>Competition Command Center</label>
+  <description>War room big-screen dashboard - Real-time threat overview across all data sources</description>
+
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time_token">
+      <label>Time Range</label>
+      <default>
+        <earliest>-4h@m</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+  </fieldset>
+
+  <!-- ============================================================ -->
+  <!-- Row 1: 6 KPI Score Cards -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <single>
+        <title>Active Threats (Last Hour)</title>
+        <search>
+          <query>
+(index=network sourcetype=zeek:notice) OR
+(index=linux sourcetype=suricata:fast) OR
+(index=linux sourcetype=falco:alerts) OR
+(index=linux sourcetype=wazuh:alerts)
+| spath input=_raw path=rule.level output=wazuh_level
+| where sourcetype!="wazuh:alerts" OR wazuh_level&gt;=7
+| stats count
+          </query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xf1813f","0xdc4e41"]</option>
+        <option name="rangeValues">[5,25,100]</option>
+        <option name="underLabel">Last 60 Minutes</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>C2 Beacons</title>
+        <search>
+          <query>
+index=network sourcetype=zeek:notice note IN ("C2_TLS_Fingerprint", "Malware_Callback", "C2_Beacon_Detected", "Suspicious_TLS_Certificate", "Suspicious_SSH_Connection")
+| stats dc(id.orig_h) as count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="underLabel">Unique Infected Hosts</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Failed Logins</title>
+        <search>
+          <query>
+(index=linux sourcetype=linux_secure "Failed password") OR
+(index=windows sourcetype="WinEventLog:Security" EventCode=4625) OR
+(index=linux sourcetype=cowrie eventid IN ("cowrie.login.failed"))
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[50,500]</option>
+        <option name="underLabel">All Sources</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Firewall Blocks</title>
+        <search>
+          <query>
+index=linux sourcetype=iptables
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[100,1000]</option>
+        <option name="underLabel">IPTables Drops</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Honeypot Hits</title>
+        <search>
+          <query>
+index=linux sourcetype=cowrie
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xdc4e41"]</option>
+        <option name="rangeValues">[0,10]</option>
+        <option name="underLabel">Cowrie Events</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Malware Detections</title>
+        <search>
+          <query>
+(index=linux sourcetype=yara) OR
+(index=linux sourcetype="linux_av:events") OR
+(index=windows sourcetype="WinEventLog:Defender" EventCode IN (1116,1117))
+| stats count
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+        <option name="rangeValues">[0]</option>
+        <option name="underLabel">YARA + AV + Defender</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 2: Unified Threat Timeline -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Unified Threat Timeline</title>
+      <chart>
+        <search>
+          <query>
+(index=network sourcetype=zeek:notice) OR
+(index=linux sourcetype=suricata:fast) OR
+(index=linux sourcetype=cowrie) OR
+(index=linux sourcetype=falco:alerts) OR
+(index=linux sourcetype=wazuh:alerts) OR
+(index=linux sourcetype=iptables) OR
+(index=linux sourcetype=modsecurity) OR
+(index=linux sourcetype="coraza:audit")
+| eval wazuh_level=if(sourcetype=="wazuh:alerts", spath(_raw, "rule.level"), null())
+| where sourcetype!="wazuh:alerts" OR wazuh_level&gt;=7
+| eval source_label=case(
+    sourcetype=="zeek:notice", "Zeek Notice",
+    sourcetype=="suricata:fast", "Suricata IDS",
+    sourcetype=="cowrie", "Cowrie Honeypot",
+    sourcetype=="falco:alerts", "Falco Runtime",
+    sourcetype=="wazuh:alerts", "Wazuh HIDS",
+    sourcetype=="iptables", "Firewall Block",
+    sourcetype=="modsecurity", "ModSecurity WAF",
+    sourcetype=="coraza:audit", "Coraza WAF",
+    1=1, sourcetype
+)
+| timechart span=5m count by source_label
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="charting.chart.showDataLabels">none</option>
+        <option name="height">300</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 3: Red Team Attack Feed + Suricata/WAF Alerts -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Red Team Attack Feed (Zeek Notices)</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:notice
+| eval severity=case(
+    match(note, "C2_|Malware_|Kerberoast|DCSync|PsExec|SharpHound|PetitPotam|PrintNightmare"), "CRITICAL",
+    match(note, "Suspicious_|Brute_Force|Admin_Share|WMI_|DCOM_|AT_Job"), "HIGH",
+    match(note, "Port_Scan|NXDOMAIN|DNS_Tunnel"), "MEDIUM",
+    1=1, "LOW"
+)
+| table _time, severity, note, id.orig_h, id.resp_h, id.resp_p, msg
+| sort -_time
+| rename id.orig_h as "Source", id.resp_h as "Destination", id.resp_p as "Port", note as "Detection", msg as "Details"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="severity">
+          <colorPalette type="map">{"CRITICAL":#DC4E41,"HIGH":#F1813F,"MEDIUM":#F8BE34,"LOW":#53A051}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Suricata + WAF Alerts</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=suricata:fast) OR
+(index=linux sourcetype=modsecurity) OR
+(index=linux sourcetype="coraza:audit")
+| eval alert_source=case(
+    sourcetype=="suricata:fast", "Suricata",
+    sourcetype=="modsecurity", "ModSecurity",
+    sourcetype=="coraza:audit", "Coraza",
+    1=1, sourcetype
+)
+| rex field=_raw "\[\*\*\]\s*\[[\d:]+\]\s*(?&lt;alert_msg&gt;[^\[]+)"
+| eval alert_detail=coalesce(alert_msg, message, msg, _raw)
+| table _time, alert_source, alert_detail, src_ip, dest_ip
+| sort -_time
+| rename alert_source as "Source", alert_detail as "Alert", src_ip as "Attacker", dest_ip as "Target"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Source">
+          <colorPalette type="map">{"Suricata":#F1813F,"ModSecurity":#F8BE34,"Coraza":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 4: Top Blocked IPs + Log Volume by Host + Cowrie Live Feed -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Top Blocked IPs</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=iptables
+| stats count as blocks, dc(dest_port) as unique_ports, values(ipt_chain) as chains by src_ip
+| sort -blocks
+| rename src_ip as "Source IP", blocks as "Blocks", unique_ports as "Unique Ports", chains as "Chains"
+| head 15
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Blocks">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" midColor="#F8BE34" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax"></scale>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Log Volume by Host</title>
+      <chart>
+        <search>
+          <query>
+index=linux OR index=windows OR index=network
+| timechart span=5m count by host limit=15
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="height">250</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Cowrie Live Feed</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=cowrie
+| spath
+| eval action=case(
+    eventid=="cowrie.login.success", "LOGIN OK: " . username . "/" . password,
+    eventid=="cowrie.login.failed", "LOGIN FAIL: " . username . "/" . password,
+    eventid=="cowrie.command.input", "CMD: " . input,
+    eventid=="cowrie.session.connect", "CONNECT",
+    eventid=="cowrie.session.closed", "DISCONNECT",
+    isnotnull(eventid), eventid,
+    1=1, message
+)
+| table _time, src_ip, action
+| sort -_time
+| rename src_ip as "Attacker", action as "Activity"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Activity">
+          <colorPalette type="map">{"CONNECT":#F8BE34,"DISCONNECT":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+</form>
