@@ -203,6 +203,7 @@ done
 if [[ -n "$DASHBOARD_DIR" ]]; then
     echo "Installing dashboards from $DASHBOARD_DIR..."
     APP_DIR="$SPLUNK_HOME/etc/apps/ccdc_dashboards"
+    mkdir -p "$APP_DIR/default"
     mkdir -p "$APP_DIR/local/data/ui/views"
     mkdir -p "$APP_DIR/metadata"
 
