@@ -202,42 +202,17 @@ done
 
 if [[ -n "$DASHBOARD_DIR" ]]; then
     echo "Installing dashboards from $DASHBOARD_DIR..."
-    APP_DIR="$SPLUNK_HOME/etc/apps/ccdc_dashboards"
-    mkdir -p "$APP_DIR/default"
-    mkdir -p "$APP_DIR/local/data/ui/views"
-    mkdir -p "$APP_DIR/metadata"
+    VIEWS_DIR="$SPLUNK_HOME/etc/apps/search/local/data/ui/views"
+    mkdir -p "$VIEWS_DIR"
 
-    # App config
-    cat > "$APP_DIR/default/app.conf" <<APPEOF
-[install]
-is_configured = true
-
-[ui]
-is_visible = true
-label = CCDC Dashboards
-
-[launcher]
-author = CCDC Team
-description = Competition security dashboards
-version = 1.0.0
-APPEOF
-
-    # Allow all users to read the dashboards
-    cat > "$APP_DIR/metadata/local.meta" <<METAEOF
-[]
-access = read : [ * ], write : [ admin ]
-export = system
-METAEOF
-
-    # Copy dashboard XML files
     for xml_file in "$DASHBOARD_DIR"/*.xml; do
         [[ -f "$xml_file" ]] || continue
-        cp "$xml_file" "$APP_DIR/local/data/ui/views/"
+        cp "$xml_file" "$VIEWS_DIR/"
         echo "  Installed $(basename "$xml_file")"
     done
 
-    chown -R splunk:splunk "$APP_DIR"
-    echo "Dashboards installed to $APP_DIR"
+    chown -R splunk:splunk "$VIEWS_DIR"
+    echo "Dashboards installed to $VIEWS_DIR"
 else
     echo "[WARN] Dashboards directory not found, skipping."
 fi
