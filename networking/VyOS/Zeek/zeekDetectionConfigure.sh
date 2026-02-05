@@ -9,10 +9,10 @@
 #  ╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝    ╚═════╝ ╚══════╝   ╚═╝   ╚══════╝ ╚═════╝   ╚═╝   
 #
 #  Zeek Red Team Detection Suite - Unified Installer
-#  Version: 1.3.0
+#  Version: 1.4.0
 #
 #  Installs complete detection coverage:
-#    • TLS Fingerprinting (JA4/JA3) - 150+ C2/malware signatures
+#    • TLS Fingerprinting (JA4/JA3) - 150+ C2/malware signatures + 80+ cert patterns
 #    • Windows/AD Attacks - Impacket, Kerberoasting, BloodHound
 #    • MITRE BZAR - Enhanced lateral movement detection (optional)
 #
@@ -695,14 +695,31 @@ module RedTeam;
 export {
     global ja3_signatures: table[string] of string = {
         # =====================================================================
-        # RATS (Remote Access Trojans) - abuse.ch SSLBL
+        # RATS (Remote Access Trojans) - abuse.ch SSLBL + DFIR research
         # =====================================================================
-        ["fc54e0d16d9764783542f0146a98b300"] = "AsyncRAT/PoshC2 Sharp Implant", # 19,859 SSLBL samples + Nettitude IOCs
+        #
+        # CRITICAL: .NET SslStream fingerprint family
+        # The JA3 fc54e0d16d9764783542f0146a98b300 is the .NET SslStream/SChannel
+        # fingerprint shared by ALL .NET RATs: AsyncRAT, XWorm, VenomRAT, DCRat,
+        # QuasarRAT, NanoCore, Orcus, Agent Tesla (HTTPS mode), SolarMarker,
+        # njRAT (TLS mode), PoshC2 Sharp Implant, and any .NET app using SslStream.
+        # Detection via JA3 alone has false-positive risk - combine with cert
+        # patterns (CN="AsyncRAT Server", "DcRat", "VenomRAT", etc.) for accuracy.
+        #
+        ["fc54e0d16d9764783542f0146a98b300"] = ".NET SslStream RAT (AsyncRAT/XWorm/VenomRAT/DCRat/QuasarRAT/NanoCore/Orcus)", # 19,871 SSLBL samples
         ["8515076cbbca9dce33151b798f782456"] = "BitRAT",                      # 1,127 SSLBL samples
         ["51a7ad14509fd614c7bb3a50c4982b8c"] = "JBifrost RAT",               # 2,952 SSLBL samples
         ["d2935c58fe676744fecc8614ee5356c7"] = "Adwind RAT",                 # 5,149 SSLBL samples
         ["decfb48a53789ebe081b88aabb58ee34"] = "Adwind RAT (variant)",       # 478 SSLBL samples
         ["e7d705a3286e19ea42f587b344ee6865"] = "QuasarRAT/Tor",
+
+        # Remcos RAT - UNIQUE fingerprint, strictly associated (ANY.RUN verified)
+        # Unlike .NET RATs above, Remcos uses its own TLS implementation
+        ["a85be79f7b569f1df5e6087b69deb493"] = "Remcos RAT",                 # ANY.RUN strict association
+
+        # Skuld Stealer - Go-based info stealer with unique fingerprints (ANY.RUN)
+        ["e69402f870ecf542b4f017b0ed32936a"] = "Skuld Stealer (Go)",         # ANY.RUN verified
+        ["d113e8b9d55b97b77077806180483c96"] = "Skuld Stealer (Go variant)", # ANY.RUN verified
 
         # =====================================================================
         # C2 FRAMEWORKS - DFIR Report + Salesforce JA3/JA3S blog
@@ -710,12 +727,14 @@ export {
         # They match Cobalt Strike/Metasploit but also legitimate Windows apps.
         # Pair with JA3S for higher fidelity detection.
         # =====================================================================
-        ["72a589da586844d7f0818ce684948eea"] = "Cobalt Strike/Meterpreter/Havoc/Covenant (Win10 socket)",
-        ["a0e9f5d64349fb13191bc781f81f42e1"] = "Cobalt Strike/Meterpreter/IcedID (Win10 to domain)",
+        ["72a589da586844d7f0818ce684948eea"] = "Win10 SChannel to IP (CobaltStrike/Meterpreter/Havoc/Covenant/Remcos/Warzone)",
+        ["a0e9f5d64349fb13191bc781f81f42e1"] = "Win10 SChannel to domain (CobaltStrike/Meterpreter/IcedID/LummaC2/Stealc/AgentTesla)",
         ["5d65ea3fb1d4aa7d826733f355cd4c51"] = "Metasploit Meterpreter",
         ["5d65ea3fb1d4aa7d826733d2f2cbbb1d"] = "Metasploit Meterpreter HTTPS (Linux)", # Verified via live testing
         ["3b5074b1b5d032e5620f69f9f700ff0e"] = "IcedID",                     # NETRESEC blog
         ["0c9457ab6f0d6a14fc8a3d1d149547fb"] = "BumbleBee C2",               # Darktrace research
+        ["eb88d0b3e1961a0562f006e5ce2a0b87"] = "Cobalt Strike Malleable C2", # Suricata ET rules
+        ["f5e62b5a2ed9467df09fae7a8a54dda6"] = "BazarBackdoor/BazarLoader",  # TrickBot backdoor, Suricata ET rules
 
         # Go crypto/tls C2 agents - verified live (Sliver + Mythic Poseidon + Chisel + Merlin, Go 1.25.6)
         ["78f0dc5ac5b19daf131a133cfdee9691"] = "Go C2 Agent (Sliver/Poseidon/Chisel/Merlin/Go-compiled)",
@@ -726,7 +745,7 @@ export {
 
         # POSHC2 - Nettitude C2 framework
         ["c12f54a3f91dc7bafd92cb59fe009a35"] = "PoshC2 PowerShell Implant (Win10)", # Nettitude IOCs
-        # fc54e0d16d9764783542f0146a98b300 already listed as AsyncRAT above (PoshC2 Sharp shares this JA3)
+        # fc54e0d16d9764783542f0146a98b300 already listed above (.NET SslStream shared by PoshC2 Sharp + all .NET RATs)
 
         # =====================================================================
         # BANKING TROJANS - abuse.ch SSLBL
@@ -816,6 +835,9 @@ export {
         ["80b3a14bccc8598a1f3bbe83e71f735f"] = "Emotet C2 Server",           # Salesforce blog
         ["da2b67b20914678c1f1f5888281e1db9"] = "Metasploit Handler Server",  # Verified via live testing
         ["f4febc55ea12b31ae17cfb7e614afda8"] = "Go TLS 1.3 Server (Sliver/Mythic/Go C2)", # Verified live
+        ["70999de61602be74d4b25185843bd18e"] = "Meterpreter Handler (Kali)", # Salesforce JA3/JA3S blog
+        ["e35df3e00ca4ef31d42b34bebaa2f86e"] = "Meterpreter Reverse Shell Handler", # Suricata ET rules
+        ["623de93db17d313345d7ea481e7443cf"] = "TrickBot C2 Server",        # Salesforce JA3/JA3S blog
     };
 }
 ZEEKEOF
@@ -920,13 +942,14 @@ export {
     };
 
     global suspicious_cert_patterns: set[string] = {
-        # C2 defaults
+        # C2 framework defaults
         "Cobalt Strike", "cobaltstrike", "Major Cobalt Strike",
         "Sliver", "sliver", "Havoc", "havoc",
         "Metasploit", "metasploit", "meterpreter",
         "Mythic", "mythic", "Poseidon", "poseidon",
         "Empire", "empire", "Starkiller", "starkiller",
         "PoshC2", "poshc2", "Covenant", "covenant",
+        "Brute Ratel", "bruteratel",
 
         # PoshC2 default certificate values (Nettitude)
         "Pajfds", "Jethpro", "P18055077", "Minnetonka",
@@ -936,9 +959,30 @@ export {
         "localhost", "test", "Test", "default", "Default",
         "changeme", "changeit", "password", "pentest", "redteam",
 
-        # RAT defaults
-        "AsyncRAT", "QuasarRAT", "Quasar", "njRAT", "NJRAT",
-        "Remcos", "VenomRAT", "BitRAT", "XWorm", "DCRat", "AgentTesla",
+        # .NET RAT family defaults (CN values from default configs)
+        # These share JA3 fc54e0d16d9764783542f0146a98b300 (.NET SslStream)
+        "AsyncRAT", "AsyncRAT Server", "DcRat", "DCRat",
+        "VenomRAT", "VenomRATByVenom", "XWorm", "xworm",
+        "QuasarRAT", "Quasar", "NanoCore", "nanocore",
+        "Orcus", "orcus", "SolarMarker", "solarmarker",
+        "njRAT", "NJRAT", "njrat",
+
+        # Native RATs (C/C++, custom TLS or WinAPI)
+        "Remcos", "remcos", "BitRAT", "bitrat",
+        "Warzone", "warzone", "Ave Maria", "avemaria",
+        "NetWire", "netwire", "NETWIRE",
+        "AgentTesla", "Agent Tesla",
+        "Adwind", "adwind", "JBifrost", "jbifrost",
+
+        # Info stealers / loaders
+        "LummaC2", "lumma", "Stealc", "stealc",
+        "RedLine", "redline", "Vidar", "vidar",
+        "Raccoon", "raccoon", "RaccoonStealer",
+        "DarkGate", "darkgate", "PikaBot", "pikabot",
+        "SystemBC", "systembc", "Amadey", "amadey",
+        "IcedID", "icedid", "BumbleBee", "bumblebee",
+        "Emotet", "emotet", "BazarBackdoor", "bazarloader",
+        "Skuld", "skuld",
 
         # Suspicious patterns
         "DVWS", "kali", "Kali", "parrot", "Parrot",
@@ -985,7 +1029,7 @@ export {
 }
 ZEEKEOF
 
-    log_success "Generated fingerprint database (JA3: ~77 verified, JA3S: 7, JA4: ~26, JA4S: 5, JA4X: 8, HASSH: 11)"
+    log_success "Generated fingerprint database (JA3: ~82, JA3S: 10, JA4: ~26, JA4S: 5, JA4X: 8, HASSH: 11, cert patterns: 85+)"
 }
 
 install_ad_attacks() {
