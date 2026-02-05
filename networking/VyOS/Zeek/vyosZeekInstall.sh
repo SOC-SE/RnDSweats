@@ -378,16 +378,25 @@ download_and_extract_binaries() {
     [[ -n "$libbroker_pkg" ]] && packages+=("$libbroker_pkg")
 
     log_info "Downloading ${#packages[@]} packages..."
+    local download_failed=false
     for pkg in "${packages[@]}"; do
         [[ -z "$pkg" ]] && continue
         local pkg_name=$(basename "$pkg")
         log_info "  Downloading $pkg_name..."
-        curl -fsSL "${repo_url}/${pkg}" -o "$pkg_name" || {
+        curl -fsSL --retry 3 --retry-delay 5 "${repo_url}/${pkg}" -o "$pkg_name" || {
             log_warning "Failed to download $pkg_name"
+            download_failed=true
             continue
         }
         echo -e "  ${GREEN}✓${NC} $pkg_name"
     done
+
+    # If zeek-core didn't download, fall back to LTS method
+    if [[ "$download_failed" == true ]] && ! ls zeek-core_*.deb &>/dev/null; then
+        log_warning "Critical package zeek-core failed to download, trying LTS fallback..."
+        download_zeek_lts
+        return
+    fi
 
     # Extract packages
     log_info "Extracting packages to $ZEEK_PREFIX..."
@@ -419,6 +428,13 @@ download_and_extract_binaries() {
         # Copy libraries
         cp -r "$TEMP_DIR/extracted/usr/lib/"* /usr/lib/ 2>/dev/null || true
         cp -r "$TEMP_DIR/extracted/usr/bin/"* /usr/bin/ 2>/dev/null || true
+    fi
+
+    # Verify critical binary was extracted
+    if [[ ! -x "$ZEEK_PREFIX/bin/zeek" ]]; then
+        log_warning "zeek binary not found after extraction, trying LTS fallback..."
+        download_zeek_lts
+        return
     fi
 
     log_success "Binaries extracted to $ZEEK_PREFIX"
@@ -463,14 +479,14 @@ download_zeek_lts() {
             fi
             if [[ -n "$pkg" ]]; then
                 log_info "Downloading $pkg..."
-                curl -fsSL "${obs_url}${pkg}" -o "$TEMP_DIR/$pkg" && \
+                curl -fsSL --retry 3 --retry-delay 5 "${obs_url}${pkg}" -o "$TEMP_DIR/$pkg" && \
                     echo -e "  ${GREEN}✓${NC} $pkg"
             fi
         done
     fi
 
     # Fallback: try Zeek's own binary download site
-    if [[ ! -f "$TEMP_DIR/"*.deb ]]; then
+    if ! ls "$TEMP_DIR"/zeek-core_*.deb &>/dev/null; then
         local zeek_url="https://download.zeek.org/binary-packages/Debian_12/${arch}/"
         log_info "Trying Zeek download site: $zeek_url"
 
@@ -482,7 +498,7 @@ download_zeek_lts() {
                 [[ -z "$pkg" ]] && pkg=$(echo "$pkg_list" | grep "^${pattern}" | sort -V | tail -1)
                 if [[ -n "$pkg" ]]; then
                     log_info "Downloading $pkg..."
-                    curl -fsSL "${zeek_url}${pkg}" -o "$TEMP_DIR/$pkg" && \
+                    curl -fsSL --retry 3 --retry-delay 5 "${zeek_url}${pkg}" -o "$TEMP_DIR/$pkg" && \
                         echo -e "  ${GREEN}✓${NC} $pkg"
                 fi
             done
@@ -708,22 +724,6 @@ install_zeek_packages() {
     "$HOME/.local/bin/zkg" install zeek/salesforce/ja3 --force 2>/dev/null || \
     zkg install zeek/salesforce/ja3 --force 2>/dev/null || {
         log_warning "Could not install JA3 via zkg"
-        log_info "Attempting manual JA3 installation..."
-
-        # Manual fallback: clone JA3 repo
-        if command -v git &>/dev/null; then
-            cd "$ZEEK_PREFIX/share/zeek/site"
-            git clone https://github.com/salesforce/ja3.git 2>/dev/null || true
-            if [[ -d "ja3" ]]; then
-                # Add to local.zeek if not already present
-                if ! grep -q "@load ja3" "$ZEEK_PREFIX/share/zeek/site/local.zeek" 2>/dev/null; then
-                    echo "@load ja3/zeek" >> "$ZEEK_PREFIX/share/zeek/site/local.zeek"
-                fi
-                log_success "JA3 installed manually via git"
-            fi
-        else
-            log_warning "JA3 installation failed - TLS fingerprinting unavailable"
-        fi
     }
 
     # Install JA4+ suite (modern TLS 1.3 aware fingerprinting)
@@ -732,29 +732,13 @@ install_zeek_packages() {
     "$HOME/.local/bin/zkg" install zeek/foxio/ja4 --force 2>/dev/null || \
     zkg install zeek/foxio/ja4 --force 2>/dev/null || {
         log_warning "Could not install JA4 via zkg"
-        # Manual fallback
-        if command -v git &>/dev/null; then
-            cd "$ZEEK_PREFIX/share/zeek/site"
-            git clone https://github.com/FoxIO-LLC/ja4.git ja4-foxio 2>/dev/null || true
-            if [[ -d "ja4-foxio/zeek" ]]; then
-                log_success "JA4 installed manually via git"
-            fi
-        fi
     }
 
     # Install HASSH for SSH fingerprinting
     log_info "Installing HASSH package for SSH fingerprinting..."
-    "$HOME/.local/bin/zkg" install zeek/salesforce/hassh --force 2>/dev/null || \
-    zkg install zeek/salesforce/hassh --force 2>/dev/null || {
+    "$HOME/.local/bin/zkg" install zeek/corelight/hassh --force 2>/dev/null || \
+    zkg install zeek/corelight/hassh --force 2>/dev/null || {
         log_warning "Could not install HASSH via zkg"
-        # Manual fallback
-        if command -v git &>/dev/null; then
-            cd "$ZEEK_PREFIX/share/zeek/site"
-            git clone https://github.com/salesforce/hassh.git 2>/dev/null || true
-            if [[ -d "hassh" ]]; then
-                log_success "HASSH installed manually via git"
-            fi
-        fi
     }
 
     # Install BZAR for lateral movement detection
@@ -835,7 +819,7 @@ print_summary() {
     # Check fingerprinting packages
     echo ""
     echo -e "${GREEN}Fingerprinting Packages:${NC}"
-    if [[ -d "$ZEEK_PREFIX/share/zeek/site/ja3" ]] || zkg list 2>/dev/null | grep -q "ja3"; then
+    if zkg list 2>/dev/null | grep -q "ja3"; then
         echo "  • JA3:   installed (TLS fingerprinting)"
     else
         echo "  • JA3:   not installed"
@@ -894,6 +878,17 @@ main() {
     log_step "2/10" "Checking Filesystem"; check_filesystem_writable
     log_step "3/10" "Detecting Interfaces"; detect_interfaces; detect_networks
     log_step "4/10" "Downloading Binaries"; download_and_extract_binaries
+    # Verify Zeek binary exists before continuing
+    if [[ ! -x "$ZEEK_PREFIX/bin/zeek" ]]; then
+        log_error "Zeek binary not found at $ZEEK_PREFIX/bin/zeek after download"
+        log_error "All download methods failed. This is usually caused by:"
+        log_error "  - Temporary OBS repository outage (503 errors)"
+        log_error "  - Network connectivity issues"
+        log_info "Try running the script again, or manually download Zeek packages:"
+        log_info "  apt install zeek  (on a Debian 12 machine)"
+        log_info "  scp -r /opt/zeek vyos:/opt/"
+        exit 1
+    fi
     log_step "5/10" "Runtime Dependencies"; install_runtime_deps
     log_step "6/10" "Configuring PATH"; configure_path
     log_step "7/10" "Configuring Zeek"; configure_zeek

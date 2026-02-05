@@ -459,15 +459,16 @@ export {
     option enable_hassh_detection: bool = T;
 }
 
-# Unified TLS fingerprint detection - fires when connection is torn down
-# At this point all JA3/JA4 fields are populated regardless of TLS version
+# JA3/JA3S Detection - only compiled if JA3 package is loaded
+# Install with: zkg install zeek/salesforce/ja3
+@ifdef ( JA3::LOG )
 event connection_state_remove(c: connection)
 {
-    if ( ! c?$ssl )
+    if ( ! enable_ja3_detection || ! c?$ssl )
         return;
 
-    # JA3 Detection (if JA3 package is loaded and field exists)
-    if ( enable_ja3_detection && c$ssl?$ja3 )
+    # JA3 Client Detection
+    if ( c$ssl?$ja3 )
     {
         local ja3_fp = c$ssl$ja3;
         if ( ja3_fp != "" && ja3_fp in ja3_signatures )
@@ -485,7 +486,7 @@ event connection_state_remove(c: connection)
     }
 
     # JA3S Server Detection
-    if ( enable_ja3_detection && c$ssl?$ja3s )
+    if ( c$ssl?$ja3s )
     {
         local ja3s_fp = c$ssl$ja3s;
         if ( ja3s_fp != "" && ja3s_fp in ja3_signatures )
@@ -501,6 +502,14 @@ event connection_state_remove(c: connection)
             ]);
         }
     }
+}
+@endif
+
+# Certificate pattern + self-signed detection - always active (no package dependency)
+event connection_state_remove(c: connection) &priority=-3
+{
+    if ( ! c?$ssl )
+        return;
 
     # Certificate pattern detection
     if ( enable_cert_detection )
@@ -604,7 +613,7 @@ event connection_state_remove(c: connection) &priority=-1
 
 # HASSH Detection for SSH connections
 # Only compiled if HASSH package is installed (provides SSH::Info$hassh field)
-# Install with: zkg install zeek/salesforce/hassh
+# Install with: zkg install zeek/corelight/hassh
 @ifdef ( HASSH::log_hassh )
 event connection_state_remove(c: connection) &priority=-2
 {
@@ -1362,7 +1371,7 @@ create_local_zeek() {
        sudo zkg list 2>/dev/null | grep -q "hassh"; then
         hassh_load="@load packages/hassh"
     else
-        hassh_load="# @load packages/hassh  # Install: zkg install zeek/salesforce/hassh"
+        hassh_load="# @load packages/hassh  # Install: zkg install zeek/corelight/hassh"
     fi
 
     # BZAR - lateral movement detection
@@ -1408,7 +1417,7 @@ ${ja4_load}
 # HASSH SSH FINGERPRINTING
 #==============================================================================
 # Fingerprints SSH clients/servers for threat detection
-# Install: zkg install zeek/salesforce/hassh
+# Install: zkg install zeek/corelight/hassh
 
 ${hassh_load}
 
@@ -1559,7 +1568,7 @@ print_summary() {
     if zkg list 2>/dev/null | grep -q "hassh"; then
         echo "  ✓ HASSH - SSH fingerprinting"
     else
-        echo "  ✗ HASSH - NOT INSTALLED (run: zkg install zeek/salesforce/hassh)"
+        echo "  ✗ HASSH - NOT INSTALLED (run: zkg install zeek/corelight/hassh)"
     fi
 
     # Check BZAR
@@ -1597,7 +1606,7 @@ print_summary() {
     echo "  1. (If packages missing) Install fingerprinting packages:"
     echo "     zkg install zeek/salesforce/ja3"
     echo "     zkg install zeek/foxio/ja4"
-    echo "     zkg install zeek/salesforce/hassh"
+    echo "     zkg install zeek/corelight/hassh"
     echo "     zeekctl deploy  # Redeploy after installing"
     echo ""
     echo "  2. (Optional) Edit whitelists to reduce false positives:"
