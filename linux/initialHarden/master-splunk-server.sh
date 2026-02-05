@@ -36,7 +36,7 @@ set -uo pipefail
 
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(dirname "$SCRIPT_DIR")"
+REPO_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 LINUXDEV="$SCRIPT_DIR/modules"
 TOOLS="$REPO_DIR/Tools"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
