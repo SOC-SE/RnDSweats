@@ -5,7 +5,7 @@
 #              Supports both Debian/Ubuntu and Fedora/RHEL systems
 # Author: Security Team
 # Date: 2025-2026
-# Version: 3.0
+# Version: 3.2
 #
 # Usage:
 #   ./mail_hardener.sh                # Harden mail services (automatic)
@@ -42,7 +42,10 @@ warn()  { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 error() { echo -e "${RED}[ERROR]${RESET} $*"; }
 
 require_root() {
-    [[ "$EUID" -ne 0 ]] && { error "Must be run as root"; exit 1; }
+    if [[ "$EUID" -ne 0 ]]; then
+        echo -e "\033[0;31m[ERROR]\033[0m Must be run as root" >&2
+        exit 1
+    fi
 }
 
 trap 'error "Unexpected error on line $LINENO"' ERR
@@ -67,7 +70,7 @@ detect_os() {
 setup_paths() {
     BACKUP_DIR="/var/backups/mail_hardener"
     TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
-    BACKUP_FILE="$BACKUP_DIR/mail_backup_$TIMESTAMP.tar.gz"
+    INITIAL_BACKUP_FILE="$BACKUP_DIR/mail_backup_initial.tar.gz"
 
     if [[ "$OS_FAMILY" == "debian" ]]; then
         CERT_FILE="/etc/ssl/certs/ssl-cert-snakeoil.pem"
@@ -133,38 +136,91 @@ generate_certs() {
     ok "Self-signed certificates generated"
 }
 
-# --- Backup ---
-backup_configs() {
+# --- Initial Backup (before hardening) ---
+backup_initial_configs() {
+    # Check if initial backup already exists
+    if [[ -f "$INITIAL_BACKUP_FILE" ]]; then
+        warn "Initial backup already exists at $INITIAL_BACKUP_FILE"
+        warn "Skipping backup to preserve original configuration"
+        return 0
+    fi
+
     mkdir -p "$BACKUP_DIR"
-    info "Creating backup at $BACKUP_FILE..."
+    info "Creating initial backup at $INITIAL_BACKUP_FILE..."
     local backup_paths=()
-    [[ -d /etc/postfix ]] && backup_paths+=("/etc/postfix")
-    [[ -d /etc/dovecot ]] && backup_paths+=("/etc/dovecot")
-    [[ -d /etc/roundcubemail ]] && backup_paths+=("/etc/roundcubemail")
-    [[ -f /etc/httpd/conf.d/roundcubemail.conf ]] && backup_paths+=("/etc/httpd/conf.d/roundcubemail.conf")
+    
+    # Only backup files that actually exist
+    [[ -d /etc/postfix ]] && backup_paths+=("etc/postfix")
+    [[ -d /etc/dovecot ]] && backup_paths+=("etc/dovecot")
+    [[ -d /etc/roundcubemail ]] && backup_paths+=("etc/roundcubemail")
+    [[ -f /etc/httpd/conf.d/roundcubemail.conf ]] && backup_paths+=("etc/httpd/conf.d/roundcubemail.conf")
 
     if [[ ${#backup_paths[@]} -gt 0 ]]; then
-        tar -czpf "$BACKUP_FILE" "${backup_paths[@]}" 2>/dev/null && ok "Backup complete" || { error "Backup failed"; exit 1; }
+        # Store paths relative to root for easy restoration
+        tar -czpf "$INITIAL_BACKUP_FILE" -C / "${backup_paths[@]}" 2>/dev/null && ok "Initial backup complete" || { error "Initial backup failed"; exit 1; }
     else
         warn "No mail configs found to backup"
     fi
 }
 
 # --- Rollback ---
-rollback_latest() {
-    local latest
-    latest="$(find "$BACKUP_DIR" -name "mail_backup_*.tar.gz" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
-    if [[ -z "$latest" ]]; then
-        error "No backups found in $BACKUP_DIR"
+rollback_initial() {
+    if [[ ! -f "$INITIAL_BACKUP_FILE" ]]; then
+        error "Initial backup not found at $INITIAL_BACKUP_FILE"
+        error "Cannot rollback - no original configuration saved"
         exit 1
     fi
-    info "Restoring from $latest..."
-    tar -xzpf "$latest" -C / && ok "Restored from backup" || { error "Rollback failed"; exit 1; }
+    
+    echo ""
+    echo -e "${YELLOW}┌─────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${YELLOW}│${RESET}  ${RED}WARNING: ROLLBACK OPERATION${RESET}                               ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}├─────────────────────────────────────────────────────────────┤${RESET}"
+    echo -e "${YELLOW}│${RESET}  This will restore your mail server to its original        ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  pre-hardening configuration by replacing all hardened     ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  files with the initial backup.                            ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  Backup to restore: ${GREEN}$INITIAL_BACKUP_FILE${RESET}${YELLOW}"
+    # Calculate padding for alignment
+    local padding=$((60 - ${#INITIAL_BACKUP_FILE} - 19))
+    printf "${YELLOW}%*s│${RESET}\n" "$padding" ""
+    echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  Services will be stopped and restarted during rollback.   ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}└─────────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+    
+    read -p "$(echo -e "${RED}Are you sure you want to proceed? ${RESET}(yes/no): ")" -r response
+    response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
+    
+    if [[ "$response" != "yes" && "$response" != "y" ]]; then
+        info "Rollback cancelled"
+        exit 0
+    fi
+    
+    info "Starting rollback from $INITIAL_BACKUP_FILE..."
+    
+    # Stop services before restoration
+    info "Stopping mail services..."
+    for svc in "${SERVICES[@]}"; do
+        if command -v systemctl &>/dev/null; then
+            systemctl stop "$svc" 2>/dev/null || warn "Could not stop $svc"
+        fi
+    done
+    
+    # Extract backup to root directory (this will overwrite existing files)
+    info "Restoring original configuration files..."
+    tar -xzpf "$INITIAL_BACKUP_FILE" -C / 2>/dev/null && ok "Configuration files restored" || { 
+        error "Rollback failed - could not extract backup"
+        exit 1
+    }
 
+    # Restart services
+    info "Restarting mail services..."
     for svc in "${SERVICES[@]}"; do
         restart_service "$svc"
     done
-    ok "Rollback complete"
+    
+    ok "${GREEN}Rollback complete!${RESET}"
+    info "Your mail server has been restored to its original configuration"
 }
 
 # --- Clean ---
@@ -186,7 +242,7 @@ clean_configs() {
     fi
 
     # Clean Dovecot
-    for conf in /etc/dovecot/conf.d/10-ssl.conf /etc/dovecot/conf.d/10-auth.conf /etc/dovecot/local.conf; do
+    for conf in /etc/dovecot/conf.d/10-ssl.conf /etc/dovecot/conf.d/10-auth.conf /etc/dovecot/conf.d/10-master.conf /etc/dovecot/local.conf; do
         [[ -f "$conf" ]] && sed -i '/# === Mail Hardener/,/^$/d' "$conf" 2>/dev/null || true
     done
 
@@ -376,6 +432,12 @@ ssl_key = <$KEY_FILE
 disable_plaintext_auth = yes
 auth_mechanisms = plain login
 mail_privileged_group = mail
+
+# === Mail Hardener: AD/SSSD userdb override ===
+userdb {
+  driver = passwd
+  args = username_format=%n
+}
 EOF
 
         # Configure Postfix auth socket in 10-master.conf to avoid duplicate service auth blocks
@@ -410,6 +472,21 @@ harden_roundcube() {
 
     info "Hardening Roundcube..."
     cp "$ROUNDCUBE_CONFIG" "${ROUNDCUBE_CONFIG}.hardening-backup"
+
+    # Check and create temp/logs directories if they don't exist
+    if [[ -n "$ROUNDCUBE_DIR" ]]; then
+        if [[ ! -d "$ROUNDCUBE_DIR/temp" ]]; then
+            info "Creating $ROUNDCUBE_DIR/temp directory..."
+            mkdir -p "$ROUNDCUBE_DIR/temp"
+            ok "Created temp directory"
+        fi
+        
+        if [[ ! -d "$ROUNDCUBE_DIR/logs" ]]; then
+            info "Creating $ROUNDCUBE_DIR/logs directory..."
+            mkdir -p "$ROUNDCUBE_DIR/logs"
+            ok "Created logs directory"
+        fi
+    fi
 
     # Disable installer
     [[ -d "$ROUNDCUBE_DIR/installer" ]] && chmod 000 "$ROUNDCUBE_DIR/installer" 2>/dev/null || true
@@ -476,6 +553,33 @@ configure_firewall() {
     fi
 }
 
+# --- Firewall Prompt ---
+prompt_firewall_config() {
+    echo ""
+    echo -e "${YELLOW}┌─────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${YELLOW}│${RESET}  ${MAGENTA}Firewall Configuration${RESET}                                   ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}├─────────────────────────────────────────────────────────────┤${RESET}"
+    echo -e "${YELLOW}│${RESET}  This script can configure your firewall (ufw/firewalld)  ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  to allow mail service ports.                              ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  ${RED}WARNING:${RESET} If you are using iptables directly or have      ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  custom firewall rules, enabling ufw may interfere with    ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  your existing configuration.                               ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  Ports to be opened: 25, 110, 143, 587, 993, 995           ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}└─────────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+    
+    read -p "$(echo -e "${BLUE}Do you want to configure the firewall? ${RESET}(yes/no): ")" -r response
+    response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
+    
+    if [[ "$response" == "yes" || "$response" == "y" ]]; then
+        configure_firewall
+    else
+        info "Skipping firewall configuration"
+    fi
+}
+
 # --- Main ---
 require_root
 detect_os
@@ -483,7 +587,7 @@ setup_paths
 
 case "${1:-}" in
     --rollback)
-        rollback_latest
+        rollback_initial
         ;;
     --test)
         if [[ "$OS_FAMILY" == "rhel" ]]; then
@@ -511,13 +615,17 @@ case "${1:-}" in
         ;;
     *)
         info "${MAGENTA}=== Mail Hardener ($OS_ID - $OS_FAMILY) ===${RESET}"
-        backup_configs
+        backup_initial_configs
+        #added here just in case: - THIS IS A TEMPORARY FIX
+        cp -a /etc/dovecot/ /var/backups/mail_hardener/
         harden_postfix
         harden_dovecot
         harden_roundcube
-        configure_firewall
+        prompt_firewall_config
         ok "${GREEN}Mail hardening complete!${RESET}"
-        info "Backup: $BACKUP_FILE"
+        info "Initial backup saved at: $INITIAL_BACKUP_FILE"
+        info "To rollback to original configuration, run: $0 --rollback; To restore the dovecot config, run: sudo cp -a /var/backups/mail_hardener/dovecot/* /etc/dovecot/ Then run: sudo chown -R root:root /etc/dovecot Then run: sudo chmod -R u=rwX,go=rX /etc/dovecot Then run: systemctl restart dovecot"
+        info ""
         info "Verify services:"
         info "  systemctl status postfix dovecot"
         [[ "$OS_FAMILY" == "rhel" ]] && info "  systemctl status httpd"
