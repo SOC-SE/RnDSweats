@@ -9,10 +9,10 @@
 #  ╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝    ╚═════╝ ╚══════╝   ╚═╝   ╚══════╝ ╚═════╝   ╚═╝   
 #
 #  Zeek Red Team Detection Suite - Unified Installer
-#  Version: 1.2.0
+#  Version: 1.3.0
 #
 #  Installs complete detection coverage:
-#    • TLS Fingerprinting (JA4/JA3) - 125+ C2/malware signatures
+#    • TLS Fingerprinting (JA4/JA3) - 150+ C2/malware signatures
 #    • Windows/AD Attacks - Impacket, Kerberoasting, BloodHound
 #    • MITRE BZAR - Enhanced lateral movement detection (optional)
 #
@@ -697,7 +697,7 @@ export {
         # =====================================================================
         # RATS (Remote Access Trojans) - abuse.ch SSLBL
         # =====================================================================
-        ["fc54e0d16d9764783542f0146a98b300"] = "AsyncRAT",                    # 19,859 SSLBL samples
+        ["fc54e0d16d9764783542f0146a98b300"] = "AsyncRAT/PoshC2 Sharp Implant", # 19,859 SSLBL samples + Nettitude IOCs
         ["8515076cbbca9dce33151b798f782456"] = "BitRAT",                      # 1,127 SSLBL samples
         ["51a7ad14509fd614c7bb3a50c4982b8c"] = "JBifrost RAT",               # 2,952 SSLBL samples
         ["d2935c58fe676744fecc8614ee5356c7"] = "Adwind RAT",                 # 5,149 SSLBL samples
@@ -710,14 +710,23 @@ export {
         # They match Cobalt Strike/Metasploit but also legitimate Windows apps.
         # Pair with JA3S for higher fidelity detection.
         # =====================================================================
-        ["72a589da586844d7f0818ce684948eea"] = "Cobalt Strike/Metasploit (Win10 to IP)",
-        ["a0e9f5d64349fb13191bc781f81f42e1"] = "Cobalt Strike/Metasploit/IcedID (Win10 to domain)",
+        ["72a589da586844d7f0818ce684948eea"] = "Cobalt Strike/Meterpreter/Havoc/Covenant (Win10 socket)",
+        ["a0e9f5d64349fb13191bc781f81f42e1"] = "Cobalt Strike/Meterpreter/IcedID (Win10 to domain)",
         ["5d65ea3fb1d4aa7d826733f355cd4c51"] = "Metasploit Meterpreter",
+        ["5d65ea3fb1d4aa7d826733d2f2cbbb1d"] = "Metasploit Meterpreter HTTPS (Linux)", # Verified via live testing
         ["3b5074b1b5d032e5620f69f9f700ff0e"] = "IcedID",                     # NETRESEC blog
         ["0c9457ab6f0d6a14fc8a3d1d149547fb"] = "BumbleBee C2",               # Darktrace research
 
-        # Go crypto/tls C2 agents - verified via live testing (Sliver + Mythic Poseidon, Go 1.25.6)
-        ["78f0dc5ac5b19daf131a133cfdee9691"] = "Go C2 Agent (Sliver/Poseidon/Go-compiled)",
+        # Go crypto/tls C2 agents - verified live (Sliver + Mythic Poseidon + Chisel + Merlin, Go 1.25.6)
+        ["78f0dc5ac5b19daf131a133cfdee9691"] = "Go C2 Agent (Sliver/Poseidon/Chisel/Merlin/Go-compiled)",
+
+        # EMPIRE / STARKILLER - Python-based C2
+        ["db42e3017c8b6d160751ef3a04f695e7"] = "Empire/PoshC2 Python Server",       # DFIR Report
+        ["8d9f7747675e24454cd9b7ed35c58707"] = "Python requests Agent (Empire/PoshC2)", # Python requests 2.32.3
+
+        # POSHC2 - Nettitude C2 framework
+        ["c12f54a3f91dc7bafd92cb59fe009a35"] = "PoshC2 PowerShell Implant (Win10)", # Nettitude IOCs
+        # fc54e0d16d9764783542f0146a98b300 already listed as AsyncRAT above (PoshC2 Sharp shares this JA3)
 
         # =====================================================================
         # BANKING TROJANS - abuse.ch SSLBL
@@ -805,6 +814,8 @@ export {
         ["649d6810e8392f63dc311eecb6b7098b"] = "Cobalt Strike C2 Server",    # DFIR Report
         ["ec74a5c51106f0419184d0dd08fb05bc"] = "IcedID C2 Server",           # NETRESEC
         ["80b3a14bccc8598a1f3bbe83e71f735f"] = "Emotet C2 Server",           # Salesforce blog
+        ["da2b67b20914678c1f1f5888281e1db9"] = "Metasploit Handler Server",  # Verified via live testing
+        ["f4febc55ea12b31ae17cfb7e614afda8"] = "Go TLS 1.3 Server (Sliver/Mythic/Go C2)", # Verified live
     };
 }
 ZEEKEOF
@@ -844,13 +855,17 @@ export {
         ["t13d201100_fcb5b95cb75a_b0d3b4ac2a14"] = "Sliver HTTPS implant",
         ["t13d1517h2_8daaf6152771_02713d6af862"] = "Sliver C2 (Go 1.19+)",
 
-        # GO C2 AGENT - Verified via live testing (Sliver v1.6.10 + Mythic Poseidon, Go 1.25.6)
+        # GO C2 AGENT - Verified live (Sliver + Poseidon + Chisel + Merlin, Go 1.25.6)
         # This fingerprint matches Go crypto/tls clients without SNI, common to Go-compiled C2 agents
-        ["t13i3111h2_e8f1e7e78f70_b26ce05bbdd6"] = "Go C2 Agent (Sliver/Poseidon/Go-compiled)",
+        ["t13i3111h2_e8f1e7e78f70_b26ce05bbdd6"] = "Go C2 Agent (Sliver/Poseidon/Chisel/Merlin/Go-compiled)",
+
+        # NMAP SSL SCANNING - Verified via live testing
+        ["t13i781000_ab95583b6d39_d41ae481755e"] = "Nmap ssl-enum-ciphers (78 cipher probes)",
 
         # METERPRETER
         ["t13d190600_55b17b6b0ada_5c4c70b73fa0"] = "Meterpreter HTTPS",
         ["t12d190600_55b17b6b0ada_5c4c70b73fa0"] = "Meterpreter HTTPS (TLS 1.2)",
+        ["t12i060100_fdb7a2bc8059_b61e28f98305"] = "Meterpreter HTTPS (Linux, verified)", # Verified via live testing
 
         # BRUTE RATEL - From DFIR reports
         ["t13d190900_2bab81a5c9ae_e5627efa2ab1"] = "Brute Ratel C4 badger",
@@ -874,6 +889,8 @@ export {
         ["t130200_1301_a56c5b993250"] = "Sliver/Mythic C2 Server (TLS 1.3)", # ja4db.com - also matches nginx/CDNs, pair with client JA4
         ["t120300_c030_5e2616a54c73"] = "IcedID C2 Server",                 # ja4db.com
         ["t120300_c030_52d195ce1d92"] = "Cobalt Strike v4.9.1 Server",      # ja4db.com
+        ["t120100_003d_bc98f8e001b5"] = "Metasploit Handler Server (TLS 1.2)", # Verified via live testing
+        ["t130200_1302_a56c5b993250"] = "Go TLS 1.3 Server (AES_256_GCM)", # Verified live - Chisel/Go servers
     };
 }
 ZEEKEOF
@@ -908,6 +925,11 @@ export {
         "Sliver", "sliver", "Havoc", "havoc",
         "Metasploit", "metasploit", "meterpreter",
         "Mythic", "mythic", "Poseidon", "poseidon",
+        "Empire", "empire", "Starkiller", "starkiller",
+        "PoshC2", "poshc2", "Covenant", "covenant",
+
+        # PoshC2 default certificate values (Nettitude)
+        "Pajfds", "Jethpro", "P18055077", "Minnetonka",
 
         # Pentesting defaults
         "YOURORGANIZATION", "YOURCOMPANY", "example.com",
@@ -963,7 +985,7 @@ export {
 }
 ZEEKEOF
 
-    log_success "Generated fingerprint database (JA3: ~72 verified, JA3S: 5, JA4: ~24, JA4S: 3, JA4X: 8, HASSH: 11)"
+    log_success "Generated fingerprint database (JA3: ~77 verified, JA3S: 7, JA4: ~26, JA4S: 5, JA4X: 8, HASSH: 11)"
 }
 
 install_ad_attacks() {
@@ -1505,7 +1527,7 @@ print_summary() {
 
     echo ""
     echo -e "${GREEN}Detection Rules Installed:${NC}"
-    echo "  ✓ TLS Detection Rules - 200+ JA3/JA4 signatures"
+    echo "  ✓ TLS Detection Rules - 220+ JA3/JA4 signatures"
     echo "  ✓ SSH Detection Rules - 20+ HASSH signatures"
     echo "  ✓ Certificate Patterns - 30+ suspicious patterns"
     echo "  ✓ AD Attack Detection - Impacket, Kerberoasting, BloodHound"
