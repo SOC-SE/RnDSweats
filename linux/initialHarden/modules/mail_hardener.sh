@@ -316,12 +316,24 @@ auth_mechanisms = plain login
 EOF
     fi
 
-    # Postfix SASL auth socket - create config in conf.d
+    # Postfix SASL auth socket - modify existing service auth block or add config
     local master_conf="/etc/dovecot/conf.d/10-master.conf"
     if [[ -f "$master_conf" ]] && ! grep -q "# === Mail Hardener: Postfix Auth" "$master_conf" 2>/dev/null; then
         # Ensure postfix user can access the socket
         mkdir -p /var/spool/postfix/private
-        cat >> "$master_conf" <<'EOF'
+
+        if grep -q "^service auth {" "$master_conf" 2>/dev/null; then
+            # Existing service auth block found -- inject unix_listener inside it
+            # to avoid duplicate service auth blocks that break Dovecot
+            if ! grep -q "var/spool/postfix/private/auth" "$master_conf" 2>/dev/null; then
+                sed -i '/^service auth {/a\  # === Mail Hardener: Postfix Auth Socket ===\n  unix_listener /var/spool/postfix/private/auth {\n    mode = 0660\n    user = postfix\n    group = postfix\n  }' "$master_conf"
+                info "Injected Postfix auth socket into existing Dovecot service auth block"
+            else
+                info "Postfix auth socket already configured in Dovecot"
+            fi
+        else
+            # No existing service auth block -- append a new one
+            cat >> "$master_conf" <<'EOF'
 
 # === Mail Hardener: Postfix Auth Socket ===
 service auth {
@@ -332,7 +344,8 @@ service auth {
   }
 }
 EOF
-        info "Configured Dovecot auth socket for Postfix SASL"
+            info "Configured Dovecot auth socket for Postfix SASL"
+        fi
     fi
 }
 
@@ -363,6 +376,18 @@ ssl_key = <$KEY_FILE
 disable_plaintext_auth = yes
 auth_mechanisms = plain login
 mail_privileged_group = mail
+EOF
+
+        # Configure Postfix auth socket in 10-master.conf to avoid duplicate service auth blocks
+        local master_conf="/etc/dovecot/conf.d/10-master.conf"
+        if [[ -f "$master_conf" ]] && grep -q "^service auth {" "$master_conf" 2>/dev/null; then
+            # Inject into existing service auth block
+            if ! grep -q "var/spool/postfix/private/auth" "$master_conf" 2>/dev/null; then
+                sed -i '/^service auth {/a\  # === Mail Hardener: Postfix Auth Socket ===\n  unix_listener /var/spool/postfix/private/auth {\n    mode = 0660\n    user = postfix\n    group = postfix\n  }' "$master_conf"
+            fi
+        else
+            # No 10-master.conf or no service auth block -- add to local.conf
+            cat >> "$dovecot_local" <<'EOF'
 
 # === Mail Hardener: Postfix Auth Socket ===
 service auth {
@@ -373,7 +398,8 @@ service auth {
   }
 }
 EOF
-        info "Configured Dovecot auth socket for Postfix SASL"
+        fi
+        info "Configured Dovecot hardening and Postfix SASL auth socket"
     fi
 }
 
