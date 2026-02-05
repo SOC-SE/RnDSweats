@@ -133,9 +133,11 @@ serverName = $SplunkHostname
 hostnameOption = shortname
 "@ | Out-File -FilePath $serverConfPath -Encoding ASCII
 
-# Start Splunk Universal Forwarder service
-Write-Host "Starting Splunk Universal Forwarder service..."
-Start-Process -FilePath "$INSTALL_DIR\bin\splunk.exe" -ArgumentList "start" -Wait
+# Restart Splunk Universal Forwarder service to load new inputs.conf
+# The MSI installer already starts the service, so "start" is a no-op.
+# We need "restart" to pick up the inputs.conf and server.conf we just wrote.
+Write-Host "Restarting Splunk Universal Forwarder service to load configuration..."
+Start-Process -FilePath "$INSTALL_DIR\bin\splunk.exe" -ArgumentList "restart" -Wait
 
 # Set Splunk Universal Forwarder to start on boot
 Write-Host "Setting Splunk Universal Forwarder to start on boot..."
