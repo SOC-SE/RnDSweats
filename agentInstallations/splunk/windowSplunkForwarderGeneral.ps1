@@ -74,6 +74,26 @@ index = windows
 sourcetype = WinEventLog:Sysmon
 
 # -----------------------------------------------------------------------------
+# Lateral Movement Detection (pairs with Zeek AD attack suite)
+# Required by Enable-NetworkVisibility.ps1 audit policies
+# -----------------------------------------------------------------------------
+
+[WinEventLog://Microsoft-Windows-PowerShell/Operational]
+disabled = 0
+index = windows
+sourcetype = WinEventLog:PowerShell
+
+[WinEventLog://Microsoft-Windows-WMI-Activity/Operational]
+disabled = 0
+index = windows
+sourcetype = WinEventLog:WMI
+
+[WinEventLog://Microsoft-Windows-TaskScheduler/Operational]
+disabled = 0
+index = windows
+sourcetype = WinEventLog:TaskScheduler
+
+# -----------------------------------------------------------------------------
 # Security Tools (Suricata, Yara)
 # Splunk will gracefully ignore paths that do not exist.
 # -----------------------------------------------------------------------------
@@ -92,25 +112,6 @@ sourcetype = suricata:fast
 disabled = 0
 index = windows
 sourcetype = yara
-
-# -----------------------------------------------------------------------------
-# Advanced Threat Detection (PowerShell, Task Scheduler, WinRM)
-# -----------------------------------------------------------------------------
-
-[WinEventLog://Microsoft-Windows-PowerShell/Operational]
-disabled = 0
-index = windows
-sourcetype = WinEventLog:PowerShell
-
-[WinEventLog://Microsoft-Windows-TaskScheduler/Operational]
-disabled = 0
-index = windows
-sourcetype = WinEventLog:TaskScheduler
-
-[WinEventLog://Microsoft-Windows-WinRM/Operational]
-disabled = 0
-index = windows
-sourcetype = WinEventLog:WinRM
 
 # -----------------------------------------------------------------------------
 # Test Log
