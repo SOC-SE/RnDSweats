@@ -27,6 +27,8 @@
           </query>
           <earliest>-60m@m</earliest>
           <latest>now</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="drilldown">none</option>
         <option name="numberPrecision">0</option>
@@ -44,6 +46,8 @@ index=network sourcetype=zeek:notice notice_type IN ("C2_Beacon_Detected", "Malw
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="drilldown">all</option>
         <option name="numberPrecision">0</option>
@@ -65,6 +69,8 @@ index=network sourcetype=zeek:notice notice_type IN ("C2_Beacon_Detected", "Malw
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="drilldown">none</option>
         <option name="numberPrecision">0</option>
@@ -85,6 +91,8 @@ index=network sourcetype=zeek:notice notice_type IN ("C2_Beacon_Detected", "Malw
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="drilldown">none</option>
         <option name="numberPrecision">0</option>
@@ -115,6 +123,8 @@ index=network sourcetype=zeek:notice notice_type IN ("C2_Beacon_Detected", "Malw
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">column</option>
         <option name="charting.chart.stackMode">stacked</option>
@@ -122,37 +132,6 @@ index=network sourcetype=zeek:notice notice_type IN ("C2_Beacon_Detected", "Malw
         <option name="charting.legend.placement">right</option>
         <option name="refresh.display">progressbar</option>
       </chart>
-    </panel>
-  </row>
-
-  <row>
-    <panel>
-      <title>Malware Detection Summary</title>
-      <table>
-        <search>
-          <query>
-(index=network sourcetype=zeek:notice notice_type IN ("C2_Beacon_Detected", "Malware_Callback")
-    | eval detection_source="Zeek C2 Fingerprint", threat_name=notice_msg, affected_host=src_ip) OR
-(index=linux sourcetype=yara
-    | eval detection_source="YARA Scan", threat_name="YARA Match", affected_host=host) OR
-(index=linux sourcetype=linux_av:scan_summaries "hits"
-    | eval detection_source="Linux Malware Detect", threat_name="Malware", affected_host=host) OR
-(index=windows sourcetype="WinEventLog:Defender" EventCode IN (1116,1117)
-    | eval detection_source="Windows Defender", threat_name=ThreatName, affected_host=host)
-| table _time, detection_source, threat_name, affected_host
-| sort -_time
-| head 50
-          </query>
-          <earliest>$time_token.earliest$</earliest>
-          <latest>$time_token.latest$</latest>
-        </search>
-        <option name="count">20</option>
-        <option name="drilldown">cell</option>
-        <option name="refresh.display">progressbar</option>
-        <format type="color" field="detection_source">
-          <colorPalette type="map">{"Zeek C2 Fingerprint":#DC4E41,"YARA Scan":#F8BE34,"Linux Malware Detect":#F1813F,"Windows Defender":#CBA700}</colorPalette>
-        </format>
-      </table>
     </panel>
   </row>
 
@@ -171,6 +150,8 @@ index=network sourcetype=zeek:conn
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">15</option>
         <option name="drilldown">row</option>
@@ -193,6 +174,8 @@ index=linux sourcetype=iptables
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">15</option>
         <option name="drilldown">row</option>
@@ -225,6 +208,8 @@ index=linux sourcetype=cowrie
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>

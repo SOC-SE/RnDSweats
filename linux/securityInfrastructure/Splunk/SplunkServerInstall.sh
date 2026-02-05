@@ -158,6 +158,23 @@ else
     echo "[WARN] props.conf not found, skipping."
 fi
 
+# --- Install custom transforms.conf if available ---
+TRANSFORMS_CONF=""
+for transforms_path in "$SCRIPT_DIR/transforms.conf" "/tmp/transforms.conf"; do
+    if [[ -f "$transforms_path" ]]; then
+        TRANSFORMS_CONF="$transforms_path"
+        break
+    fi
+done
+
+if [[ -n "$TRANSFORMS_CONF" ]]; then
+    echo "Installing custom transforms.conf from $TRANSFORMS_CONF..."
+    cp "$TRANSFORMS_CONF" "$SPLUNK_HOME/etc/system/local/transforms.conf"
+    chown splunk:splunk "$SPLUNK_HOME/etc/system/local/transforms.conf"
+else
+    echo "[WARN] transforms.conf not found, skipping."
+fi
+
 # --- Restore backed up licenses ---
 if [[ -d "$BACKUP_DIR" ]] && [[ "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]]; then
     echo "Restoring licenses..."
@@ -172,6 +189,7 @@ $SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
 
 $SPLUNK_HOME/bin/splunk add index linux -auth "admin:$SPLUNK_PASS"
 $SPLUNK_HOME/bin/splunk add index windows -auth "admin:$SPLUNK_PASS"
+$SPLUNK_HOME/bin/splunk add index network -auth "admin:$SPLUNK_PASS"
 
 echo "Enabling boot start..."
 $SPLUNK_HOME/bin/splunk enable boot-start --accept-license --answer-yes --no-prompt

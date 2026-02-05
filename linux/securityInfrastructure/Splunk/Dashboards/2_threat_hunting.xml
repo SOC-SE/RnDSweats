@@ -14,6 +14,37 @@
 
   <row>
     <panel>
+      <title>Suricata IDS Alert Details</title>
+      <table>
+        <search>
+          <query>
+index=linux sourcetype=suricata:fast
+| rex "\[\*\*\]\s+\[(?&lt;sid&gt;[^\]]+)\]\s+(?&lt;signature&gt;[^\[]+)\[\*\*\]"
+| rex "\[Classification:\s+(?&lt;classification&gt;[^\]]+)\]"
+| rex "\[Priority:\s+(?&lt;priority_num&gt;\d+)\]"
+| rex "(?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+):\d+\s+-&gt;\s+(?&lt;dest_ip&gt;\d+\.\d+\.\d+\.\d+):(?&lt;dest_port&gt;\d+)"
+| stats count by signature, priority_num, src_ip, dest_ip, dest_port, classification
+| sort priority_num, -count
+| rename signature as "Signature", priority_num as "Priority", src_ip as "Source IP", dest_ip as "Dest IP", dest_port as "Dest Port", classification as "Category", count as "Events"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Priority">
+          <colorPalette type="map">{"1":#DC4E41,"2":#F1813F,"3":#F8BE34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
       <title>Zeek C2 Framework Detections</title>
       <table>
         <search>
@@ -28,6 +59,8 @@ index=network sourcetype=zeek:notice notice_type IN ("C2_Beacon_Detected", "Malw
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -65,6 +98,8 @@ index=network sourcetype=zeek:notice notice_type IN ("DCSync_Attack", "PSExec_Ex
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -90,6 +125,8 @@ index=network sourcetype=zeek:notice notice_type IN ("Admin_Share_Access", "PSEx
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -110,6 +147,8 @@ index=network sourcetype=zeek:notice notice_type="Kerberoasting_Detected"
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.drilldown">all</option>
@@ -125,18 +164,21 @@ index=network sourcetype=zeek:notice notice_type="Kerberoasting_Detected"
       <table>
         <search>
           <query>
-(index=network sourcetype=zeek:dns rcode_name=NXDOMAIN) OR
+(index=network sourcetype=zeek:dns) OR
 (index=network sourcetype=technitium:syslog) OR
 (index=linux sourcetype=technitium:querylog)
 | eval query_length=len(query)
-| stats count as query_count, dc(query) as unique_queries, avg(query_length) as avg_length by src_ip, query
+| stats count as query_count, dc(query) as unique_queries, avg(query_length) as avg_length by src_ip
 | where query_count &gt; 100 OR avg_length &gt; 50 OR unique_queries &gt; 50
+| eval avg_length=round(avg_length, 1)
 | sort -query_count
-| rename src_ip as "Source IP", query as "Query", query_count as "Count", unique_queries as "Unique", avg_length as "Avg Length"
+| rename src_ip as "Source IP", query_count as "Total Queries", unique_queries as "Unique Domains", avg_length as "Avg Query Length"
 | head 30
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -153,14 +195,18 @@ index=network sourcetype=zeek:notice notice_type="Kerberoasting_Detected"
           <query>
 index=windows sourcetype="WinEventLog:Sysmon" EventCode=1
 | search (ParentImage="*\\winword.exe" OR ParentImage="*\\excel.exe" OR ParentImage="*\\powerpnt.exe")
-    OR (Image="*\\powershell.exe" CommandLine="*-enc*" OR CommandLine="*-w hidden*" OR CommandLine="*DownloadString*")
-    OR (Image="*\\wmic.exe" OR Image="*\\psexec.exe" OR Image="*\\net.exe" CommandLine="*user*")
+    OR (Image="*\\powershell.exe" AND (CommandLine="*-enc*" OR CommandLine="*-w hidden*" OR CommandLine="*DownloadString*"))
+    OR Image="*\\wmic.exe"
+    OR Image="*\\psexec.exe"
+    OR (Image="*\\net.exe" AND CommandLine="*user*")
 | table _time, ComputerName, ParentImage, Image, CommandLine, User
 | sort -_time
 | head 50
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>

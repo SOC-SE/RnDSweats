@@ -10,6 +10,12 @@
 
 set -euo pipefail
 
+# --- Log Output ---
+LOG_DIR="/var/log/syst"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+LOG_FILE="$LOG_DIR/process_hunt_$(date +%Y%m%d_%H%M%S).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 echo "========================================"
 echo "PROCESS HUNTER - $(hostname)"
 echo "Time: $(date)"

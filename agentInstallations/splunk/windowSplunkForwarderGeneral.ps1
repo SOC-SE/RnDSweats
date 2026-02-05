@@ -94,6 +94,25 @@ index = windows
 sourcetype = yara
 
 # -----------------------------------------------------------------------------
+# Advanced Threat Detection (PowerShell, Task Scheduler, WinRM)
+# -----------------------------------------------------------------------------
+
+[WinEventLog://Microsoft-Windows-PowerShell/Operational]
+disabled = 0
+index = windows
+sourcetype = WinEventLog:PowerShell
+
+[WinEventLog://Microsoft-Windows-TaskScheduler/Operational]
+disabled = 0
+index = windows
+sourcetype = WinEventLog:TaskScheduler
+
+[WinEventLog://Microsoft-Windows-WinRM/Operational]
+disabled = 0
+index = windows
+sourcetype = WinEventLog:WinRM
+
+# -----------------------------------------------------------------------------
 # Test Log
 # -----------------------------------------------------------------------------
 

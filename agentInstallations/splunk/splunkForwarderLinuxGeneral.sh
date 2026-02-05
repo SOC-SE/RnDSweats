@@ -399,6 +399,18 @@ index = linux
 sourcetype = wazuh:api
 crcSalt = <SOURCE>
 
+# Wazuh alerts (JSON) - critical for dashboards
+[monitor:///var/ossec/logs/alerts/alerts.json]
+index = linux
+sourcetype = wazuh:alerts
+crcSalt = <SOURCE>
+
+# Wazuh active responses log
+[monitor:///var/ossec/logs/active-responses.log]
+index = linux
+sourcetype = wazuh:active_responses
+crcSalt = <SOURCE>
+
 # archives.log can be very high volume. Enable with caution.
 # [monitor:///var/ossec/logs/archives.log]
 # index = linux
@@ -562,6 +574,56 @@ crcSalt = <SOURCE>
 [monitor:///var/log/syst/linpeas_findings_*.log]
 index = linux
 sourcetype = linpeas
+crcSalt = <SOURCE>
+
+#Web FIM (File Integrity Monitoring) alerts
+[monitor:///var/log/syst/webfim.log]
+index = linux
+sourcetype = webfim
+crcSalt = <SOURCE>
+
+#TTY Monitor - real-time terminal session logging
+[monitor:///var/log/syst/ttymon.log]
+index = linux
+sourcetype = ttymon
+crcSalt = <SOURCE>
+
+#Binary integrity verification results
+[monitor:///var/log/syst/binaryverify_*.log]
+index = linux
+sourcetype = linux_security_scan
+crcSalt = <SOURCE>
+
+#Persistence hunter results
+[monitor:///var/log/syst/persistence_hunt_*.log]
+index = linux
+sourcetype = linux_security_scan
+crcSalt = <SOURCE>
+
+#Process hunter results
+[monitor:///var/log/syst/process_hunt_*.log]
+index = linux
+sourcetype = linux_security_scan
+crcSalt = <SOURCE>
+
+#Webshell scanner results
+[monitor:///var/log/webshell_scan.log]
+index = linux
+sourcetype = linux_security_scan
+crcSalt = <SOURCE>
+
+# -----------------------------------------------------------------------------
+# Coraza WAF (with HAProxy SPOE)
+# -----------------------------------------------------------------------------
+
+[monitor:///var/log/coraza-spoa/audit.log]
+index = linux
+sourcetype = coraza:audit
+crcSalt = <SOURCE>
+
+[monitor:///var/log/coraza-spoa/spoa.log]
+index = linux
+sourcetype = coraza:spoa
 crcSalt = <SOURCE>
 
 # -----------------------------------------------------------------------------

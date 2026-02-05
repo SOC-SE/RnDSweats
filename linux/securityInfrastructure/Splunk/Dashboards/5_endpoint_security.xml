@@ -30,6 +30,8 @@ index=linux sourcetype=wazuh:alerts
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">column</option>
         <option name="charting.chart.stackMode">stacked</option>
@@ -63,6 +65,8 @@ index=linux sourcetype=wazuh:alerts
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -96,6 +100,8 @@ index=linux sourcetype=wazuh:alerts
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -126,6 +132,8 @@ index=linux sourcetype=wazuh:alerts
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -140,16 +148,21 @@ index=linux sourcetype=wazuh:alerts
       <table>
         <search>
           <query>
-(index=linux sourcetype=syslog "failed" OR "error" OR "cannot start") OR
+(index=linux sourcetype=systemd unit=* (Failed OR failed)) OR
+(index=linux sourcetype=syslog "systemd" ("Failed" OR "failed to start")) OR
 (index=windows EventCode=7000 OR EventCode=7001)
-| rex field=_raw "(?&lt;service_name&gt;\w+)\s+(failed|error|cannot start)"
+| eval service_name=coalesce(unit, Service_Name)
+| rex field=_raw "(?&lt;service_name&gt;[\w\-\.]+)\s+(failed|Failed to start)"
 | stats count by host, service_name
+| where isnotnull(service_name)
 | sort -count
 | rename host as "Host", service_name as "Failed Service", count as "Failure Count"
 | head 30
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -170,6 +183,8 @@ index=linux sourcetype=wazuh:alerts
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -197,6 +212,8 @@ index=linux sourcetype IN (linux_security_scan, linpeas, linux_rootkit)
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>

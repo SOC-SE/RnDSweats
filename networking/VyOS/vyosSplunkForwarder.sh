@@ -516,6 +516,53 @@ index = network
 sourcetype = zeek:notice
 crcSalt = <SOURCE>
 
+# SSL/TLS logs - certificate and handshake info
+[monitor://$ZEEK_DIR/logs/current/ssl.log]
+index = network
+sourcetype = zeek:ssl
+crcSalt = <SOURCE>
+
+# SSH logs - SSH connection details and auth
+[monitor://$ZEEK_DIR/logs/current/ssh.log]
+index = network
+sourcetype = zeek:ssh
+crcSalt = <SOURCE>
+
+# DCE/RPC logs - Windows RPC traffic (lateral movement indicator)
+[monitor://$ZEEK_DIR/logs/current/dce_rpc.log]
+index = network
+sourcetype = zeek:dce_rpc
+crcSalt = <SOURCE>
+
+# SMB file access logs
+[monitor://$ZEEK_DIR/logs/current/smb_mapping.log]
+index = network
+sourcetype = zeek:smb_mapping
+crcSalt = <SOURCE>
+
+[monitor://$ZEEK_DIR/logs/current/smb_files.log]
+index = network
+sourcetype = zeek:smb_files
+crcSalt = <SOURCE>
+
+# Kerberos logs - authentication and ticket requests
+[monitor://$ZEEK_DIR/logs/current/kerberos.log]
+index = network
+sourcetype = zeek:kerberos
+crcSalt = <SOURCE>
+
+# File analysis logs
+[monitor://$ZEEK_DIR/logs/current/files.log]
+index = network
+sourcetype = zeek:files
+crcSalt = <SOURCE>
+
+# X.509 certificate logs
+[monitor://$ZEEK_DIR/logs/current/x509.log]
+index = network
+sourcetype = zeek:x509
+crcSalt = <SOURCE>
+
 ZEEK_MONITORS_EOF
         log_success "Added Zeek log monitors"
     fi
@@ -631,7 +678,7 @@ print_summary() {
     echo "    - Routing protocols (FRR/Quagga)"
     echo "    - Firewall, DHCP, DNS services"
     if [[ "$ZEEK_INSTALLED" == true ]]; then
-        echo "    - Zeek logs (conn, dns, http, notice)"
+        echo "    - Zeek logs (conn, dns, http, notice, ssl, ssh, dce_rpc, smb, kerberos, files, x509)"
     fi
     echo ""
     echo -e "${GREEN}Management Commands:${NC}"

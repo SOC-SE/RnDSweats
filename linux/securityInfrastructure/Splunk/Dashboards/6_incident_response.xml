@@ -22,7 +22,7 @@
       <table>
         <search>
           <query>
-index=* host=$host_token$
+(index=linux OR index=windows OR index=network) host=$host_token$
 | eval event_category=case(
     sourcetype IN ("linux_secure", "WinEventLog:Security"), "Authentication",
     sourcetype IN ("WinEventLog:Sysmon", "linux:audit"), "Process Execution",
@@ -38,6 +38,8 @@ index=* host=$host_token$
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">25</option>
         <option name="drilldown">row</option>
@@ -72,6 +74,8 @@ index=* host=$host_token$
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -97,6 +101,8 @@ index=network sourcetype=zeek:conn
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -123,6 +129,8 @@ index=network sourcetype=zeek:conn
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -143,14 +151,18 @@ index=network sourcetype=zeek:conn
           <query>
 index=network sourcetype=zeek:dns
 | eval query_length=len(query)
-| stats count as query_count, avg(query_length) as avg_length, dc(query) as unique_queries by id.orig_h, query
-| where query_count &gt; 500 OR avg_length &gt; 60
+| eval base_domain=replace(query, "^[^\.]+\.", "")
+| stats count as query_count, avg(query_length) as avg_length, dc(query) as unique_subdomains by id.orig_h, base_domain
+| where query_count &gt; 500 OR avg_length &gt; 60 OR unique_subdomains &gt; 100
+| eval avg_length=round(avg_length, 1)
 | sort -query_count
-| rename id.orig_h as "Source IP", query as "Domain", query_count as "Query Count", avg_length as "Avg Query Length", unique_queries as "Unique Queries"
+| rename id.orig_h as "Source IP", base_domain as "Base Domain", query_count as "Query Count", avg_length as "Avg Query Length", unique_subdomains as "Unique Subdomains"
 | head 30
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -184,6 +196,8 @@ index=linux sourcetype=cowrie
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -199,7 +213,7 @@ index=linux sourcetype=cowrie
         <search>
           <query>
 index=network sourcetype=zeek:conn
-| where id.resp_p NOT IN (80, 443, 53, 22, 25, 110, 143, 993, 995)
+| where id.resp_p NOT IN (80, 443, 53, 22, 25, 110, 143, 993, 995, 587, 389, 636, 88, 464, 3306, 5432, 8080, 8443, 3389, 5985, 5986)
 | stats count as conn_count, sum(orig_bytes) as bytes_out by id.orig_h, id.resp_h, id.resp_p, proto
 | eval bytes_out_MB=round(bytes_out/1024/1024, 2)
 | where conn_count &gt; 10 OR bytes_out_MB &gt; 10
@@ -209,6 +223,8 @@ index=network sourcetype=zeek:conn
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>

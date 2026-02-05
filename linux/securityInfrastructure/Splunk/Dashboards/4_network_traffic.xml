@@ -24,6 +24,8 @@ index=network sourcetype=zeek:conn
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="drilldown">none</option>
         <option name="numberPrecision">0</option>
@@ -40,6 +42,8 @@ index=network sourcetype=zeek:conn
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="drilldown">none</option>
         <option name="numberPrecision">2</option>
@@ -57,6 +61,8 @@ index=network sourcetype=zeek:conn
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">pie</option>
         <option name="charting.drilldown">all</option>
@@ -81,6 +87,8 @@ index=network sourcetype=zeek:conn duration&gt;300
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -109,6 +117,8 @@ index=network sourcetype=zeek:conn duration&gt;300
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -125,6 +135,8 @@ index=network sourcetype=zeek:dns rcode_name=NXDOMAIN
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.drilldown">all</option>
@@ -147,6 +159,8 @@ index=linux sourcetype=iptables
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -167,6 +181,8 @@ index=linux sourcetype=iptables
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">area</option>
         <option name="charting.chart.stackMode">stacked</option>
@@ -183,7 +199,7 @@ index=linux sourcetype=iptables
         <search>
           <query>
 index=network sourcetype=zeek:http
-| where user_agent IN ("curl", "wget", "python-requests", "Go-http-client", "Invoke-WebRequest")
+| where match(user_agent, "(?i)(curl|wget|python-requests|Go-http-client|Invoke-WebRequest)")
     OR method IN ("PUT", "DELETE")
     OR status_code &gt;= 400
 | table _time, id.orig_h, id.resp_h, method, host, uri, user_agent, status_code
@@ -193,6 +209,8 @@ index=network sourcetype=zeek:http
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -216,6 +234,8 @@ index=network sourcetype=zeek:conn
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>

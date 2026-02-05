@@ -30,6 +30,8 @@
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="charting.chart">column</option>
         <option name="charting.chart.stackMode">stacked</option>
@@ -45,19 +47,21 @@
       <table>
         <search>
           <query>
-index=linux sourcetype=linux_secure (user OR password)
-| transaction src_ip, user maxspan=5m
-| search "Failed password" AND "Accepted"
+index=linux sourcetype=linux_secure ("Failed password" OR "Accepted password" OR "Accepted publickey")
 | rex field=_raw "from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"
 | rex field=_raw "for (invalid user )?(?&lt;username&gt;\w+)"
-| stats count as total_events, earliest(_time) as first_attempt, latest(_time) as success_time by src_ip, username
-| eval attack_duration=tostring(success_time-first_attempt, "duration")
-| convert ctime(first_attempt) ctime(success_time)
-| sort -total_events
-| rename src_ip as "Attacker IP", username as "Compromised User", total_events as "Auth Attempts", first_attempt as "First Failure", success_time as "Successful Login", attack_duration as "Attack Duration"
+| eval auth_result=if(match(_raw, "Accepted"), "success", "failure")
+| stats count(eval(auth_result="failure")) as failures, count(eval(auth_result="success")) as successes, earliest(_time) as first_attempt, latest(_time) as last_success by src_ip, username
+| where failures &gt;= 10 AND successes &gt; 0
+| eval attack_duration=tostring(last_success-first_attempt, "duration")
+| convert ctime(first_attempt) ctime(last_success)
+| sort -failures
+| rename src_ip as "Attacker IP", username as "Compromised User", failures as "Failed Attempts", successes as "Successful Logins", first_attempt as "First Failure", last_success as "Successful Login", attack_duration as "Attack Duration"
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -79,6 +83,7 @@ index=linux sourcetype=linux_secure (user OR password)
 (index=linux sourcetype=linux_secure "Failed password") OR
 (index=windows EventCode=4625)
 | rex field=_raw "from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"
+| eval src_ip=coalesce(src_ip, Source_Network_Address, IpAddress)
 | stats count as failures by src_ip, user, host
 | sort -failures
 | rename src_ip as "Source IP", user as "Target User", host as "Target Host", failures as "Failed Attempts"
@@ -86,6 +91,8 @@ index=linux sourcetype=linux_secure (user OR password)
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -100,6 +107,7 @@ index=linux sourcetype=linux_secure (user OR password)
 (index=linux sourcetype=linux_secure "Accepted password" OR "Accepted publickey") OR
 (index=windows EventCode=4624 Logon_Type!=3)
 | rex field=_raw "from (?&lt;src_ip&gt;\d+\.\d+\.\d+\.\d+)"
+| eval src_ip=coalesce(src_ip, Source_Network_Address, IpAddress)
 | stats count as successful_logins by src_ip, user, host
 | sort -successful_logins
 | rename src_ip as "Source IP", user as "Username", host as "Target Host", successful_logins as "Successful Logins"
@@ -107,6 +115,8 @@ index=linux sourcetype=linux_secure (user OR password)
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
@@ -138,10 +148,49 @@ index=linux sourcetype=linux_secure (user OR password)
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
         <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Persistence Mechanisms (New Users, Cron, Scheduled Tasks)</title>
+      <table>
+        <search>
+          <query>
+(index=linux sourcetype=linux_secure ("useradd" OR "usermod" OR "groupadd")) OR
+(index=linux sourcetype=syslog "crontab" ("REPLACE" OR "LIST")) OR
+(index=windows EventCode=4698) OR
+(index=windows sourcetype="WinEventLog:Sysmon" EventCode=11 TargetFilename="*\\Startup\\*")
+| eval persistence_type=case(
+    match(_raw, "useradd|usermod|groupadd"), "Linux User/Group Change",
+    match(_raw, "crontab"), "Cron Modification",
+    EventCode==4698, "Scheduled Task: " . TaskName,
+    EventCode==11, "Startup Persistence: " . TargetFilename,
+    1=1, "Other"
+)
+| table _time, host, user, persistence_type
+| sort -_time
+| rename persistence_type as "Activity"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">20</option>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Activity">
+          <colorPalette type="map">{"Linux User/Group Change":#F8BE34,"Cron Modification":#F1813F}</colorPalette>
+        </format>
       </table>
     </panel>
   </row>
@@ -161,6 +210,8 @@ index=network sourcetype=syslog (openvpn OR ipsec OR charon)
           </query>
           <earliest>$time_token.earliest$</earliest>
           <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
         </search>
         <option name="count">20</option>
         <option name="drilldown">row</option>
