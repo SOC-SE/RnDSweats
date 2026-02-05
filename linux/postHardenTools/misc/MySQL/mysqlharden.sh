@@ -137,6 +137,9 @@ build_mysql_cmd() {
         fi
     elif [[ -f "$CNF_FILE" ]]; then
         cmd="$cmd --defaults-extra-file=$CNF_FILE"
+    elif mysql -u root -e "SELECT 1" &>/dev/null; then
+        # Socket auth works as root (common on MariaDB/Fedora)
+        cmd="$cmd -u root"
     else
         error "No credentials provided. Use -u/-p or create ~/.my.cnf"
         exit 1
@@ -289,7 +292,7 @@ log "local_infile disabled at runtime"
 
 # --- 6 & 7. Config file hardening ---
 MYSQL_CONF=""
-for conf in /etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/my.cnf /etc/my.cnf; do
+for conf in /etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/my.cnf /etc/my.cnf.d/mariadb-server.cnf /etc/my.cnf; do
     if [[ -f "$conf" ]]; then
         MYSQL_CONF="$conf"
         break

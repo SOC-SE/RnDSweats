@@ -116,14 +116,16 @@ else
     WEB_SERVER="unknown"
 fi
 
-run_script "$LINUXDEV/harden_ecom.sh" "E-Commerce Hardening (Apache/NGINX + OpenCart + PHP + DB)"
+# Run e-commerce hardening in non-interactive mode
+HARDEN_NONINTERACTIVE=1 bash "$LINUXDEV/harden_ecom.sh" --harden 2>&1 | tee -a "$LOG_FILE" || warn "E-Commerce Hardening completed with warnings"
+log "E-Commerce Hardening (Apache/NGINX + OpenCart + PHP + DB) completed"
 
 # ============================================================================
 # PHASE 3: MYSQL HARDENING
 # ============================================================================
 phase "PHASE 3: MYSQL HARDENING"
 
-MYSQL_HARDEN="$REPO_DIR/linux/postHardenTools/misc/MySQL/mysqlharden.sh"
+MYSQL_HARDEN="$REPO_DIR/postHardenTools/misc/MySQL/mysqlharden.sh"
 if [[ -f "$MYSQL_HARDEN" ]]; then
     log "Running MySQL hardening..."
     chmod +x "$MYSQL_HARDEN"

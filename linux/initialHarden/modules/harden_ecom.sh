@@ -97,6 +97,10 @@ log_success() { echo -e "${GREEN}[OK]${NC} $*"; }
 
 confirm() {
     local prompt="$1"
+    # Non-interactive mode: auto-confirm
+    if [[ "${HARDEN_NONINTERACTIVE:-0}" == "1" ]]; then
+        return 0
+    fi
     local reply
     echo
     read -r -p "$prompt [y/N]: " reply || true
@@ -109,6 +113,10 @@ confirm() {
 confirm_danger() {
     local prompt="$1"
     local token="$2"
+    # Non-interactive mode: auto-confirm
+    if [[ "${HARDEN_NONINTERACTIVE:-0}" == "1" ]]; then
+        return 0
+    fi
     local reply
     echo
     log_warn "$prompt"
@@ -287,21 +295,42 @@ harden_apache() {
     # Add security headers via a conf snippet
     local security_conf="${conf_dir}/conf-available/security-opencart.conf"
     cat > "$security_conf" <<'EOF'
+# Hide Apache version information
+ServerTokens Prod
+ServerSignature Off
+
+# Prevent ETag inode leaks
+FileETag MTime Size
+
 <IfModule mod_headers.c>
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set X-Content-Type-Options "nosniff"
+    Header always set X-XSS-Protection "1; mode=block"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     # Adjust CSP as needed for your site
     Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
 </IfModule>
 
-# Disable directory listing
+# Disable directory listing globally
 <Directory /var/www/>
     Options -Indexes
 </Directory>
 EOF
 
     a2enconf security-opencart >/dev/null 2>&1 || true
+
+    # Also fix the default security.conf if it exists (overrides ServerTokens)
+    local default_security="${conf_dir}/conf-available/security.conf"
+    if [[ -f "$default_security" ]]; then
+        sed -i 's/^ServerTokens .*/ServerTokens Prod/' "$default_security" 2>/dev/null || true
+        sed -i 's/^ServerSignature .*/ServerSignature Off/' "$default_security" 2>/dev/null || true
+    fi
+
+    # Disable autoindex module (directory listing)
+    a2dismod autoindex >/dev/null 2>&1 || true
+
+    # Disable mod_status (information disclosure)
+    a2dismod status >/dev/null 2>&1 || true
 
     # Only touch SSL protocols/ciphers if SSL is already configured
     if grep -Rqi "SSLEngine on" /etc/apache2/sites-enabled 2>/dev/null; then
@@ -496,6 +525,51 @@ harden_opencart_files() {
             chmod 640 "$OPENCART_DIR/$f"
         fi
     done
+
+    # Remove installer directory (security risk if left accessible)
+    if [[ -d "$OPENCART_DIR/install" ]]; then
+        rm -rf "$OPENCART_DIR/install"
+        log_success "Removed OpenCart installer directory."
+    fi
+
+    # Restrict admin panel access by IP (allow only localhost + machine's own subnet)
+    local admin_htaccess="$OPENCART_DIR/admin/.htaccess"
+    if [[ -d "$OPENCART_DIR/admin" ]]; then
+        # Detect the machine's primary non-loopback interface subnet
+        local iface_info
+        iface_info=$(ip -4 -o addr show scope global | head -1 | awk '{print $4}') # e.g. 172.20.242.17/24
+        local machine_ip="${iface_info%%/*}"
+        local cidr="${iface_info##*/}"
+        # Calculate network address from IP and CIDR
+        local subnet_allow=""
+        if [[ -n "$machine_ip" && -n "$cidr" ]]; then
+            IFS='.' read -r o1 o2 o3 o4 <<< "$machine_ip"
+            # Convert CIDR to mask and apply
+            local full_mask=$(( 0xFFFFFFFF << (32 - cidr) & 0xFFFFFFFF ))
+            local m1=$(( (full_mask >> 24) & 255 ))
+            local m2=$(( (full_mask >> 16) & 255 ))
+            local m3=$(( (full_mask >> 8) & 255 ))
+            local m4=$(( full_mask & 255 ))
+            local net="$((o1 & m1)).$((o2 & m2)).$((o3 & m3)).$((o4 & m4))"
+            subnet_allow="${net}/${cidr}"
+        fi
+
+        cat > "$admin_htaccess" <<HTEOF
+# Restrict OpenCart admin panel access
+# Auto-detected subnet: ${subnet_allow:-UNKNOWN}
+# To change allowed networks, edit this file:
+#   ${admin_htaccess}
+<IfModule mod_authz_core.c>
+    Require ip 127.0.0.1
+    Require ip ::1
+    Require ip ${subnet_allow:-10.0.0.0/8}
+</IfModule>
+HTEOF
+        chown www-data:www-data "$admin_htaccess"
+        chmod 640 "$admin_htaccess"
+        log_success "Admin panel restricted to localhost + ${subnet_allow:-FALLBACK 10.0.0.0/8}."
+        log_warn "NOTE: OpenCart admin panel is now IP-restricted. To modify allowed networks, edit: ${admin_htaccess}"
+    fi
 
     log_success "OpenCart file/permission hardening applied."
 }

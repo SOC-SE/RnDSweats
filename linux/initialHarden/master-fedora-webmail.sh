@@ -119,6 +119,43 @@ fi
 run_script "$LINUXDEV/mail_hardener.sh" "Mail Server Hardening"
 
 # ============================================================================
+# PHASE 2b: MARIADB HARDENING
+# ============================================================================
+phase "PHASE 2b: MARIADB HARDENING"
+
+if systemctl is-active --quiet mariadb 2>/dev/null; then
+    log "MariaDB detected, running database hardening..."
+    MYSQL_HARDEN="$REPO_DIR/postHardenTools/misc/MySQL/mysqlharden.sh"
+    if [[ -f "$MYSQL_HARDEN" ]]; then
+        chmod +x "$MYSQL_HARDEN"
+        bash "$MYSQL_HARDEN" 2>&1 | tee -a "$LOG_FILE" || warn "MariaDB hardening completed with warnings"
+    else
+        warn "MySQL hardening script not found at $MYSQL_HARDEN"
+        # Fallback: at minimum bind to localhost
+        log "Applying minimal MariaDB hardening (bind to localhost)..."
+        mariadb_conf=""
+        if [[ -f /etc/my.cnf.d/mariadb-server.cnf ]]; then
+            mariadb_conf="/etc/my.cnf.d/mariadb-server.cnf"
+        elif [[ -f /etc/my.cnf ]]; then
+            mariadb_conf="/etc/my.cnf"
+        fi
+        if [[ -n "$mariadb_conf" ]]; then
+            if grep -q '^\[mysqld\]' "$mariadb_conf"; then
+                if grep -q '^bind-address' "$mariadb_conf"; then
+                    sed -i 's/^bind-address.*/bind-address = 127.0.0.1/' "$mariadb_conf"
+                else
+                    sed -i '/^\[mysqld\]/a bind-address = 127.0.0.1' "$mariadb_conf"
+                fi
+            fi
+            systemctl restart mariadb 2>/dev/null || true
+            log "MariaDB bound to localhost"
+        fi
+    fi
+else
+    log "MariaDB not detected, skipping database hardening"
+fi
+
+# ============================================================================
 # PHASE 3: FIREWALL CONFIGURATION
 # ============================================================================
 phase "PHASE 3: FIREWALL CONFIGURATION"
