@@ -216,13 +216,6 @@ echo "========================================================"
 echo "  UBUNTU WORKSTATION HARDENING COMPLETE"
 echo "========================================================"
 echo ""
-echo "This is a LOW PRIORITY box (workstation, not scored)"
-echo ""
-echo "NEXT STEPS:"
-echo "  1. Run normalizeToolsGeneral.sh and normalizeToolsSecurity.sh"
-echo "  2. Run persistenceHunter.sh"
-echo "  3. Install Salt minion"
-echo ""
 echo "========================================================"
 
 exit 0
