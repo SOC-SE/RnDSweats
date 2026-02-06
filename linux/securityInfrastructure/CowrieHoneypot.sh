@@ -320,6 +320,11 @@ setup_virtualenv() {
         log_fatal "Cowrie module not importable after install. Check pip output above."
     fi
 
+    # Fix SELinux contexts so systemd can exec twistd (Oracle/RHEL)
+    if command -v restorecon &>/dev/null; then
+        restorecon -R "$COWRIE_VENV/bin/" 2>/dev/null || true
+    fi
+
     log_info "Python environment ready."
 }
 
@@ -412,7 +417,7 @@ StandardError=journal
 # Hardening
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectSystem=strict
+ProtectSystem=full
 ReadWritePaths=${COWRIE_HOME}/var
 
 [Install]
