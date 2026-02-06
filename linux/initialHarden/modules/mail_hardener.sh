@@ -120,20 +120,181 @@ enable_service() {
 generate_certs() {
     if [[ -f "$CERT_FILE" && -f "$KEY_FILE" ]]; then
         info "SSL certificates already exist"
+        
+        # Verify and fix permissions on existing certificates
+        chown root:dovecot "$KEY_FILE" 2>/dev/null || chown root:root "$KEY_FILE"
+        chmod 640 "$KEY_FILE"
+        chmod 644 "$CERT_FILE"
+        
+        # Fix SELinux context if SELinux is enabled
+        if command -v restorecon &>/dev/null && getenforce &>/dev/null; then
+            restorecon -v "$CERT_FILE" "$KEY_FILE" 2>/dev/null || true
+        fi
+        
         return 0
     fi
 
     info "Generating self-signed SSL certificates..."
     mkdir -p "$(dirname "$CERT_FILE")" "$(dirname "$KEY_FILE")"
+    
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout "$KEY_FILE" -out "$CERT_FILE" \
         -subj "/C=US/ST=State/L=City/O=Org/CN=mail.local" 2>/dev/null || {
         error "Failed to generate certificates"
         return 1
     }
-    chmod 600 "$KEY_FILE"
-    chmod 644 "$CERT_FILE"
-    ok "Self-signed certificates generated"
+    
+    # Set proper ownership and permissions
+    # dovecot group needs to read the private key
+    chown root:dovecot "$KEY_FILE" 2>/dev/null || chown root:root "$KEY_FILE"
+    chmod 640 "$KEY_FILE"  # Owner read/write, group read
+    chmod 644 "$CERT_FILE"  # World readable
+    
+    # Set correct SELinux context
+    if command -v restorecon &>/dev/null && getenforce &>/dev/null; then
+        restorecon -v "$CERT_FILE" "$KEY_FILE" 2>/dev/null || true
+        ok "SELinux contexts set for certificates"
+    fi
+    
+    ok "Self-signed certificates generated with correct permissions"
+}
+
+harden_dovecot_debian() {
+    # SSL configuration
+    if [[ -f "$DOVECOT_SSL_CONF" ]] && ! grep -q "# === Mail Hardener" "$DOVECOT_SSL_CONF" 2>/dev/null; then
+        # Generate certs with proper permissions
+        generate_certs
+        
+        cat >> "$DOVECOT_SSL_CONF" <<EOF
+
+# === Mail Hardener: SSL/TLS Configuration ===
+# SSL enabled but not required - allows both encrypted and plain connections
+ssl = yes
+ssl_min_protocol = TLSv1.2
+ssl_cipher_list = HIGH:!aNULL:!MD5:!RC4:!3DES
+ssl_cert = <$CERT_FILE
+ssl_key = <$KEY_FILE
+EOF
+    fi
+
+    # Auth configuration
+    if [[ -f "$DOVECOT_AUTH_CONF" ]] && ! grep -q "# === Mail Hardener" "$DOVECOT_AUTH_CONF" 2>/dev/null; then
+        cat >> "$DOVECOT_AUTH_CONF" <<'EOF'
+
+# === Mail Hardener: Authentication Security ===
+# Plaintext auth allowed for scoring compatibility
+disable_plaintext_auth = no
+auth_mechanisms = plain login
+
+# === Mail Hardener: Brute Force Protection ===
+auth_failure_delay = 3 secs
+mail_max_userip_connections = 10
+EOF
+    fi
+
+    # Postfix SASL auth socket - modify existing service auth block or add config
+    local master_conf="/etc/dovecot/conf.d/10-master.conf"
+    if [[ -f "$master_conf" ]] && ! grep -q "# === Mail Hardener: Postfix Auth" "$master_conf" 2>/dev/null; then
+        # Ensure postfix user can access the socket
+        mkdir -p /var/spool/postfix/private
+
+        if grep -q "^service auth {" "$master_conf" 2>/dev/null; then
+            # Existing service auth block found -- inject unix_listener inside it
+            # to avoid duplicate service auth blocks that break Dovecot
+            if ! grep -q "var/spool/postfix/private/auth" "$master_conf" 2>/dev/null; then
+                sed -i '/^service auth {/a\  # === Mail Hardener: Postfix Auth Socket ===\n  unix_listener /var/spool/postfix/private/auth {\n    mode = 0660\n    user = postfix\n    group = postfix\n  }' "$master_conf"
+                info "Injected Postfix auth socket into existing Dovecot service auth block"
+            else
+                info "Postfix auth socket already configured in Dovecot"
+            fi
+        else
+            # No existing service auth block -- append a new one
+            cat >> "$master_conf" <<'EOF'
+
+# === Mail Hardener: Postfix Auth Socket ===
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+EOF
+            info "Configured Dovecot auth socket for Postfix SASL"
+        fi
+    fi
+}
+
+harden_dovecot_rhel() {
+    local dovecot_local="/etc/dovecot/local.conf"
+    [[ ! -f "$dovecot_local" ]] && touch "$dovecot_local"
+    cp "$dovecot_local" "${dovecot_local}.hardening-backup" 2>/dev/null || true
+
+    # Add protocols/mail_location if missing
+    grep -q "^protocols" /etc/dovecot/dovecot.conf "$dovecot_local" 2>/dev/null || echo "protocols = imap pop3 lmtp" >> "$dovecot_local"
+    grep -q "^mail_location" /etc/dovecot/dovecot.conf "$dovecot_local" 2>/dev/null || echo "mail_location = maildir:~/Maildir" >> "$dovecot_local"
+
+    if ! grep -q "# === Mail Hardener" "$dovecot_local" 2>/dev/null; then
+        # Ensure postfix spool directory exists for auth socket
+        mkdir -p /var/spool/postfix/private
+
+        # Generate certificates with proper permissions
+        generate_certs
+
+        cat >> "$dovecot_local" <<EOF
+
+# === Mail Hardener: SSL/TLS Configuration ===
+# SSL enabled but not required - allows both encrypted and plain connections
+ssl = yes
+ssl_min_protocol = TLSv1.2
+ssl_cipher_list = HIGH:!aNULL:!MD5:!RC4:!3DES
+ssl_prefer_server_ciphers = yes
+ssl_cert = <$CERT_FILE
+ssl_key = <$KEY_FILE
+
+# === Mail Hardener: Authentication Security ===
+# Plaintext auth allowed for scoring compatibility
+disable_plaintext_auth = no
+auth_mechanisms = plain login
+mail_privileged_group = mail
+
+# === Mail Hardener: Brute Force Protection ===
+auth_failure_delay = 3 secs
+mail_max_userip_connections = 10
+
+# === Mail Hardener: Information Disclosure Prevention ===
+login_greeting = Dovecot ready.
+
+# === Mail Hardener: AD/SSSD userdb override ===
+userdb {
+  driver = passwd
+  args = username_format=%n
+}
+EOF
+
+        # Configure Postfix auth socket in 10-master.conf to avoid duplicate service auth blocks
+        local master_conf="/etc/dovecot/conf.d/10-master.conf"
+        if [[ -f "$master_conf" ]] && grep -q "^service auth {" "$master_conf" 2>/dev/null; then
+            # Inject into existing service auth block
+            if ! grep -q "var/spool/postfix/private/auth" "$master_conf" 2>/dev/null; then
+                sed -i '/^service auth {/a\  # === Mail Hardener: Postfix Auth Socket ===\n  unix_listener /var/spool/postfix/private/auth {\n    mode = 0660\n    user = postfix\n    group = postfix\n  }' "$master_conf"
+            fi
+        else
+            # No 10-master.conf or no service auth block -- add to local.conf
+            cat >> "$dovecot_local" <<'EOF'
+
+# === Mail Hardener: Postfix Auth Socket ===
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+EOF
+        fi
+        info "Configured Dovecot hardening and Postfix SASL auth socket"
+    fi
 }
 
 # --- Initial Backup (before hardening) ---
@@ -346,123 +507,6 @@ harden_dovecot() {
     fi
 
     restart_service dovecot
-}
-
-harden_dovecot_debian() {
-    # SSL configuration
-    if [[ -f "$DOVECOT_SSL_CONF" ]] && ! grep -q "# === Mail Hardener" "$DOVECOT_SSL_CONF" 2>/dev/null; then
-        cat >> "$DOVECOT_SSL_CONF" <<EOF
-
-# === Mail Hardener: SSL/TLS Configuration ===
-ssl = required
-ssl_min_protocol = TLSv1.2
-ssl_cipher_list = HIGH:!aNULL:!MD5:!RC4:!3DES
-ssl_cert = <$CERT_FILE
-ssl_key = <$KEY_FILE
-EOF
-    fi
-
-    # Auth configuration
-    if [[ -f "$DOVECOT_AUTH_CONF" ]] && ! grep -q "# === Mail Hardener" "$DOVECOT_AUTH_CONF" 2>/dev/null; then
-        cat >> "$DOVECOT_AUTH_CONF" <<'EOF'
-
-# === Mail Hardener: Authentication Security ===
-disable_plaintext_auth = yes
-auth_mechanisms = plain login
-EOF
-    fi
-
-    # Postfix SASL auth socket - modify existing service auth block or add config
-    local master_conf="/etc/dovecot/conf.d/10-master.conf"
-    if [[ -f "$master_conf" ]] && ! grep -q "# === Mail Hardener: Postfix Auth" "$master_conf" 2>/dev/null; then
-        # Ensure postfix user can access the socket
-        mkdir -p /var/spool/postfix/private
-
-        if grep -q "^service auth {" "$master_conf" 2>/dev/null; then
-            # Existing service auth block found -- inject unix_listener inside it
-            # to avoid duplicate service auth blocks that break Dovecot
-            if ! grep -q "var/spool/postfix/private/auth" "$master_conf" 2>/dev/null; then
-                sed -i '/^service auth {/a\  # === Mail Hardener: Postfix Auth Socket ===\n  unix_listener /var/spool/postfix/private/auth {\n    mode = 0660\n    user = postfix\n    group = postfix\n  }' "$master_conf"
-                info "Injected Postfix auth socket into existing Dovecot service auth block"
-            else
-                info "Postfix auth socket already configured in Dovecot"
-            fi
-        else
-            # No existing service auth block -- append a new one
-            cat >> "$master_conf" <<'EOF'
-
-# === Mail Hardener: Postfix Auth Socket ===
-service auth {
-  unix_listener /var/spool/postfix/private/auth {
-    mode = 0660
-    user = postfix
-    group = postfix
-  }
-}
-EOF
-            info "Configured Dovecot auth socket for Postfix SASL"
-        fi
-    fi
-}
-
-harden_dovecot_rhel() {
-    local dovecot_local="/etc/dovecot/local.conf"
-    [[ ! -f "$dovecot_local" ]] && touch "$dovecot_local"
-    cp "$dovecot_local" "${dovecot_local}.hardening-backup" 2>/dev/null || true
-
-    # Add protocols/mail_location if missing
-    grep -q "^protocols" /etc/dovecot/dovecot.conf "$dovecot_local" 2>/dev/null || echo "protocols = imap pop3 lmtp" >> "$dovecot_local"
-    grep -q "^mail_location" /etc/dovecot/dovecot.conf "$dovecot_local" 2>/dev/null || echo "mail_location = maildir:~/Maildir" >> "$dovecot_local"
-
-    if ! grep -q "# === Mail Hardener" "$dovecot_local" 2>/dev/null; then
-        # Ensure postfix spool directory exists for auth socket
-        mkdir -p /var/spool/postfix/private
-
-        cat >> "$dovecot_local" <<EOF
-
-# === Mail Hardener: SSL/TLS Configuration ===
-ssl = required
-ssl_min_protocol = TLSv1.2
-ssl_cipher_list = HIGH:!aNULL:!MD5:!RC4:!3DES
-ssl_prefer_server_ciphers = yes
-ssl_cert = <$CERT_FILE
-ssl_key = <$KEY_FILE
-
-# === Mail Hardener: Authentication Security ===
-disable_plaintext_auth = yes
-auth_mechanisms = plain login
-mail_privileged_group = mail
-
-# === Mail Hardener: AD/SSSD userdb override ===
-userdb {
-  driver = passwd
-  args = username_format=%n
-}
-EOF
-
-        # Configure Postfix auth socket in 10-master.conf to avoid duplicate service auth blocks
-        local master_conf="/etc/dovecot/conf.d/10-master.conf"
-        if [[ -f "$master_conf" ]] && grep -q "^service auth {" "$master_conf" 2>/dev/null; then
-            # Inject into existing service auth block
-            if ! grep -q "var/spool/postfix/private/auth" "$master_conf" 2>/dev/null; then
-                sed -i '/^service auth {/a\  # === Mail Hardener: Postfix Auth Socket ===\n  unix_listener /var/spool/postfix/private/auth {\n    mode = 0660\n    user = postfix\n    group = postfix\n  }' "$master_conf"
-            fi
-        else
-            # No 10-master.conf or no service auth block -- add to local.conf
-            cat >> "$dovecot_local" <<'EOF'
-
-# === Mail Hardener: Postfix Auth Socket ===
-service auth {
-  unix_listener /var/spool/postfix/private/auth {
-    mode = 0660
-    user = postfix
-    group = postfix
-  }
-}
-EOF
-        fi
-        info "Configured Dovecot hardening and Postfix SASL auth socket"
-    fi
 }
 
 # --- Roundcube Hardening (RHEL/Fedora only) ---
