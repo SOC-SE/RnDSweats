@@ -28,6 +28,9 @@
 
 set -euo pipefail
 
+# Resolve script directory once, before anything can change CWD
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ── Configuration ───────────────────────────────────────────────────────────
 COWRIE_USER="cowrie"
 COWRIE_HOME="/opt/cowrie"
@@ -215,7 +218,7 @@ clone_cowrie() {
         rm -rf "$tmp_dir"
         # Fallback to vendored copy
         local vendor_src
-        vendor_src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/cowrie/source"
+        vendor_src="${SCRIPT_DIR}/../../vendor/cowrie/source"
         if [[ -d "$vendor_src/src" ]]; then
             log_info "Git clone failed. Using vendored local copy..."
             cp -a "$vendor_src/." "$COWRIE_HOME/"
@@ -254,8 +257,7 @@ setup_virtualenv() {
 
     # Locate vendored wheels — search upward from script dir for vendor/cowrie/wheels
     local VENDOR_WHEELS=""
-    local _search_dir
-    _search_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local _search_dir="$SCRIPT_DIR"
     while [[ "$_search_dir" != "/" ]]; do
         if [[ -d "${_search_dir}/vendor/cowrie/wheels" ]]; then
             VENDOR_WHEELS="${_search_dir}/vendor/cowrie/wheels"
@@ -273,7 +275,7 @@ setup_virtualenv() {
         log_warn "PyPI unreachable (timeout). Using vendored wheels at ${VENDOR_WHEELS}..."
         USE_VENDOR=true
     else
-        log_fatal "PyPI unreachable and no vendored wheels found. Searched upward from $(dirname "${BASH_SOURCE[0]}")."
+        log_fatal "PyPI unreachable and no vendored wheels found. Searched upward from ${SCRIPT_DIR}."
     fi
 
     if [[ "$USE_VENDOR" == "true" ]]; then
