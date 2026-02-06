@@ -49,7 +49,7 @@ if [ "$resp" = "y" ] || [ "$resp" = "Y" ]; then
 	# Use a temp file instead of modifying the template in-place
 	tmpfile=$(mktemp)
 	trap 'rm -f "$tmpfile"' EXIT
-	sed "s|pub-ip|$pubip|" "$compfile" > "$tmpfile"
+	#sed "s|pub-ip|$pubip|" "$compfile" > "$tmpfile"
 	ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$tmpfile"
 	rm -f "$tmpfile"
 fi
