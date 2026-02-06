@@ -436,15 +436,16 @@ setup_firewall() {
         return
     fi
 
-    # Allow Cowrie's listen port
+    # Allow Cowrie's listen port — use -I (insert) so the rule goes before any
+    # REJECT/DROP rules that hardening scripts may have appended to INPUT
     if ! iptables -C INPUT -p tcp --dport "$LISTEN_SSH_PORT" -j ACCEPT 2>/dev/null; then
-        iptables -A INPUT -p tcp --dport "$LISTEN_SSH_PORT" -j ACCEPT
+        iptables -I INPUT -p tcp --dport "$LISTEN_SSH_PORT" -j ACCEPT
         log_info "Allowed inbound TCP/${LISTEN_SSH_PORT} (Cowrie)."
     fi
 
     if [[ "$LISTEN_ENABLED_TELNET" == "true" ]]; then
         if ! iptables -C INPUT -p tcp --dport "$LISTEN_TELNET_PORT" -j ACCEPT 2>/dev/null; then
-            iptables -A INPUT -p tcp --dport "$LISTEN_TELNET_PORT" -j ACCEPT
+            iptables -I INPUT -p tcp --dport "$LISTEN_TELNET_PORT" -j ACCEPT
             log_info "Allowed inbound TCP/${LISTEN_TELNET_PORT} (Cowrie telnet)."
         fi
     fi
