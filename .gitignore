@@ -3,6 +3,8 @@ vagrant/
 docs/
 tests/
 
+data/
+
 # Ligolo-ng runtime artifacts
 ligolo-ng.yaml
 ligolo-ng.history
