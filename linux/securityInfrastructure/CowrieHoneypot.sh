@@ -272,7 +272,14 @@ setup_virtualenv() {
     if curl -s --max-time 10 -o /dev/null https://pypi.org/simple/pip/; then
         log_info "PyPI is reachable."
     elif [[ -n "$VENDOR_WHEELS" ]]; then
-        log_warn "PyPI unreachable (timeout). Using vendored wheels at ${VENDOR_WHEELS}..."
+        log_warn "PyPI unreachable (timeout). Using vendored wheels from ${VENDOR_WHEELS}..."
+        # Copy wheels to a temp dir the cowrie user can access (the repo may be
+        # under a home directory with 700 permissions that cowrie can't traverse)
+        local VENDOR_TMP
+        VENDOR_TMP=$(mktemp -d)
+        cp "$VENDOR_WHEELS"/*.whl "$VENDOR_TMP/"
+        chown -R "$COWRIE_USER" "$VENDOR_TMP"
+        VENDOR_WHEELS="$VENDOR_TMP"
         USE_VENDOR=true
     else
         log_fatal "PyPI unreachable and no vendored wheels found. Searched upward from ${SCRIPT_DIR}."
