@@ -8,13 +8,13 @@
 #         (also hosts SaltGUI, Wazuh, Technitium DNS)
 # Author: Security Team
 # Date: 2025-2026
-# Version: 2.0
+# Version: 3.0
 #
 # Workflow:
-#   1. Initial enumeration
-#   2. Credential setup
-#   3. Splunk backup, nuke, fresh install, restore licenses
-#   4. Splunk configuration (listeners, props.conf, MongoDB)
+#   1. Credential setup (system + Splunkbase)
+#   2. Splunk backup, nuke, fresh install, restore licenses
+#   3. Splunk configuration (listeners, props.conf, dashboards)
+#   4. Splunkbase add-on installation (17 TAs for network, Windows, Linux)
 #   5. OS hardening (banners, cron, SSH removal, user restrictions)
 #   6. Disable/remove cockpit and firewalld
 #   7. Strict iptables firewall
@@ -152,6 +152,19 @@ SPLUNK_PASSWORD="$_PROMPTED_PASS"
 prompt_password "sysadmin"
 SYSADMIN_PASS="$_PROMPTED_PASS"
 
+# Splunkbase credentials for add-on installation
+echo ""
+log "Splunkbase credentials (for installing add-ons from Splunkbase)"
+echo -n "Enter Splunkbase username (email), or press Enter to skip add-ons: "
+read -r SPLUNKBASE_USER
+if [[ -n "$SPLUNKBASE_USER" ]]; then
+    prompt_password "Splunkbase"
+    SPLUNKBASE_PASS="$_PROMPTED_PASS"
+else
+    log "Skipping Splunkbase add-on installation"
+    SPLUNKBASE_PASS=""
+fi
+
 echo "root:$ROOT_PASS" | chpasswd
 echo "sysadmin:$SYSADMIN_PASS" | chpasswd
 log "Changed root and sysadmin passwords"
@@ -224,9 +237,14 @@ fi
 log "Initializing Splunk (first start)..."
 $SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
 
-$SPLUNK_HOME/bin/splunk add index linux -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
-$SPLUNK_HOME/bin/splunk add index windows -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
-$SPLUNK_HOME/bin/splunk add index network -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
+# Wait for Splunk to be fully ready before creating indexes
+log "Waiting for Splunk to initialize..."
+sleep 10
+
+log "Creating custom indexes..."
+$SPLUNK_HOME/bin/splunk add index linux -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD" || warn "Index 'linux' may already exist"
+$SPLUNK_HOME/bin/splunk add index windows -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD" || warn "Index 'windows' may already exist"
+$SPLUNK_HOME/bin/splunk add index network -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD" || warn "Index 'network' may already exist"
 
 # ============================================================================
 # PHASE 3: SPLUNK CONFIGURATION
@@ -454,6 +472,85 @@ $SPLUNK_HOME/bin/splunk enable boot-start
 # Enable 9997 listener via CLI
 log "Enabling 9997 forwarder listener..."
 $SPLUNK_HOME/bin/splunk enable listen 9997 -auth "$SPLUNK_USERNAME:$SPLUNK_PASSWORD"
+
+# --- Install add-ons from Splunkbase ---
+if [[ -n "${SPLUNKBASE_USER:-}" ]] && [[ -n "${SPLUNKBASE_PASS:-}" ]]; then
+    log "Installing add-ons from Splunkbase..."
+
+    # Splunkbase app definitions: "APP_ID|APP_NAME|DESCRIPTION"
+    SPLUNKBASE_ADDONS=(
+        "2757|Splunk_TA_paloalto|Palo Alto Networks"
+        "4388|Splunk_TA_cisco_secure_firewall|Cisco Secure Firewall (FTD)"
+        "5466|TA-zeek|Zeek"
+        "2760|TA-suricata|Suricata"
+        "742|Splunk_TA_windows|Windows"
+        "5709|Splunk_TA_microsoft_sysmon|Sysmon"
+        "3208|Splunk_TA_microsoft-dns|Microsoft Windows DNS"
+        "833|Splunk_TA_nix|Unix and Linux"
+        "4494|SplunkAppForWazuh|Wazuh"
+        "3186|Splunk_TA_apache|Apache Web Server"
+        "3258|Splunk_TA_nginx|NGINX"
+        "2891|TA-haproxy|HAProxy"
+        "5765|Splunk_TA_docker|Docker"
+        "1917|splunk_app_for_tomcat|Tomcat"
+        "4679|Splunk_TA_postgresql|PostgreSQL"
+        "2818|Splunk_TA_mysql|MySQL"
+        "1621|Splunk_SA_CIM|Common Information Model (CIM)"
+    )
+
+    ADDON_SUCCESS=0
+    ADDON_FAIL=0
+    ADDON_SKIP=0
+
+    for addon in "${SPLUNKBASE_ADDONS[@]}"; do
+        IFS='|' read -r app_id app_name description <<< "$addon"
+        printf "  %-40s " "$description..."
+
+        # Check if already installed
+        CHECK=$(curl -s -k -u "$SPLUNK_USERNAME:$SPLUNK_PASSWORD" \
+            "https://localhost:8089/services/apps/local/${app_name}?output_mode=json" 2>/dev/null)
+
+        if echo "$CHECK" | grep -q '"name"'; then
+            echo "SKIP (already installed)"
+            ((ADDON_SKIP++))
+            continue
+        fi
+
+        # Install from Splunkbase
+        INSTALL_RESPONSE=$(curl -s -k -w "\n%{http_code}" \
+            -u "$SPLUNK_USERNAME:$SPLUNK_PASSWORD" \
+            -X POST \
+            -d "name=${app_name}" \
+            -d "auth=${SPLUNKBASE_USER}:${SPLUNKBASE_PASS}" \
+            -d "update=true" \
+            "https://localhost:8089/services/apps/local" 2>/dev/null)
+
+        HTTP_CODE=$(echo "$INSTALL_RESPONSE" | tail -1)
+        RESPONSE_BODY=$(echo "$INSTALL_RESPONSE" | sed '$d')
+
+        if [[ "$HTTP_CODE" == "200" ]] || [[ "$HTTP_CODE" == "201" ]]; then
+            echo "OK"
+            ((ADDON_SUCCESS++))
+        elif echo "$RESPONSE_BODY" | grep -qi "already exists"; then
+            echo "SKIP (already installed)"
+            ((ADDON_SKIP++))
+        else
+            ERROR_MSG=$(echo "$RESPONSE_BODY" | grep -oP '"message"\s*:\s*"\K[^"]+' | head -1)
+            echo "FAILED (${ERROR_MSG:-HTTP $HTTP_CODE})"
+            ((ADDON_FAIL++))
+        fi
+
+        sleep 1
+    done
+
+    log "Add-on installation: $ADDON_SUCCESS installed, $ADDON_SKIP skipped, $ADDON_FAIL failed"
+
+    # Restart Splunk to load add-ons
+    log "Restarting Splunk to load add-ons..."
+    $SPLUNK_HOME/bin/splunk restart
+else
+    log "Splunkbase credentials not provided - skipping add-on installation"
+fi
 
 log "Splunk reinstallation and configuration complete."
 
@@ -709,6 +806,9 @@ echo "Splunk backup (hardened): $SPLUNK_BACKUP"
 echo ""
 echo "This box hosts:"
 echo "  - Splunk $SPLUNK_VERSION (fresh install)"
+if [[ -n "${ADDON_SUCCESS:-}" ]] && [[ "$ADDON_SUCCESS" -gt 0 ]]; then
+    echo "  - Splunk Add-ons: $ADDON_SUCCESS installed from Splunkbase"
+fi
 if [[ -n "$DASHBOARD_COUNT" ]] && [[ "$DASHBOARD_COUNT" -gt 0 ]]; then
     echo "  - Splunk Dashboards: $DASHBOARD_COUNT SOC dashboards installed"
 fi
