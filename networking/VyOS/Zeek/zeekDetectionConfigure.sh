@@ -917,11 +917,12 @@ export {
     # any TLS 1.3 server with AES_128_GCM_SHA256). Combine with client JA4 and cert
     # anomaly detection for higher fidelity. Verified via live Sliver/Mythic testing.
     global ja4s_signatures: table[string] of string = {
-        ["t130200_1301_a56c5b993250"] = "Sliver/Mythic C2 Server (TLS 1.3)", # ja4db.com - also matches nginx/CDNs, pair with client JA4
+        # DISABLED - Too broad, matches most TLS 1.3 servers (GitHub, Cloudflare, nginx, etc.)
+        # ["t130200_1301_a56c5b993250"] = "Sliver/Mythic C2 Server (TLS 1.3)", # ja4db.com - also matches nginx/CDNs
+        # ["t130200_1302_a56c5b993250"] = "Go TLS 1.3 Server (AES_256_GCM)", # Verified live - too many false positives
         ["t120300_c030_5e2616a54c73"] = "IcedID C2 Server",                 # ja4db.com
         ["t120300_c030_52d195ce1d92"] = "Cobalt Strike v4.9.1 Server",      # ja4db.com
         ["t120100_003d_bc98f8e001b5"] = "Metasploit Handler Server (TLS 1.2)", # Verified via live testing
-        ["t130200_1302_a56c5b993250"] = "Go TLS 1.3 Server (AES_256_GCM)", # Verified live - Chisel/Go servers
     };
 }
 ZEEKEOF
