@@ -256,50 +256,47 @@ setup_virtualenv() {
     local VENDOR_WHEELS
     VENDOR_WHEELS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/cowrie/wheels"
 
-    # Try PyPI first; fall back to vendored wheels if network is unavailable
-    local PIP_OPTS="--timeout 120"
+    # Quick connectivity check — avoid wasting minutes on pip retries if PyPI is unreachable
     local USE_VENDOR=false
-
-    log_info "Upgrading pip/setuptools/wheel..."
-    if ! sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install $PIP_OPTS --upgrade pip setuptools wheel 2>&1; then
-        if [[ -d "$VENDOR_WHEELS" ]]; then
-            log_warn "PyPI unreachable. Using vendored wheels..."
-            USE_VENDOR=true
-            sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --no-index --find-links "$VENDOR_WHEELS" --upgrade pip setuptools wheel \
-                || log_fatal "Failed to upgrade pip/setuptools/wheel from vendored wheels."
-        else
-            log_fatal "Failed to upgrade pip/setuptools/wheel and no vendored wheels found."
-        fi
+    log_info "Checking PyPI connectivity..."
+    if curl -s --max-time 10 -o /dev/null https://pypi.org/simple/pip/; then
+        log_info "PyPI is reachable."
+    elif [[ -d "$VENDOR_WHEELS" ]]; then
+        log_warn "PyPI unreachable (timeout). Using vendored wheels..."
+        USE_VENDOR=true
+    else
+        log_fatal "PyPI unreachable and no vendored wheels found at ${VENDOR_WHEELS}."
     fi
 
-    log_info "Installing Cowrie requirements (this may take a few minutes)..."
     if [[ "$USE_VENDOR" == "true" ]]; then
+        log_info "Upgrading pip/setuptools/wheel from vendored wheels..."
+        sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --no-index --find-links "$VENDOR_WHEELS" --upgrade pip setuptools wheel \
+            || log_fatal "Failed to upgrade pip/setuptools/wheel from vendored wheels."
+
+        log_info "Installing Cowrie requirements from vendored wheels..."
         sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --no-index --find-links "$VENDOR_WHEELS" -r "${COWRIE_HOME}/requirements.txt" \
             || log_fatal "Failed to install requirements from vendored wheels."
-    else
-        if ! sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install $PIP_OPTS -r "${COWRIE_HOME}/requirements.txt" 2>&1; then
-            if [[ -d "$VENDOR_WHEELS" ]]; then
-                log_warn "PyPI download failed. Falling back to vendored wheels..."
-                sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --no-index --find-links "$VENDOR_WHEELS" -r "${COWRIE_HOME}/requirements.txt" \
-                    || log_fatal "Failed to install requirements from vendored wheels."
-            else
-                log_fatal "Failed to install requirements.txt. Check errors above."
-            fi
-        fi
-    fi
 
-    # Install cowrie itself so twistd can discover the Twisted plugin
-    log_info "Installing Cowrie package..."
-    if [[ "$USE_VENDOR" == "true" ]]; then
-        # Install setuptools-scm (build dependency for cowrie's dynamic versioning)
+        # Install cowrie itself — need setuptools-scm for dynamic versioning
+        log_info "Installing Cowrie package..."
         sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --no-index --find-links "$VENDOR_WHEELS" setuptools-scm \
             || log_fatal "Failed to install setuptools-scm from vendored wheels."
-        # --no-build-isolation: use venv's setuptools/setuptools-scm instead of PyPI
         sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --no-build-isolation --no-deps -e "${COWRIE_HOME}" \
-            || log_fatal "Failed to install Cowrie package. Check errors above."
+            || log_fatal "Failed to install Cowrie package."
     else
+        local PIP_OPTS="--timeout 120"
+
+        log_info "Upgrading pip/setuptools/wheel..."
+        sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install $PIP_OPTS --upgrade pip setuptools wheel \
+            || log_fatal "Failed to upgrade pip/setuptools/wheel."
+
+        log_info "Installing Cowrie requirements (this may take a few minutes)..."
+        sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install $PIP_OPTS -r "${COWRIE_HOME}/requirements.txt" \
+            || log_fatal "Failed to install requirements.txt."
+
+        log_info "Installing Cowrie package..."
         sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install $PIP_OPTS -e "${COWRIE_HOME}" \
-            || log_fatal "Failed to install Cowrie package. Check errors above."
+            || log_fatal "Failed to install Cowrie package."
     fi
 
     # Verify the Twisted plugin is discoverable
