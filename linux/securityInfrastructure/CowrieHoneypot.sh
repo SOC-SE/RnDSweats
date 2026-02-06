@@ -167,6 +167,9 @@ setup_virtualenv() {
     sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --quiet --upgrade pip setuptools wheel 2>/dev/null
     sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --quiet -r "${COWRIE_HOME}/requirements.txt" 2>/dev/null
 
+    # Install cowrie itself so twistd can discover the Twisted plugin
+    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --quiet -e "${COWRIE_HOME}" 2>/dev/null
+
     log_info "Python environment ready."
 }
 
@@ -220,8 +223,8 @@ COWRIECFG
 
     chown "$COWRIE_USER":"$COWRIE_USER" "$COWRIE_CFG"
 
-    # Ensure log and data directories exist
-    mkdir -p "$COWRIE_LOG_DIR" "$COWRIE_DL_DIR" "$COWRIE_TTY_DIR"
+    # Ensure log, data, and runtime directories exist
+    mkdir -p "$COWRIE_LOG_DIR" "$COWRIE_DL_DIR" "$COWRIE_TTY_DIR" "${COWRIE_HOME}/var/run"
     chown -R "$COWRIE_USER":"$COWRIE_USER" "${COWRIE_HOME}/var"
 
     # Accept any username/password — capture everything
@@ -248,8 +251,9 @@ Wants=network-online.target
 Type=simple
 User=${COWRIE_USER}
 Group=${COWRIE_USER}
+Environment=COWRIE_STDOUT=yes
 WorkingDirectory=${COWRIE_HOME}
-ExecStart=${COWRIE_VENV}/bin/python3 ${COWRIE_HOME}/src/cowrie/__main__.py start --nodaemon
+ExecStart=${COWRIE_VENV}/bin/twistd --nodaemon --umask=0022 --pidfile= cowrie
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -259,7 +263,6 @@ StandardError=journal
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
 ReadWritePaths=${COWRIE_HOME}/var
 
 [Install]
@@ -271,30 +274,42 @@ UNIT
 }
 
 setup_firewall() {
-    log_info "Configuring iptables rules..."
+    log_info "Configuring firewall rules..."
 
-    # Allow inbound SSH (port 22) — Cowrie will receive this via NAT redirect
-    if ! iptables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null; then
-        iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-        log_info "Allowed inbound TCP/22."
+    if ! command -v iptables &>/dev/null; then
+        log_warn "iptables not found. Skipping firewall configuration."
+        log_warn "Cowrie listens on port ${LISTEN_SSH_PORT} — ensure your firewall allows it."
+        return
     fi
 
-    # Allow Cowrie's listen port directly (for local testing / direct connections)
+    # Allow Cowrie's listen port directly
     if ! iptables -C INPUT -p tcp --dport "$LISTEN_SSH_PORT" -j ACCEPT 2>/dev/null; then
         iptables -A INPUT -p tcp --dport "$LISTEN_SSH_PORT" -j ACCEPT
         log_info "Allowed inbound TCP/${LISTEN_SSH_PORT}."
-    fi
-
-    # NAT redirect: external port 22 → Cowrie's listen port
-    if ! iptables -t nat -C PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT" 2>/dev/null; then
-        iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT"
-        log_info "NAT redirect: TCP/22 -> TCP/${LISTEN_SSH_PORT}."
     fi
 
     if [[ "$LISTEN_ENABLED_TELNET" == "true" ]]; then
         if ! iptables -C INPUT -p tcp --dport "$LISTEN_TELNET_PORT" -j ACCEPT 2>/dev/null; then
             iptables -A INPUT -p tcp --dport "$LISTEN_TELNET_PORT" -j ACCEPT
             log_info "Allowed inbound TCP/${LISTEN_TELNET_PORT}."
+        fi
+    fi
+
+    # NAT redirect: port 22 → Cowrie's listen port (ONLY external traffic)
+    # Skip if sshd is still on port 22 — admin must move sshd first
+    if ss -tlnp 2>/dev/null | grep -q ':22 .*sshd'; then
+        log_warn "sshd is still listening on port 22."
+        log_warn "To redirect port 22 to Cowrie, first move sshd to another port,"
+        log_warn "then run:  iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port ${LISTEN_SSH_PORT}"
+    else
+        # Safe to redirect — no sshd on 22
+        if ! iptables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null; then
+            iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+            log_info "Allowed inbound TCP/22."
+        fi
+        if ! iptables -t nat -C PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT" 2>/dev/null; then
+            iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT"
+            log_info "NAT redirect: TCP/22 -> TCP/${LISTEN_SSH_PORT}."
         fi
     fi
 
@@ -309,15 +324,15 @@ setup_firewall() {
         log_warn "Could not persist iptables rules. Save manually or install iptables-persistent."
     fi
 
-    log_info "iptables rules configured."
+    log_info "Firewall rules configured."
 }
 
 start_cowrie() {
     systemctl enable cowrie >/dev/null 2>&1
     systemctl start cowrie
 
-    # Wait briefly and verify
-    sleep 3
+    # Wait for Twisted reactor to start
+    sleep 5
     if systemctl is-active --quiet cowrie; then
         log_info "Cowrie is running."
     else
@@ -350,7 +365,11 @@ do_install() {
     echo -e " Downloads:       ${CYAN}${COWRIE_DL_DIR}/${NC}"
     echo -e " Sessions:        ${CYAN}${COWRIE_TTY_DIR}/${NC}"
     echo ""
-    echo -e " ${YELLOW}Port 22 is NAT-redirected to Cowrie automatically.${NC}"
+    if iptables -t nat -C PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT" 2>/dev/null; then
+        echo -e " ${YELLOW}Port 22 is NAT-redirected to Cowrie.${NC}"
+    else
+        echo -e " ${YELLOW}Port 22 NOT redirected (sshd still on 22). Move sshd, then redirect manually.${NC}"
+    fi
     echo ""
 }
 
