@@ -491,6 +491,10 @@ FWEOF
     echo "" >> "$fw_script"
     echo "exit 0" >> "$fw_script"
     chmod 755 "$fw_script"
+    # Fix SELinux context so systemd can exec the script (Fedora/Oracle/RHEL)
+    if command -v restorecon &>/dev/null; then
+        restorecon "$fw_script" 2>/dev/null || true
+    fi
     log_info "Firewall helper script written to ${fw_script}."
 
     # Persist iptables rules across reboots
