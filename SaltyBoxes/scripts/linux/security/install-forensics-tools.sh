@@ -283,7 +283,14 @@ if [[ ! -f "$DWARF2JSON" ]]; then
             chmod +x "$DWARF2JSON"
             log "dwarf2json installed to $DWARF2JSON"
         else
-            warn "dwarf2json download failed"
+            local dwarf_vendor="$SCRIPT_DIR/../../../../vendor/dwarf2json/dwarf2json-linux-amd64"
+            if [[ -f "$dwarf_vendor" ]]; then
+                cp "$dwarf_vendor" "$DWARF2JSON"
+                chmod +x "$DWARF2JSON"
+                log "dwarf2json installed from vendored local copy"
+            else
+                warn "dwarf2json download failed and no vendor copy found"
+            fi
         fi
     fi
 else
@@ -445,7 +452,7 @@ log "Installing AVML memory acquisition tool..."
 
 if [[ ! -f /usr/local/bin/avml ]]; then
     AVML_URL="https://github.com/microsoft/avml/releases/latest/download/avml"
-    AVML_VENDOR="$SCRIPT_DIR/../../vendor/avml/avml"
+    AVML_VENDOR="$SCRIPT_DIR/../../../../vendor/avml/avml"
     AVML_TMP="$(mktemp /tmp/avml.XXXXXXXXXX)"
 
     # Check architecture
@@ -476,15 +483,23 @@ section "UAC"
 log "Installing UAC (Unix-like Artifacts Collector)..."
 
 if [[ ! -d /opt/uac ]]; then
+    local uac_installed=false
     if command_exists git; then
         if git clone --depth 1 https://github.com/tclahr/uac /opt/uac 2>/dev/null; then
             chmod +x /opt/uac/uac 2>/dev/null || true
             log "UAC installed to /opt/uac"
-        else
-            warn "UAC clone failed (no network?)"
+            uac_installed=true
         fi
-    else
-        warn "git not available, skipping UAC"
+    fi
+    if [[ "$uac_installed" == "false" ]]; then
+        local uac_vendor="$SCRIPT_DIR/../../../../vendor/uac/source"
+        if [[ -d "$uac_vendor" ]]; then
+            cp -r "$uac_vendor" /opt/uac
+            chmod +x /opt/uac/uac 2>/dev/null || true
+            log "UAC installed from vendored local copy"
+        else
+            warn "UAC clone failed and no vendor copy found"
+        fi
     fi
 else
     log "UAC already installed."
@@ -503,7 +518,16 @@ if command_exists yara; then
         mkdir -p "$YARA_DIR"
         rm -rf "$CLONE_DIR"
 
+        local yara_vendor="$SCRIPT_DIR/../../../../vendor/yara-rules/source"
+        local yara_cloned=false
         if command_exists git && git clone --depth 1 https://github.com/neo23x0/signature-base.git "$CLONE_DIR" 2>/dev/null; then
+            yara_cloned=true
+        elif [[ -d "$yara_vendor" ]]; then
+            cp -r "$yara_vendor" "$CLONE_DIR"
+            log "Using vendored YARA rules"
+            yara_cloned=true
+        fi
+        if [[ "$yara_cloned" == "true" ]]; then
             # Remove problematic rules that break compilation
             for pattern in "*3cx*" "*screenconnect*" "*vcruntime*" "*base64_pe*" "*poisonivy*" "*Linux_Sudops*" \
                 "*gen_susp_obfuscation.yar*" "*apt_barracuda_esg_unc4841_jun23.yar*" "*apt_cobaltstrike.yar*" \
@@ -529,7 +553,7 @@ if command_exists yara; then
                 warn "YARA rules have compilation warnings (partial rules still usable)"
             fi
         else
-            warn "YARA rules download failed (no git or no network)"
+            warn "YARA rules download failed and no vendor copy found"
         fi
     else
         log "YARA rules already present"

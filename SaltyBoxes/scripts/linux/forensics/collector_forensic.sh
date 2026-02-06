@@ -399,8 +399,18 @@ install_forensic_tools() {
             log_info "  [OK] avml"
             ((installed_count++))
         else
-            log_warn "  [FAIL] avml (download failed or timed out)"
-            ((failed_count++))
+            # Fallback to vendored copy
+            local avml_vendor
+            avml_vendor="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../vendor/avml/avml"
+            if [[ -f "$avml_vendor" ]]; then
+                cp "$avml_vendor" /usr/local/bin/avml
+                chmod +x /usr/local/bin/avml
+                log_info "  [OK] avml (from vendor)"
+                ((installed_count++))
+            else
+                log_warn "  [FAIL] avml (download failed and no vendor copy found)"
+                ((failed_count++))
+            fi
         fi
     fi
 

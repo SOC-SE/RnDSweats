@@ -203,7 +203,7 @@ log "Installing AVML memory acquisition tool..."
 
 if [[ ! -f /usr/local/bin/avml ]]; then
     AVML_URL="https://github.com/microsoft/avml/releases/latest/download/avml"
-    AVML_VENDOR="$SCRIPT_DIR/../../vendor/avml/avml"
+    AVML_VENDOR="$SCRIPT_DIR/../../../../vendor/avml/avml"
     AVML_TMP="$(mktemp /tmp/avml.XXXXXXXXXX)"
     trap 'rm -f "$AVML_TMP"' EXIT
     if wget -q -O "$AVML_TMP" "$AVML_URL" 2>/dev/null; then

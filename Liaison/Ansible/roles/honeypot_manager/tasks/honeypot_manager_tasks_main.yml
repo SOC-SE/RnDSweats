@@ -14,20 +14,33 @@
     path: /usr/local/bin/endlessh
   register: endlessh_installed
 
-- name: Clone Endlessh repo
-  git:
-    repo: https://github.com/skeeto/endlessh.git
-    dest: /tmp/endlessh
-    version: master
-  when:
-    - honeypot_action | default('install') == 'install'
-    - not endlessh_installed.stat.exists
+- name: Clone and build Endlessh
+  block:
+    - name: Clone Endlessh repo
+      git:
+        repo: https://github.com/skeeto/endlessh.git
+        dest: /tmp/endlessh
+        version: master
 
-- name: Build Endlessh
-  shell: make && make install
-  args:
-    chdir: /tmp/endlessh
-    creates: /usr/local/bin/endlessh
+    - name: Build Endlessh
+      shell: make && make install
+      args:
+        chdir: /tmp/endlessh
+        creates: /usr/local/bin/endlessh
+
+  rescue:
+    - name: Copy Endlessh from vendor (fallback)
+      copy:
+        src: "{{ playbook_dir }}/../../../vendor/endlessh/source/"
+        dest: /tmp/endlessh/
+        mode: preserve
+
+    - name: Build Endlessh from vendor source
+      shell: make && make install
+      args:
+        chdir: /tmp/endlessh
+        creates: /usr/local/bin/endlessh
+
   when:
     - honeypot_action | default('install') == 'install'
     - not endlessh_installed.stat.exists

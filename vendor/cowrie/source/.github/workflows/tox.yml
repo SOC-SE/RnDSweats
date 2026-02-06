@@ -1,0 +1,57 @@
+---
+name: Tox
+permissions:
+  contents: read
+
+on:  # yamllint disable-line rule:truthy
+  push:
+
+  pull_request:
+
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: true
+        default: 'warning'
+      tags:
+        description: 'Tox'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t", "pypy-3.10", "pypy-3.11"]
+        experimental: [false]
+        include:
+          - python-version: "3.15"
+            experimental: true
+          - python-version: "3.15t"
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: ${{ matrix.experimental }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip -q install --upgrade pip setuptools setuptools-scm wheel
+          python -m pip -q install -e '.[dev]'
+          python -m pip -q install tox-gh-actions
+
+      - name: Generate version file
+        run: python -m setuptools_scm --force-write-version-files
+
+      - name: Test with tox
+        run: tox

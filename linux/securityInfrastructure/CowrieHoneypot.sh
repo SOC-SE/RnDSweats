@@ -134,16 +134,26 @@ clone_cowrie() {
     # Clone into a temp dir, then move contents (git clone needs empty dir)
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    git clone --quiet --depth 1 "$COWRIE_REPO" "$tmp_dir/cowrie"
-
-    # Verify clone succeeded
-    if [[ ! -d "$tmp_dir/cowrie/src" ]]; then
+    if ! git clone --quiet --depth 1 "$COWRIE_REPO" "$tmp_dir/cowrie" 2>/dev/null; then
         rm -rf "$tmp_dir"
-        log_fatal "Failed to clone Cowrie repository. Check network connectivity."
+        # Fallback to vendored copy
+        local vendor_src
+        vendor_src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/cowrie/source"
+        if [[ -d "$vendor_src/src" ]]; then
+            log_info "Git clone failed. Using vendored local copy..."
+            cp -a "$vendor_src/." "$COWRIE_HOME/"
+        else
+            log_fatal "Failed to clone Cowrie repository and no vendor copy found."
+        fi
+    else
+        # Verify clone succeeded
+        if [[ ! -d "$tmp_dir/cowrie/src" ]]; then
+            rm -rf "$tmp_dir"
+            log_fatal "Failed to clone Cowrie repository. Check network connectivity."
+        fi
+        cp -a "$tmp_dir/cowrie/." "$COWRIE_HOME/"
+        rm -rf "$tmp_dir"
     fi
-
-    cp -a "$tmp_dir/cowrie/." "$COWRIE_HOME/"
-    rm -rf "$tmp_dir"
     chown -R "$COWRIE_USER":"$COWRIE_USER" "$COWRIE_HOME"
     log_info "Cowrie cloned to ${COWRIE_HOME}."
 }

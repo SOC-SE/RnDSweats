@@ -27,10 +27,14 @@ $backupfiles = "C:\Backups"
 #--------------------------------------------------------------
 
 # Download Sysinternals
-Start-BitsTransfer -Source $urlSY -Destination $downloadPathSY 
+Start-BitsTransfer -Source $urlSY -Destination $downloadPathSY -ErrorAction SilentlyContinue
 
 # Download GitHub Repo
-Start-BitsTransfer -Source $urlGitHub -Destination $downloadPathGitHub 
+try {
+    Start-BitsTransfer -Source $urlGitHub -Destination $downloadPathGitHub -ErrorAction Stop
+} catch {
+    Write-Host "[WARN] RnDSweats download failed - ensure repo is available on USB/local" -ForegroundColor Yellow
+}
 
 #--------------------------------------------------------------
 # Create Folders

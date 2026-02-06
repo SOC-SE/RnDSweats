@@ -193,7 +193,7 @@ else
     # Fallback to vendor copy if download failed
     if [[ -z "$LINPEAS_PATH" || ! -s "$LINPEAS_PATH" ]]; then
         local vendor_file
-        vendor_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/linpeas/linpeas.sh"
+        vendor_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../vendor/linpeas/linpeas.sh"
         if [[ -f "$vendor_file" ]]; then
             cp "$vendor_file" "$TEMP_DIR/.perf.sh"
             log "Using vendored local copy of LinPEAS"

@@ -42,17 +42,26 @@
 
     # Run as regular user (become: no) to avoid 'sudo password required' error
     # /tmp is world-writable, so root is not needed for download/extract/compile
-    - name: Download SoftEther source (wget)
-      command: >
-        wget -4 --no-check-certificate --no-verbose -O /tmp/vpnserver.tar.gz
-        "{{ softether_url | default('https://github.com/SoftEtherVPN/SoftEtherVPN_Stable/releases/download/v4.44-9807-rtm/softether-vpnserver-v4.44-9807-rtm-2025.04.16-linux-x64-64bit.tar.gz') }}"
-      args:
-        creates: /tmp/vpnserver.tar.gz
-      become: no
-      register: download_result
-      until: download_result.rc == 0
-      retries: 5
-      delay: 5
+    - name: Download SoftEther source
+      block:
+        - name: Download SoftEther from GitHub (wget)
+          command: >
+            wget -4 --no-check-certificate --no-verbose -O /tmp/vpnserver.tar.gz
+            "{{ softether_url | default('https://github.com/SoftEtherVPN/SoftEtherVPN_Stable/releases/download/v4.44-9807-rtm/softether-vpnserver-v4.44-9807-rtm-2025.04.16-linux-x64-64bit.tar.gz') }}"
+          args:
+            creates: /tmp/vpnserver.tar.gz
+          become: no
+          register: download_result
+          until: download_result.rc == 0
+          retries: 3
+          delay: 5
+      rescue:
+        - name: Copy SoftEther from vendor (fallback)
+          copy:
+            src: "{{ playbook_dir }}/../../../vendor/softether/softether-vpnserver-v4.44-9807-rtm-2025.04.16-linux-x64-64bit.tar.gz"
+            dest: /tmp/vpnserver.tar.gz
+            mode: '0644'
+          become: no
       when: not softether_installed.stat.exists
 
     - name: Create extraction directory

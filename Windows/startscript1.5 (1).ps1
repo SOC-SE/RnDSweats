@@ -154,13 +154,28 @@ function Invoke-Downloads {
 
     # Download Sysmon Config
     Write-Host "Downloading Sysmon configuration..."
-    Invoke-WebRequest -Uri $sysmonConfigUrl -OutFile $sysmonConfigPath -ErrorAction SilentlyContinue
+    try {
+        Invoke-WebRequest -Uri $sysmonConfigUrl -OutFile $sysmonConfigPath -ErrorAction Stop
+    } catch {
+        Write-Host "[!] Sysmon config download failed, trying vendor fallback..." -ForegroundColor Yellow
+        $vendorConfig = Join-Path $PSScriptRoot "..\vendor\sysmon-config\sysmonconfig-export.xml"
+        if (Test-Path $vendorConfig) {
+            Copy-Item $vendorConfig $sysmonConfigPath
+            Write-Host "[OK] Sysmon config loaded from vendor" -ForegroundColor Green
+        } else {
+            Write-Host "[WARN] Sysmon config not available (no download, no vendor)" -ForegroundColor Red
+        }
+    }
 
     # Download GitHub Repo
     Write-Host "Downloading GitHub repository..."
-    Start-BitsTransfer -Source $urlGitHub -Destination $downloadPathGitHub -ErrorAction SilentlyContinue
-    if (Test-Path $downloadPathGitHub) {
-        Expand-Archive -Path $downloadPathGitHub -DestinationPath $extractPathGitHub -Force
+    try {
+        Start-BitsTransfer -Source $urlGitHub -Destination $downloadPathGitHub -ErrorAction Stop
+        if (Test-Path $downloadPathGitHub) {
+            Expand-Archive -Path $downloadPathGitHub -DestinationPath $extractPathGitHub -Force
+        }
+    } catch {
+        Write-Host "[WARN] RnDSweats download failed - ensure repo is available on USB/local" -ForegroundColor Yellow
     }
 
     # Install Sysmon (if not already installed)
