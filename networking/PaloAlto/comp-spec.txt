@@ -8,7 +8,7 @@ set address rFedora-Webmail ip-netmask 172.20.242.101
 set address rServer19-Web ip-netmask 172.20.240.101
 set address rServer22-FTP ip-netmask 172.20.240.104
 set address rWin11-Wkst ip-netmask 172.20.240.100
-set service splunk-required protocol tcp port 22,9997,1514,1515,4505,4506,3000,8000,514,5140,5380
+set service splunk-required protocol tcp port 22,9997,1514,1515,4505,4506,3000,8000,514,5140,5380,443
 set service splunk-required protocol tcp override no
 set service ad-required-tcp protocol tcp port 53,88,135,389,445,464
 set service ad-required-tcp protocol tcp override no 
@@ -57,7 +57,7 @@ set rulebase security rules lan-to-ad action allow
 set rulebase security rules Ecomm-In to Internal
 set rulebase security rules Ecomm-In from any
 set rulebase security rules Ecomm-In source any
-set rulebase security rules Ecomm-In destination [ rUbuntu-Ecomm rNAT-Ubuntu-Ecomm ]
+set rulebase security rules Ecomm-In destination [ rUbuntu-Ecomm ]
 set rulebase security rules Ecomm-In source-user any
 set rulebase security rules Ecomm-In category any
 set rulebase security rules Ecomm-In application any
@@ -68,7 +68,7 @@ set rulebase security rules Ecomm-In action allow
 set rulebase security rules Ecomm-In to Internal
 set rulebase security rules Ecomm-In from any
 set rulebase security rules Ecomm-In source any
-set rulebase security rules Ecomm-In destination [ rFedora-Webmail rNAT-Fedora-Webmail ]
+set rulebase security rules Ecomm-In destination [ rFedora-Webmail ]
 set rulebase security rules Ecomm-In source-user any
 set rulebase security rules Ecomm-In category any
 set rulebase security rules Ecomm-In application any
