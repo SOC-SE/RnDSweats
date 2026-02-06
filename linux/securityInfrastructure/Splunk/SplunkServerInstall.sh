@@ -183,6 +183,27 @@ if [[ -d "$BACKUP_DIR" ]] && [[ "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]]; then
     chown -R splunk:splunk "$SPLUNK_HOME/etc/licenses"
 fi
 
+# --- Install add-ons (before first start) ---
+ADDONS_DIR=""
+for addon_path in "$SCRIPT_DIR/Addons" "/tmp/Addons"; do
+    if [[ -d "$addon_path" ]]; then
+        ADDONS_DIR="$addon_path"
+        break
+    fi
+done
+
+if [[ -n "$ADDONS_DIR" ]]; then
+    echo "Installing add-ons from $ADDONS_DIR..."
+    for addon in "$ADDONS_DIR"/*.tgz; do
+        [[ -f "$addon" ]] || continue
+        tar -xzf "$addon" -C "$SPLUNK_HOME/etc/apps/"
+        echo "  Installed $(basename "$addon")"
+    done
+    chown -R splunk:splunk "$SPLUNK_HOME/etc/apps/"
+else
+    echo "[INFO] No Addons directory found, skipping add-on installation."
+fi
+
 # --- Start Splunk ---
 echo "Starting Splunk and accepting license..."
 $SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
