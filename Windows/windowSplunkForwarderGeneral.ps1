@@ -4,14 +4,18 @@ param (
 
     # Optional: Specify the hostname to be used by Splunk.
     # Defaults to the machine's current hostname.
-    [string]$SplunkHostname = $env:COMPUTERNAME
+    [string]$SplunkHostname = $env:COMPUTERNAME,
+
+    # Optional: Specify the admin password for the Splunk forwarder.
+    # Required for Splunk 7.1+ silent installs.
+    [string]$SplunkPassword = "changeme"
 )
 
 # PowerShell script to install and configure Splunk Universal Forwarder on Windows machines
-# This was originally written in Bash, then translated to Powershell. An AI was (obviously) used heavily in this process. I only know a small, salty lick of  
+# This was originally written in Bash, then translated to Powershell. An AI was (obviously) used heavily in this process. I only know a small, salty lick of
 # PowerShell, this is 70% AI, 25% forums, and 5% me pushing buttons until it worked.
 #
-# You can be mean to this one. I know it's rough. 
+# You can be mean to this one. I know it's rough.
 #
 #  Currently set to v10.0.1. I'm not sure if the link will be valid during the entire competition season
 # with how much is still left to go. If the download gives you any trouble, create a Splunk account, go to the universal forwarder downloads, pick the one you want,
@@ -19,11 +23,14 @@ param (
 #
 # Samuel Brucker 2024 - 2026
 
+$ErrorActionPreference = "Stop"
+
 # Define variables
 $SPLUNK_VERSION = "10.0.2"
 $SPLUNK_BUILD = "e2d18b4767e9"
-$SPLUNK_MSI = "splunkforwarder-${SPLUNK_VERSION}-${SPLUNK_BUILD}-windows-x64.msi"
-$SPLUNK_DOWNLOAD_URL = "https://download.splunk.com/products/universalforwarder/releases/${SPLUNK_VERSION}/windows/${SPLUNK_MSI}"
+$SPLUNK_MSI_NAME = "splunkforwarder-${SPLUNK_VERSION}-${SPLUNK_BUILD}-windows-x64.msi"
+$SPLUNK_DOWNLOAD_URL = "https://download.splunk.com/products/universalforwarder/releases/${SPLUNK_VERSION}/windows/${SPLUNK_MSI_NAME}"
+$SPLUNK_MSI_PATH = Join-Path $env:TEMP $SPLUNK_MSI_NAME
 $INSTALL_DIR = "C:\Program Files\SplunkUniversalForwarder"
 # $INDEXER_IP is now defined in the param() block at the top
 $RECEIVER_PORT = "9997"
@@ -32,12 +39,35 @@ $RECEIVER_PORT = "9997"
 Write-Host "Downloading Splunk Universal Forwarder MSI..."
 #take away the progress bar, but drastically speeds up downloads on older powershell versions
 $ProgressPreference = 'SilentlyContinue'
-Invoke-WebRequest -Uri $SPLUNK_DOWNLOAD_URL -OutFile $SPLUNK_MSI
+try {
+    Invoke-WebRequest -Uri $SPLUNK_DOWNLOAD_URL -OutFile $SPLUNK_MSI_PATH
+} catch {
+    Write-Host "[ERROR] Failed to download Splunk UF: $_" -ForegroundColor Red
+    exit 1
+}
+
+if (-not (Test-Path $SPLUNK_MSI_PATH)) {
+    Write-Host "[ERROR] MSI not found at $SPLUNK_MSI_PATH after download" -ForegroundColor Red
+    exit 1
+}
 
 # Install Splunk Universal Forwarder
 Write-Host "Installing Splunk Universal Forwarder..."
 # The $INDEXER_IP variable will be pulled from the parameters
-Start-Process -FilePath "msiexec.exe" -ArgumentList "/i $SPLUNK_MSI AGREETOLICENSE=Yes RECEIVING_INDEXER=${INDEXER_IP}:${RECEIVER_PORT} /quiet" -Wait
+$msiArgs = "/i `"$SPLUNK_MSI_PATH`" AGREETOLICENSE=Yes SPLUNKPASSWORD=$SplunkPassword RECEIVING_INDEXER=${INDEXER_IP}:${RECEIVER_PORT} /quiet"
+$install = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
+if ($install.ExitCode -ne 0) {
+    Write-Host "[ERROR] MSI install failed with exit code $($install.ExitCode)" -ForegroundColor Red
+    exit 1
+}
+
+# Verify install directory exists
+if (-not (Test-Path "$INSTALL_DIR\bin\splunk.exe")) {
+    Write-Host "[ERROR] Splunk UF not found at $INSTALL_DIR after install" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "[OK] Splunk Universal Forwarder installed" -ForegroundColor Green
 
 # Configure inputs.conf for monitoring
 $inputsConfPath = "$INSTALL_DIR\etc\system\local\inputs.conf"
@@ -134,13 +164,21 @@ hostnameOption = shortname
 "@ | Out-File -FilePath $serverConfPath -Encoding ASCII
 
 # Restart Splunk Universal Forwarder service to load new inputs.conf
-# The MSI installer already starts the service, so "start" is a no-op.
-# We need "restart" to pick up the inputs.conf and server.conf we just wrote.
+# The MSI installer already starts the service and sets it to auto-start.
+# We need a restart to pick up the inputs.conf and server.conf we just wrote.
 Write-Host "Restarting Splunk Universal Forwarder service to load configuration..."
-Start-Process -FilePath "$INSTALL_DIR\bin\splunk.exe" -ArgumentList "restart" -Wait
+Restart-Service SplunkForwarder -Force
 
-# Set Splunk Universal Forwarder to start on boot
-Write-Host "Setting Splunk Universal Forwarder to start on boot..."
-Start-Process -FilePath "$INSTALL_DIR\bin\splunk.exe" -ArgumentList "enable boot-start" -Wait
+# Verify the service is running
+Start-Sleep -Seconds 5
+$svc = Get-Service SplunkForwarder -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -eq "Running") {
+    Write-Host "[OK] SplunkForwarder service is running" -ForegroundColor Green
+} else {
+    Write-Host "[WARN] SplunkForwarder service is not running — check Event Viewer" -ForegroundColor Yellow
+}
+
+# Clean up downloaded MSI
+Remove-Item $SPLUNK_MSI_PATH -ErrorAction SilentlyContinue
 
 Write-Host "Splunk Universal Forwarder installation and configuration complete!"
