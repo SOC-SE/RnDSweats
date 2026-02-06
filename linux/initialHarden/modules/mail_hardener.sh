@@ -465,12 +465,25 @@ rollback_initial() {
         fi
     done
     
-    # Extract backup to root directory (this will overwrite existing files)
+    # Remove existing configuration directories to ensure clean restoration
+    info "Removing current hardened configurations..."
+    [[ -d /etc/postfix ]] && rm -rf /etc/postfix && ok "Removed /etc/postfix"
+    [[ -d /etc/dovecot ]] && rm -rf /etc/dovecot && ok "Removed /etc/dovecot"
+    [[ -d /etc/roundcubemail ]] && rm -rf /etc/roundcubemail && ok "Removed /etc/roundcubemail"
+    [[ -f /etc/httpd/conf.d/roundcubemail.conf ]] && rm -f /etc/httpd/conf.d/roundcubemail.conf && ok "Removed /etc/httpd/conf.d/roundcubemail.conf"
+    
+    # Extract backup to root directory (this will restore the original files)
     info "Restoring original configuration files..."
     tar -xzpf "$INITIAL_BACKUP_FILE" -C / 2>/dev/null && ok "Configuration files restored" || { 
         error "Rollback failed - could not extract backup"
         exit 1
     }
+    
+    # Fix ownership and permissions after restoration
+    info "Fixing ownership and permissions..."
+    [[ -d /etc/postfix ]] && chown -R root:root /etc/postfix && chmod -R u=rwX,go=rX /etc/postfix && ok "Fixed /etc/postfix permissions"
+    [[ -d /etc/dovecot ]] && chown -R root:root /etc/dovecot && chmod -R u=rwX,go=rX /etc/dovecot && ok "Fixed /etc/dovecot permissions"
+    [[ -d /etc/roundcubemail ]] && chown -R root:root /etc/roundcubemail && ok "Fixed /etc/roundcubemail permissions"
 
     # Restart services
     info "Restarting mail services..."
