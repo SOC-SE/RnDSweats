@@ -442,26 +442,62 @@ fi
 # Deploy Splunk dashboards if they exist
 DASHBOARDS_DIR=""
 DASHBOARD_COUNT=0
+log "Searching for dashboards (REPO_DIR=$REPO_DIR)..."
 for dash_path in "$REPO_DIR/linux/securityInfrastructure/Splunk/Dashboards" "$TOOLS/Splunk/Dashboards" "$SCRIPT_DIR/Dashboards" "/tmp/Splunk/Dashboards"; do
+    log "  Checking: $dash_path"
     if [[ -d "$dash_path" ]]; then
         DASHBOARDS_DIR="$dash_path"
+        log "  Found dashboard directory: $DASHBOARDS_DIR"
         break
     fi
 done
 
-# Always create views directory (needed for manual imports too)
-mkdir -p "$SPLUNK_HOME/etc/apps/search/local/data/ui/views"
-chown -R splunk:splunk "$SPLUNK_HOME/etc/apps/search/local/data/ui"
+# Create views directory structure
+VIEWS_DIR="$SPLUNK_HOME/etc/apps/search/local/data/ui/views"
+log "Creating views directory: $VIEWS_DIR"
+if ! mkdir -p "$VIEWS_DIR"; then
+    error "Failed to create views directory: $VIEWS_DIR"
+else
+    log "Views directory created successfully"
+fi
+chown -R splunk:splunk "$SPLUNK_HOME/etc/apps/search/local/data/ui" 2>/dev/null || true
 
 if [[ -n "$DASHBOARDS_DIR" ]] && [[ -n "$(ls -A "$DASHBOARDS_DIR"/*.xml 2>/dev/null)" ]]; then
     log "Installing Splunk dashboards from $DASHBOARDS_DIR..."
-    cp "$DASHBOARDS_DIR"/*.xml "$SPLUNK_HOME/etc/apps/search/local/data/ui/views/"
-    chown splunk:splunk "$SPLUNK_HOME/etc/apps/search/local/data/ui/views"/*.xml
-    DASHBOARD_COUNT=$(ls "$DASHBOARDS_DIR"/*.xml 2>/dev/null | wc -l)
-    log "Dashboards installed: $DASHBOARD_COUNT files"
+    DASHBOARD_COUNT=$(ls -1 "$DASHBOARDS_DIR"/*.xml 2>/dev/null | wc -l)
+
+    # Copy each dashboard individually with error checking
+    INSTALLED=0
+    for xml_file in "$DASHBOARDS_DIR"/*.xml; do
+        if [[ -f "$xml_file" ]]; then
+            if cp "$xml_file" "$VIEWS_DIR/"; then
+                ((INSTALLED++))
+            else
+                error "Failed to copy: $xml_file"
+            fi
+        fi
+    done
+
+    # Set ownership
+    chown -R splunk:splunk "$VIEWS_DIR" 2>/dev/null || warn "Could not chown views directory"
+
+    # Verify installation
+    VERIFIED=$(ls -1 "$VIEWS_DIR"/*.xml 2>/dev/null | wc -l)
+    if [[ "$VERIFIED" -eq "$DASHBOARD_COUNT" ]]; then
+        log "Dashboards installed successfully: $VERIFIED files"
+    else
+        error "Dashboard installation incomplete: $VERIFIED/$DASHBOARD_COUNT files copied"
+        log "Source: $DASHBOARDS_DIR"
+        log "Destination: $VIEWS_DIR"
+        ls -la "$VIEWS_DIR" 2>&1 | tee -a "$LOG_FILE"
+    fi
 else
-    warn "Dashboard directory not found or empty. Dashboards can be imported manually via Splunk Web UI."
-    log "Views directory created at: $SPLUNK_HOME/etc/apps/search/local/data/ui/views/"
+    warn "Dashboard directory not found or empty. Checked paths:"
+    warn "  - $REPO_DIR/linux/securityInfrastructure/Splunk/Dashboards"
+    warn "  - $TOOLS/Splunk/Dashboards"
+    warn "  - $SCRIPT_DIR/Dashboards"
+    warn "  - /tmp/Splunk/Dashboards"
+    log "Dashboards can be imported manually via Splunk Web UI."
 fi
 
 # Restart Splunk with new config
