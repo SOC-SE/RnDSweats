@@ -14,12 +14,13 @@
 # USAGE (run as root):
 #   ./CowrieHoneypot.sh install       Install and start Cowrie
 #   ./CowrieHoneypot.sh uninstall     Stop and remove Cowrie
+#   ./CowrieHoneypot.sh start         Start Cowrie service
+#   ./CowrieHoneypot.sh stop          Stop Cowrie service
 #   ./CowrieHoneypot.sh status        Show service status and recent activity
 #   ./CowrieHoneypot.sh logs          Tail live JSON logs
 #   ./CowrieHoneypot.sh sessions      Show recent captured sessions
 #   ./CowrieHoneypot.sh creds         Show captured credentials
 #   ./CowrieHoneypot.sh downloads     List captured files/malware
-#   ./CowrieHoneypot.sh splunk        Configure Splunk forwarder for Cowrie logs
 #   ./CowrieHoneypot.sh               Interactive menu
 #
 # ENVIRONMENT VARIABLES:
@@ -45,6 +46,9 @@ LISTEN_ENABLED_TELNET="false"
 
 # Hostname the fake shell presents to attackers (defaults to actual hostname)
 FAKE_HOSTNAME="${COWRIE_HOSTNAME:-$(hostname -s)}"
+
+# Minimum Python version Cowrie requires (major.minor)
+COWRIE_MIN_PYTHON="3.10"
 
 # ── Colors ──────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'
@@ -82,20 +86,93 @@ detect_pkg_manager() {
     fi
 }
 
+# Compare two version strings: returns 0 if $1 >= $2
+version_gte() {
+    local v1_major v1_minor v2_major v2_minor
+    v1_major="${1%%.*}"; v1_minor="${1#*.}"
+    v2_major="${2%%.*}"; v2_minor="${2#*.}"
+    if (( v1_major > v2_major )); then return 0; fi
+    if (( v1_major == v2_major && v1_minor >= v2_minor )); then return 0; fi
+    return 1
+}
+
+# Find a Python >= COWRIE_MIN_PYTHON, installing one if necessary.
+# Sets PYTHON_BIN to the usable interpreter path.
+find_or_install_python() {
+    # Check system python3 first
+    if command -v python3 &>/dev/null; then
+        local sys_ver
+        sys_ver=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+        if version_gte "$sys_ver" "$COWRIE_MIN_PYTHON"; then
+            PYTHON_BIN="python3"
+            log_info "System Python ${sys_ver} meets requirement (>= ${COWRIE_MIN_PYTHON})."
+            return
+        fi
+        log_warn "System Python is ${sys_ver}, but Cowrie requires >= ${COWRIE_MIN_PYTHON}."
+    fi
+
+    # Check for existing alternate installs (python3.12, python3.11, python3.10)
+    local candidate
+    for candidate in python3.12 python3.11 python3.10; do
+        if command -v "$candidate" &>/dev/null; then
+            local cand_ver
+            cand_ver=$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+            if version_gte "$cand_ver" "$COWRIE_MIN_PYTHON"; then
+                PYTHON_BIN="$candidate"
+                log_info "Found ${candidate} (${cand_ver}) - using it."
+                return
+            fi
+        fi
+    done
+
+    # Need to install one
+    log_info "Installing a compatible Python version..."
+    case "$PKG_MANAGER" in
+        apt)
+            # Debian/Ubuntu: try python3.11 from deadsnakes or default repos
+            $INSTALL_CMD python3.11 python3.11-venv python3.11-dev 2>&1 || \
+            $INSTALL_CMD python3.10 python3.10-venv python3.10-dev 2>&1 || \
+                log_fatal "Could not install Python >= ${COWRIE_MIN_PYTHON}. Install manually."
+            ;;
+        dnf|yum)
+            # RHEL/Oracle/Rocky/Fedora: python3.12 or python3.11 from appstream
+            $INSTALL_CMD python3.12 python3.12-devel python3.12-pip 2>&1 || \
+            $INSTALL_CMD python3.11 python3.11-devel python3.11-pip 2>&1 || \
+                log_fatal "Could not install Python >= ${COWRIE_MIN_PYTHON}. Install manually."
+            ;;
+        *)
+            log_fatal "Cannot auto-install Python >= ${COWRIE_MIN_PYTHON} on this OS. Install manually."
+            ;;
+    esac
+
+    # Re-scan for the newly installed interpreter
+    for candidate in python3.12 python3.11 python3.10; do
+        if command -v "$candidate" &>/dev/null; then
+            PYTHON_BIN="$candidate"
+            log_info "Installed and using ${candidate}."
+            return
+        fi
+    done
+
+    log_fatal "Failed to find a Python >= ${COWRIE_MIN_PYTHON} after installation attempt."
+}
+
 # ── Install ─────────────────────────────────────────────────────────────────
 install_dependencies() {
     log_info "Installing system dependencies..."
     $UPDATE_CMD >/dev/null 2>&1
 
-    local deps_common="git python3 python3-venv python3-pip python3-dev libssl-dev libffi-dev gcc make"
+    local deps_common="git python3 python3-pip gcc make"
     local deps_extra=""
 
     case "$PKG_MANAGER" in
         apt)
+            deps_common="$deps_common python3-venv python3-dev libssl-dev libffi-dev"
             deps_extra="build-essential libpython3-dev"
             ;;
         dnf|yum)
-            deps_extra="python3-devel openssl-devel libffi-devel redhat-rpm-config"
+            deps_common="$deps_common python3-devel openssl-devel libffi-devel"
+            deps_extra="redhat-rpm-config"
             ;;
     esac
 
@@ -159,16 +236,39 @@ clone_cowrie() {
 }
 
 setup_virtualenv() {
-    log_info "Setting up Python virtual environment..."
+    log_info "Setting up Python virtual environment (using ${PYTHON_BIN})..."
+
+    # Create venv with the correct Python interpreter
     if [[ ! -d "$COWRIE_VENV" ]]; then
-        sudo -u "$COWRIE_USER" python3 -m venv "$COWRIE_VENV"
+        sudo -u "$COWRIE_USER" "$PYTHON_BIN" -m venv "$COWRIE_VENV"
+    else
+        # Verify existing venv uses a compatible Python
+        local venv_ver
+        venv_ver=$("$COWRIE_VENV/bin/python3" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "0.0")
+        if ! version_gte "$venv_ver" "$COWRIE_MIN_PYTHON"; then
+            log_warn "Existing venv uses Python ${venv_ver}. Recreating with ${PYTHON_BIN}..."
+            rm -rf "$COWRIE_VENV"
+            sudo -u "$COWRIE_USER" "$PYTHON_BIN" -m venv "$COWRIE_VENV"
+        fi
     fi
 
-    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --quiet --upgrade pip setuptools wheel 2>/dev/null
-    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --quiet -r "${COWRIE_HOME}/requirements.txt" 2>/dev/null
+    log_info "Upgrading pip/setuptools/wheel..."
+    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --upgrade pip setuptools wheel \
+        || log_fatal "Failed to upgrade pip/setuptools/wheel."
+
+    log_info "Installing Cowrie requirements (this may take a few minutes)..."
+    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install -r "${COWRIE_HOME}/requirements.txt" \
+        || log_fatal "Failed to install requirements.txt. Check errors above."
 
     # Install cowrie itself so twistd can discover the Twisted plugin
-    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --quiet -e "${COWRIE_HOME}" 2>/dev/null
+    log_info "Installing Cowrie package..."
+    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install -e "${COWRIE_HOME}" \
+        || log_fatal "Failed to install Cowrie package. Check errors above."
+
+    # Verify the Twisted plugin is discoverable
+    if ! "$COWRIE_VENV/bin/python3" -c "import cowrie" 2>/dev/null; then
+        log_fatal "Cowrie module not importable after install. Check pip output above."
+    fi
 
     log_info "Python environment ready."
 }
@@ -183,8 +283,8 @@ configure_cowrie() {
 
     # Write our configuration
     cat > "$COWRIE_CFG" <<COWRIECFG
-# ─── Cowrie Configuration ───────────────────────────────────────────────────
-# Generated by CowrieHoneypot.sh — edit as needed
+# Cowrie Configuration
+# Generated by CowrieHoneypot.sh
 
 [honeypot]
 hostname = ${FAKE_HOSTNAME}
@@ -199,23 +299,23 @@ share_path = ${COWRIE_HOME}/share/cowrie
 # Capture all file download attempts
 download_limit_size = 10485760
 
-# ─── SSH Settings ───────────────────────────────────────────────────────────
+# --- SSH Settings ---
 [ssh]
 enabled = true
 listen_endpoints = tcp:${LISTEN_SSH_PORT}:interface=0.0.0.0
 version = SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6
 
-# ─── Telnet Settings ───────────────────────────────────────────────────────
+# --- Telnet Settings ---
 [telnet]
 enabled = ${LISTEN_ENABLED_TELNET}
 listen_endpoints = tcp:${LISTEN_TELNET_PORT}:interface=0.0.0.0
 
-# ─── Logging — JSON (primary, for SIEM/Splunk) ─────────────────────────────
+# --- Logging: JSON (primary, for SIEM/Splunk) ---
 [output_jsonlog]
 enabled = true
 logfile = ${COWRIE_LOG_DIR}/cowrie.json
 
-# ─── Logging — Text (human-readable) ───────────────────────────────────────
+# --- Logging: Text (human-readable) ---
 [output_textlog]
 enabled = true
 logfile = ${COWRIE_LOG_DIR}/cowrie.log
@@ -278,7 +378,7 @@ setup_firewall() {
 
     if ! command -v iptables &>/dev/null; then
         log_warn "iptables not found. Skipping firewall configuration."
-        log_warn "Cowrie listens on port ${LISTEN_SSH_PORT} — ensure your firewall allows it."
+        log_warn "Cowrie listens on port ${LISTEN_SSH_PORT} -- ensure your firewall allows it."
         return
     fi
 
@@ -295,23 +395,11 @@ setup_firewall() {
         fi
     fi
 
-    # NAT redirect: port 22 → Cowrie's listen port (ONLY external traffic)
-    # Skip if sshd is still on port 22 — admin must move sshd first
-    if ss -tlnp 2>/dev/null | grep -q ':22 .*sshd'; then
-        log_warn "sshd is still listening on port 22."
-        log_warn "To redirect port 22 to Cowrie, first move sshd to another port,"
-        log_warn "then run:  iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port ${LISTEN_SSH_PORT}"
-    else
-        # Safe to redirect — no sshd on 22
-        if ! iptables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null; then
-            iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-            log_info "Allowed inbound TCP/22."
-        fi
-        if ! iptables -t nat -C PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT" 2>/dev/null; then
-            iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT"
-            log_info "NAT redirect: TCP/22 -> TCP/${LISTEN_SSH_PORT}."
-        fi
-    fi
+    # NOTE: We intentionally do NOT add a PREROUTING NAT redirect from port 22.
+    # Redirecting port 22 will break SSH access to the machine. If you want
+    # attackers to hit Cowrie on port 22, first move sshd to another port,
+    # then manually run:
+    #   iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port 2222
 
     # Persist iptables rules across reboots
     if command -v netfilter-persistent &>/dev/null; then
@@ -345,6 +433,7 @@ do_install() {
     log_info "Installing Cowrie honeypot..."
     echo ""
     install_dependencies
+    find_or_install_python
     create_cowrie_user
     clone_cowrie
     setup_virtualenv
@@ -354,9 +443,9 @@ do_install() {
     start_cowrie
 
     echo ""
-    echo -e "${BOLD}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}===================================================${NC}"
     echo -e "${GREEN} Cowrie honeypot installed and running${NC}"
-    echo -e "${BOLD}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}===================================================${NC}"
     echo -e " SSH listener:    ${CYAN}port ${LISTEN_SSH_PORT}${NC}"
     [[ "$LISTEN_ENABLED_TELNET" == "true" ]] && \
         echo -e " Telnet listener: ${CYAN}port ${LISTEN_TELNET_PORT}${NC}"
@@ -365,12 +454,27 @@ do_install() {
     echo -e " Downloads:       ${CYAN}${COWRIE_DL_DIR}/${NC}"
     echo -e " Sessions:        ${CYAN}${COWRIE_TTY_DIR}/${NC}"
     echo ""
-    if iptables -t nat -C PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT" 2>/dev/null; then
-        echo -e " ${YELLOW}Port 22 is NAT-redirected to Cowrie.${NC}"
-    else
-        echo -e " ${YELLOW}Port 22 NOT redirected (sshd still on 22). Move sshd, then redirect manually.${NC}"
+}
+
+# ── Start / Stop ───────────────────────────────────────────────────────────
+do_start() {
+    if ! systemctl is-enabled --quiet cowrie 2>/dev/null; then
+        log_fatal "Cowrie is not installed. Run '$0 install' first."
     fi
-    echo ""
+    log_info "Starting Cowrie..."
+    systemctl start cowrie
+    sleep 3
+    if systemctl is-active --quiet cowrie; then
+        log_info "Cowrie is running."
+    else
+        log_error "Cowrie failed to start. Check: journalctl -u cowrie -n 50"
+    fi
+}
+
+do_stop() {
+    log_info "Stopping Cowrie..."
+    systemctl stop cowrie 2>/dev/null || true
+    log_info "Cowrie stopped."
 }
 
 # ── Uninstall ───────────────────────────────────────────────────────────────
@@ -403,7 +507,7 @@ do_uninstall() {
 
 # ── Status ──────────────────────────────────────────────────────────────────
 do_status() {
-    echo -e "${BOLD}── Cowrie Status ──${NC}"
+    echo -e "${BOLD}-- Cowrie Status --${NC}"
     echo ""
 
     if systemctl is-active --quiet cowrie 2>/dev/null; then
@@ -469,7 +573,7 @@ do_sessions() {
         return
     fi
 
-    echo -e "${BOLD}── Recent Sessions ──${NC}"
+    echo -e "${BOLD}-- Recent Sessions --${NC}"
     echo ""
 
     # Show sessions with commands executed
@@ -496,10 +600,10 @@ do_creds() {
         return
     fi
 
-    echo -e "${BOLD}── Captured Credentials ──${NC}"
+    echo -e "${BOLD}-- Captured Credentials --${NC}"
     echo ""
     echo -e "  ${BOLD}Source IP         Username         Password${NC}"
-    echo "  ──────────────── ──────────────── ────────────────"
+    echo "  ---------------- ---------------- ----------------"
 
     grep '"eventid":"cowrie.login' "$json_log" 2>/dev/null | while IFS= read -r line; do
         local src user pass success
@@ -523,7 +627,7 @@ do_creds() {
 
 # ── Captured Downloads ──────────────────────────────────────────────────────
 do_downloads() {
-    echo -e "${BOLD}── Captured Downloads ──${NC}"
+    echo -e "${BOLD}-- Captured Downloads --${NC}"
     echo ""
 
     if [[ ! -d "$COWRIE_DL_DIR" ]] || [[ -z "$(ls -A "$COWRIE_DL_DIR" 2>/dev/null)" ]]; then
@@ -532,7 +636,7 @@ do_downloads() {
     fi
 
     echo -e "  ${BOLD}SHA256                                                            Size${NC}"
-    echo "  ──────────────────────────────────────────────────────────────── ────────"
+    echo "  ---------------------------------------------------------------- --------"
     for f in "$COWRIE_DL_DIR"/*; do
         [[ -f "$f" ]] || continue
         local hash size
@@ -548,67 +652,35 @@ do_downloads() {
     echo -e "${YELLOW}WARNING: These files are likely malware. Handle with care.${NC}"
 }
 
-# ── Splunk Integration ──────────────────────────────────────────────────────
-do_splunk() {
-    local splunk_home="/opt/splunkforwarder"
-    if [[ ! -d "$splunk_home" ]]; then
-        splunk_home="/opt/splunk"
-    fi
-    if [[ ! -d "$splunk_home" ]]; then
-        log_warn "Splunk/Splunk Forwarder not found at /opt/splunk or /opt/splunkforwarder."
-        log_info "Install a Splunk forwarder first, then re-run this command."
-        return
-    fi
-
-    log_info "Configuring Splunk to monitor Cowrie JSON logs..."
-
-    local inputs_conf="${splunk_home}/etc/system/local/inputs.conf"
-    if grep -q "cowrie.json" "$inputs_conf" 2>/dev/null; then
-        log_warn "Splunk is already monitoring cowrie.json."
-        return
-    fi
-
-    cat >> "$inputs_conf" <<SPLUNKCFG
-
-[monitor://${COWRIE_LOG_DIR}/cowrie.json]
-sourcetype = cowrie
-index = main
-SPLUNKCFG
-
-    # Restart Splunk to pick up changes
-    if [[ -x "${splunk_home}/bin/splunk" ]]; then
-        "${splunk_home}/bin/splunk" restart >/dev/null 2>&1 || true
-        log_info "Splunk restarted. Cowrie logs will appear with sourcetype=cowrie."
-    fi
-}
-
 # ── Interactive Menu ────────────────────────────────────────────────────────
 interactive_menu() {
     while true; do
         echo ""
-        echo -e "${BOLD}── Cowrie Honeypot Manager ──${NC}"
+        echo -e "${BOLD}-- Cowrie Honeypot Manager --${NC}"
         echo ""
         echo "  1) Install Cowrie"
         echo "  2) Uninstall Cowrie"
-        echo "  3) Status & Stats"
-        echo "  4) Tail Live Logs"
-        echo "  5) View Captured Sessions"
-        echo "  6) View Captured Credentials"
-        echo "  7) View Captured Downloads"
-        echo "  8) Configure Splunk Forwarding"
-        echo "  9) Quit"
+        echo "  3) Start Cowrie"
+        echo "  4) Stop Cowrie"
+        echo "  5) Status & Stats"
+        echo "  6) Tail Live Logs"
+        echo "  7) View Captured Sessions"
+        echo "  8) View Captured Credentials"
+        echo "  9) View Captured Downloads"
+        echo "  0) Quit"
         echo ""
-        read -r -p "Choice [1-9]: " opt
+        read -r -p "Choice [0-9]: " opt
         case "$opt" in
             1) do_install ;;
             2) do_uninstall ;;
-            3) do_status ;;
-            4) do_logs ;;
-            5) do_sessions ;;
-            6) do_creds ;;
-            7) do_downloads ;;
-            8) do_splunk ;;
-            9) log_info "Exiting."; exit 0 ;;
+            3) do_start ;;
+            4) do_stop ;;
+            5) do_status ;;
+            6) do_logs ;;
+            7) do_sessions ;;
+            8) do_creds ;;
+            9) do_downloads ;;
+            0) log_info "Exiting."; exit 0 ;;
             *) log_warn "Invalid choice." ;;
         esac
     done
@@ -622,14 +694,15 @@ main() {
     case "${1:-}" in
         install)    do_install ;;
         uninstall)  do_uninstall ;;
+        start)      do_start ;;
+        stop)       do_stop ;;
         status)     do_status ;;
         logs)       do_logs ;;
         sessions)   do_sessions ;;
         creds)      do_creds ;;
         downloads)  do_downloads ;;
-        splunk)     do_splunk ;;
         -h|--help)
-            echo "Usage: $0 {install|uninstall|status|logs|sessions|creds|downloads|splunk}"
+            echo "Usage: $0 {install|uninstall|start|stop|status|logs|sessions|creds|downloads}"
             ;;
         *)          interactive_menu ;;
     esac
