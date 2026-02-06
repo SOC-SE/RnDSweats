@@ -37,6 +37,17 @@ set -uo pipefail
 # --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+# Validate REPO_DIR - check if expected structure exists, otherwise try common locations
+if [[ ! -d "$REPO_DIR/linux/securityInfrastructure/Splunk" ]]; then
+    for try_path in "/vagrant" "/home/vagrant/CCDC-Development" "/root/CCDC-Development"; do
+        if [[ -d "$try_path/linux/securityInfrastructure/Splunk" ]]; then
+            REPO_DIR="$try_path"
+            break
+        fi
+    done
+fi
+
 LINUXDEV="$SCRIPT_DIR/modules"
 TOOLS="$REPO_DIR/Tools"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
