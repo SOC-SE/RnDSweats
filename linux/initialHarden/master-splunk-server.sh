@@ -273,10 +273,14 @@ cat > "$SPLUNK_HOME/etc/system/local/inputs.conf" << EOF
 host = $(hostname)
 
 [tcp://514]
-sourcetype = ngfw:syslog
+sourcetype = palo
 index = network
 disabled = 0
 
+[udp://514]
+sourcetype = cisco
+index = network
+disabled = 0
 [tcp://5140]
 sourcetype = technitium:query
 index = network
