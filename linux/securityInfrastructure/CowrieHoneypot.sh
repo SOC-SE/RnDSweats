@@ -252,17 +252,20 @@ setup_virtualenv() {
         fi
     fi
 
+    # Longer timeout for slow/restricted networks
+    local PIP_OPTS="--timeout 120"
+
     log_info "Upgrading pip/setuptools/wheel..."
-    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install --upgrade pip setuptools wheel \
+    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install $PIP_OPTS --upgrade pip setuptools wheel \
         || log_fatal "Failed to upgrade pip/setuptools/wheel."
 
     log_info "Installing Cowrie requirements (this may take a few minutes)..."
-    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install -r "${COWRIE_HOME}/requirements.txt" \
+    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install $PIP_OPTS -r "${COWRIE_HOME}/requirements.txt" \
         || log_fatal "Failed to install requirements.txt. Check errors above."
 
     # Install cowrie itself so twistd can discover the Twisted plugin
     log_info "Installing Cowrie package..."
-    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install -e "${COWRIE_HOME}" \
+    sudo -u "$COWRIE_USER" "$COWRIE_VENV/bin/pip" install $PIP_OPTS -e "${COWRIE_HOME}" \
         || log_fatal "Failed to install Cowrie package. Check errors above."
 
     # Verify the Twisted plugin is discoverable
