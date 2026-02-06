@@ -36,6 +36,9 @@
     sourcetype=="linux_secure" AND match(_raw, "Accepted|Failed"), "Auth",
     sourcetype=="WinEventLog:Security" AND EventCode IN ("4624","4625","4634"), "Auth",
     sourcetype=="WinEventLog:Sysmon" AND EventCode=="1", "Execution",
+    sourcetype=="WinEventLog:Sysmon" AND EventCode=="3", "Network",
+    sourcetype=="WinEventLog:Sysmon" AND EventCode=="11", "FileCreate",
+    sourcetype=="WinEventLog:Sysmon" AND EventCode=="13", "Registry",
     sourcetype=="linux_secure" AND match(_raw, "sudo:"), "Execution",
     sourcetype IN ("zeek:conn","zeek:dns","zeek:http","zeek:ssl","zeek:ssh"), "Network",
     sourcetype IN ("zeek:notice","suricata:fast"), "Detection",
@@ -69,7 +72,7 @@
         <option name="drilldown">none</option>
         <option name="refresh.display">progressbar</option>
         <format type="color" field="Category">
-          <colorPalette type="map">{"Auth":#006D9C,"Execution":#F1813F,"Network":#708794,"Detection":#DC4E41,"SIEM":#DC4E41,"Firewall":#F8BE34,"Monitor":#53A051,"Honeypot":#A2CC3E,"WAF":#F8BE34,"Other":#708794}</colorPalette>
+          <colorPalette type="map">{"Auth":#006D9C,"Execution":#F1813F,"Network":#708794,"FileCreate":#62B3B2,"Registry":#9C6ADE,"Detection":#DC4E41,"SIEM":#DC4E41,"Firewall":#F8BE34,"Monitor":#53A051,"Honeypot":#A2CC3E,"WAF":#F8BE34,"Other":#708794}</colorPalette>
         </format>
       </table>
     </panel>

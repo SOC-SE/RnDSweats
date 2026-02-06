@@ -192,7 +192,60 @@ index=windows sourcetype="WinEventLog:PowerShell" EventCode=4104 host=$host_filt
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 3: AD/Windows Attack Detections -->
+  <!-- Row 3: Sysmon Network Connections + DNS Queries -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Sysmon Network Connections (Suspicious)</title>
+      <table>
+        <search>
+          <query>
+index=windows sourcetype="WinEventLog:Sysmon" EventCode=3 host=$host_filter$
+| search Image IN ("*\\powershell.exe","*\\cmd.exe","*\\wscript.exe","*\\cscript.exe","*\\mshta.exe","*\\certutil.exe","*\\bitsadmin.exe","*\\rundll32.exe","*\\regsvr32.exe","*\\msiexec.exe","*\\whoami.exe","*\\net.exe","*\\net1.exe","*\\nltest.exe","*\\dsquery.exe","*\\csvde.exe","*\\ldifde.exe","*\\tasklist.exe","*\\psexec.exe")
+| where NOT cidrmatch("10.0.0.0/8", DestinationIp) AND NOT cidrmatch("172.16.0.0/12", DestinationIp) AND NOT cidrmatch("192.168.0.0/16", DestinationIp) AND NOT cidrmatch("127.0.0.0/8", DestinationIp)
+| eval proc=replace(Image, ".*\\\\", "")
+| table _time, host, proc, DestinationIp, DestinationPort, User, Protocol
+| sort -_time
+| rename proc as "Process", DestinationIp as "Dest IP", DestinationPort as "Dest Port"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>Sysmon DNS Queries (Suspicious)</title>
+      <table>
+        <search>
+          <query>
+index=windows sourcetype="WinEventLog:Sysmon" EventCode=22 host=$host_filter$
+| where len(QueryName) &gt; 40 OR match(QueryName, "\d{8,}|[a-z0-9]{32,}|\.(top|xyz|tk|ml|ga|cf|pw|cc|buzz|surf)\.")
+| eval proc=replace(Image, ".*\\\\", "")
+| table _time, host, proc, QueryName, QueryResults
+| sort -_time
+| rename proc as "Process", QueryName as "Query", QueryResults as "Results"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 4: AD/Windows Attack Detections -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -244,7 +297,7 @@ index=network sourcetype=zeek:notice note IN ("DCSync_Attack", "PsExec_Lateral_M
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 4: Falco Runtime Alerts + Wazuh Critical -->
+  <!-- Row 5: Falco Runtime Alerts + Wazuh Critical -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -302,7 +355,7 @@ index=linux sourcetype=wazuh:alerts host=$host_filter$
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 5: Web FIM Changes + Wazuh Syscheck FIM -->
+  <!-- Row 6: Web FIM Changes + Wazuh Syscheck FIM -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -354,7 +407,7 @@ index=linux sourcetype=wazuh:alerts host=$host_filter$ data.syscheck.path=*
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 6: Malware Detection Feed -->
+  <!-- Row 7: Malware Detection Feed -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -393,7 +446,7 @@ index=linux sourcetype=wazuh:alerts host=$host_filter$ data.syscheck.path=*
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 7: WAF Alert Feed -->
+  <!-- Row 8: WAF Alert Feed -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -433,7 +486,7 @@ index=linux sourcetype=wazuh:alerts host=$host_filter$ data.syscheck.path=*
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 8: Persistence Mechanisms -->
+  <!-- Row 9: Persistence Mechanisms -->
   <!-- ============================================================ -->
   <row>
     <panel>
