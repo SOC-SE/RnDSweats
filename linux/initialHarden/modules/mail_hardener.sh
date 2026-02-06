@@ -671,45 +671,7 @@ EOF
 
     restart_service "$WEB_SERVER"
     ok "Roundcube hardened"
-}
 
-# --- Firewall Configuration ---
-configure_firewall() {
-    info "Configuring firewall for mail services..."
-
-    for port in 25 110 143 587 993 995; do
-        iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || \
-            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
-    done
-    ok "iptables configured for mail services"
-}
-
-# --- Firewall Prompt ---
-prompt_firewall_config() {
-    echo ""
-    echo -e "${YELLOW}┌─────────────────────────────────────────────────────────────┐${RESET}"
-    echo -e "${YELLOW}│${RESET}  ${MAGENTA}Firewall Configuration${RESET}                                   ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}├─────────────────────────────────────────────────────────────┤${RESET}"
-    echo -e "${YELLOW}│${RESET}  This script can configure iptables to allow mail service  ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  ports.                                                    ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  ${RED}WARNING:${RESET} This will add iptables INPUT ACCEPT rules.     ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  Ensure this does not conflict with your existing           ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  firewall configuration.                                    ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}│${RESET}  Ports to be opened: 25, 110, 143, 587, 993, 995           ${YELLOW}│${RESET}"
-    echo -e "${YELLOW}└─────────────────────────────────────────────────────────────┘${RESET}"
-    echo ""
-    
-    read -p "$(echo -e "${BLUE}Do you want to configure the firewall? ${RESET}(yes/no): ")" -r response
-    response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
-    
-    if [[ "$response" == "yes" || "$response" == "y" ]]; then
-        configure_firewall
-    else
-        info "Skipping firewall configuration"
-    fi
-}
 
 # --- Main ---
 require_root
@@ -760,7 +722,6 @@ case "${1:-}" in
         harden_postfix
         harden_dovecot
         harden_roundcube
-        prompt_firewall_config
         
         # Create post-hardening backup
         backup_post_hardening
