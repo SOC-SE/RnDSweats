@@ -35,6 +35,9 @@ else
     RED=""; GREEN=""; YELLOW=""; BLUE=""; MAGENTA=""; RESET=""
 fi
 
+# --- Global Variables ---
+SECURITY_LEVEL=""  # Will be set by prompt: "strict" or "relaxed"
+
 # --- Utility Functions ---
 info()  { echo -e "${BLUE}[INFO]${RESET} $*"; }
 ok()    { echo -e "${GREEN}[OK]${RESET} $*"; }
@@ -71,6 +74,7 @@ setup_paths() {
     BACKUP_DIR="/var/backups/mail_hardener"
     TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
     INITIAL_BACKUP_FILE="$BACKUP_DIR/mail_backup_initial.tar.gz"
+    POST_HARDENING_BACKUP_FILE="$BACKUP_DIR/mail_backup_post_hardening.tar.gz"
 
     if [[ "$OS_FAMILY" == "debian" ]]; then
         CERT_FILE="/etc/ssl/certs/ssl-cert-snakeoil.pem"
@@ -114,6 +118,46 @@ enable_service() {
     elif command -v rc-update &>/dev/null; then
         rc-update add "$svc" default 2>/dev/null || true
     fi
+}
+
+# --- SSL/Auth Security Level Prompt ---
+prompt_security_level() {
+    echo ""
+    echo -e "${YELLOW}┌─────────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${YELLOW}│${RESET}  ${MAGENTA}Dovecot/POP3 Security Configuration${RESET}                     ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}├─────────────────────────────────────────────────────────────┤${RESET}"
+    echo -e "${YELLOW}│${RESET}  Choose your security level for Dovecot:                   ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  ${GREEN}[1] Strict Security (Recommended)${RESET}                       ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}      - SSL/TLS required for all connections                ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}      - Plaintext authentication disabled                   ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}      - Best security, but requires SSL setup               ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}                                                             ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}  ${BLUE}[2] Relaxed Security${RESET}                                    ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}      - SSL/TLS available but not required                  ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}      - Plaintext authentication allowed                    ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}│${RESET}      - Better compatibility, lower security                ${YELLOW}│${RESET}"
+    echo -e "${YELLOW}└─────────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
+    
+    while true; do
+        read -p "$(echo -e "${BLUE}Enter your choice (1 or 2): ${RESET}")" -r choice
+        case "$choice" in
+            1)
+                SECURITY_LEVEL="strict"
+                info "Selected: Strict Security (SSL required, plaintext auth disabled)"
+                break
+                ;;
+            2)
+                SECURITY_LEVEL="relaxed"
+                info "Selected: Relaxed Security (SSL optional, plaintext auth allowed)"
+                break
+                ;;
+            *)
+                warn "Invalid choice. Please enter 1 or 2."
+                ;;
+        esac
+    done
 }
 
 # --- SSL Certificate Generation ---
@@ -165,11 +209,24 @@ harden_dovecot_debian() {
         # Generate certs with proper permissions
         generate_certs
         
+        # Determine SSL and auth settings based on security level
+        local ssl_setting="yes"
+        local plaintext_auth="no"
+        local ssl_comment="SSL enabled but not required - allows both encrypted and plain connections"
+        local auth_comment="Plaintext auth allowed for scoring compatibility"
+        
+        if [[ "$SECURITY_LEVEL" == "strict" ]]; then
+            ssl_setting="required"
+            plaintext_auth="yes"
+            ssl_comment="SSL required for all connections"
+            auth_comment="Plaintext auth disabled for maximum security"
+        fi
+        
         cat >> "$DOVECOT_SSL_CONF" <<EOF
 
 # === Mail Hardener: SSL/TLS Configuration ===
-# SSL enabled but not required - allows both encrypted and plain connections
-ssl = yes
+# $ssl_comment
+ssl = $ssl_setting
 ssl_min_protocol = TLSv1.2
 ssl_cipher_list = HIGH:!aNULL:!MD5:!RC4:!3DES
 ssl_cert = <$CERT_FILE
@@ -179,11 +236,19 @@ EOF
 
     # Auth configuration
     if [[ -f "$DOVECOT_AUTH_CONF" ]] && ! grep -q "# === Mail Hardener" "$DOVECOT_AUTH_CONF" 2>/dev/null; then
-        cat >> "$DOVECOT_AUTH_CONF" <<'EOF'
+        local plaintext_auth="no"
+        local auth_comment="Plaintext auth allowed for scoring compatibility"
+        
+        if [[ "$SECURITY_LEVEL" == "strict" ]]; then
+            plaintext_auth="yes"
+            auth_comment="Plaintext auth disabled for maximum security"
+        fi
+        
+        cat >> "$DOVECOT_AUTH_CONF" <<EOF
 
 # === Mail Hardener: Authentication Security ===
-# Plaintext auth allowed for scoring compatibility
-disable_plaintext_auth = no
+# $auth_comment
+disable_plaintext_auth = $plaintext_auth
 auth_mechanisms = plain login
 
 # === Mail Hardener: Brute Force Protection ===
@@ -241,11 +306,24 @@ harden_dovecot_rhel() {
         # Generate certificates with proper permissions
         generate_certs
 
+        # Determine SSL and auth settings based on security level
+        local ssl_setting="yes"
+        local plaintext_auth="no"
+        local ssl_comment="SSL enabled but not required - allows both encrypted and plain connections"
+        local auth_comment="Plaintext auth allowed for scoring compatibility"
+        
+        if [[ "$SECURITY_LEVEL" == "strict" ]]; then
+            ssl_setting="required"
+            plaintext_auth="yes"
+            ssl_comment="SSL required for all connections"
+            auth_comment="Plaintext auth disabled for maximum security"
+        fi
+
         cat >> "$dovecot_local" <<EOF
 
 # === Mail Hardener: SSL/TLS Configuration ===
-# SSL enabled but not required - allows both encrypted and plain connections
-ssl = yes
+# $ssl_comment
+ssl = $ssl_setting
 ssl_min_protocol = TLSv1.2
 ssl_cipher_list = HIGH:!aNULL:!MD5:!RC4:!3DES
 ssl_prefer_server_ciphers = yes
@@ -253,8 +331,8 @@ ssl_cert = <$CERT_FILE
 ssl_key = <$KEY_FILE
 
 # === Mail Hardener: Authentication Security ===
-# Plaintext auth allowed for scoring compatibility
-disable_plaintext_auth = no
+# $auth_comment
+disable_plaintext_auth = $plaintext_auth
 auth_mechanisms = plain login
 mail_privileged_group = mail
 
@@ -319,6 +397,26 @@ backup_initial_configs() {
     if [[ ${#backup_paths[@]} -gt 0 ]]; then
         # Store paths relative to root for easy restoration
         tar -czpf "$INITIAL_BACKUP_FILE" -C / "${backup_paths[@]}" 2>/dev/null && ok "Initial backup complete" || { error "Initial backup failed"; exit 1; }
+    else
+        warn "No mail configs found to backup"
+    fi
+}
+
+# --- Post-Hardening Backup ---
+backup_post_hardening() {
+    mkdir -p "$BACKUP_DIR"
+    info "Creating post-hardening backup at $POST_HARDENING_BACKUP_FILE..."
+    local backup_paths=()
+    
+    # Only backup files that actually exist
+    [[ -d /etc/postfix ]] && backup_paths+=("etc/postfix")
+    [[ -d /etc/dovecot ]] && backup_paths+=("etc/dovecot")
+    [[ -d /etc/roundcubemail ]] && backup_paths+=("etc/roundcubemail")
+    [[ -f /etc/httpd/conf.d/roundcubemail.conf ]] && backup_paths+=("etc/httpd/conf.d/roundcubemail.conf")
+
+    if [[ ${#backup_paths[@]} -gt 0 ]]; then
+        # Store paths relative to root for easy restoration
+        tar -czpf "$POST_HARDENING_BACKUP_FILE" -C / "${backup_paths[@]}" 2>/dev/null && ok "Post-hardening backup complete" || { warn "Post-hardening backup failed"; }
     else
         warn "No mail configs found to backup"
     fi
@@ -649,14 +747,27 @@ case "${1:-}" in
     *)
         info "${MAGENTA}=== Mail Hardener ($OS_ID - $OS_FAMILY) ===${RESET}"
         backup_initial_configs
-        #added here just in case: - THIS IS A TEMPORARY FIX
-        cp -a /etc/dovecot/ /var/backups/mail_hardener/
+        
+        # Backup individual config directories
+        info "Creating individual config backups..."
+        [[ -d /etc/dovecot ]] && cp -a /etc/dovecot/ /var/backups/mail_hardener/ && ok "Dovecot config backed up"
+        [[ -d /etc/postfix ]] && cp -a /etc/postfix/ /var/backups/mail_hardener/ && ok "Postfix config backed up"
+        [[ -d /etc/roundcubemail ]] && cp -a /etc/roundcubemail/ /var/backups/mail_hardener/ && ok "Roundcube config backed up"
+        
+        # Prompt for security level before hardening
+        prompt_security_level
+        
         harden_postfix
         harden_dovecot
         harden_roundcube
         prompt_firewall_config
+        
+        # Create post-hardening backup
+        backup_post_hardening
+        
         ok "${GREEN}Mail hardening complete!${RESET}"
         info "Initial backup saved at: $INITIAL_BACKUP_FILE"
+        info "Post-hardening backup saved at: $POST_HARDENING_BACKUP_FILE"
         info "To rollback to original configuration, run: $0 --rollback; To restore the dovecot config, run: sudo cp -a /var/backups/mail_hardener/dovecot/* /etc/dovecot/ Then run: sudo chown -R root:root /etc/dovecot Then run: sudo chmod -R u=rwX,go=rX /etc/dovecot Then run: systemctl restart dovecot"
         info ""
         info "Verify services:"
