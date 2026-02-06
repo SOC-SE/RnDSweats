@@ -630,6 +630,13 @@ EOF
     fi
     
     [[ -f "$ZEEK_PREFIX/etc/zeekctl.cfg" ]] && sed -i 's/^MailTo = .*/MailTo = /' "$ZEEK_PREFIX/etc/zeekctl.cfg" 2>/dev/null || true
+
+    # Add -C flag to ignore checksums (NIC offloading causes invalid checksums on loopback/NAT traffic)
+    # Without this, client TLS fingerprints (JA3/JA4) may not be captured correctly
+    if [[ -f "$ZEEK_PREFIX/etc/zeekctl.cfg" ]] && ! grep -q "^ZeekArgs" "$ZEEK_PREFIX/etc/zeekctl.cfg"; then
+        echo "ZeekArgs = -C" >> "$ZEEK_PREFIX/etc/zeekctl.cfg"
+        log_info "Added ZeekArgs = -C to ignore checksums"
+    fi
 }
 
 setup_zeekctl() {
