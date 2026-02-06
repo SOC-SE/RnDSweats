@@ -4,9 +4,10 @@ set -euo pipefail
 # Script Name: SplunkServerInstall.sh
 # Description: Distro-agnostic Splunk Enterprise install script.
 #              Backs up licenses, nukes old install, installs fresh,
-#              restores licenses, sets up admin user and props.conf.
+#              restores licenses, sets up admin user, props.conf,
+#              dashboards, and optionally installs add-ons from Splunkbase.
 # Author: Samuel Brucker 2024-2026
-# Version: 2.0
+# Version: 3.0
 #
 # Supported Systems:
 #   - Ubuntu/Debian (apt, .deb)
@@ -14,6 +15,11 @@ set -euo pipefail
 #
 # Usage:
 #   sudo ./SplunkServerInstall.sh
+#
+# Environment Variables (optional, will prompt if not set):
+#   SPLUNK_PASS      - Splunk admin password
+#   SPLUNKBASE_USER  - Splunkbase username (email) for add-on installation
+#   SPLUNKBASE_PASS  - Splunkbase password
 #
 # ==============================================================================
 
@@ -241,7 +247,114 @@ fi
 echo "Enabling boot start..."
 $SPLUNK_HOME/bin/splunk enable boot-start --accept-license --answer-yes --no-prompt
 
-# Restart to load dashboards app
+# --- Install add-ons from Splunkbase ---
+# Splunkbase app definitions: "APP_ID|APP_NAME|DESCRIPTION"
+SPLUNKBASE_ADDONS=(
+    "2757|Splunk_TA_paloalto|Palo Alto Networks"
+    "4388|Splunk_TA_cisco_secure_firewall|Cisco Secure Firewall (FTD)"
+    "5466|TA-zeek|Zeek"
+    "2760|TA-suricata|Suricata"
+    "742|Splunk_TA_windows|Windows"
+    "5709|Splunk_TA_microsoft_sysmon|Sysmon"
+    "3208|Splunk_TA_microsoft-dns|Microsoft Windows DNS"
+    "833|Splunk_TA_nix|Unix and Linux"
+    "4494|SplunkAppForWazuh|Wazuh"
+    "3186|Splunk_TA_apache|Apache Web Server"
+    "3258|Splunk_TA_nginx|NGINX"
+    "2891|TA-haproxy|HAProxy"
+    "5765|Splunk_TA_docker|Docker"
+    "1917|splunk_app_for_tomcat|Tomcat"
+    "4679|Splunk_TA_postgresql|PostgreSQL"
+    "2818|Splunk_TA_mysql|MySQL"
+    "1621|Splunk_SA_CIM|Common Information Model (CIM)"
+)
+
+echo ""
+echo "========================================================"
+echo "  Splunkbase Add-on Installation"
+echo "========================================================"
+echo "This will install ${#SPLUNKBASE_ADDONS[@]} recommended add-ons for:"
+echo "  - Network devices (Palo Alto, Cisco FTD, Zeek, Suricata)"
+echo "  - Windows (Event logs, Sysmon, DNS)"
+echo "  - Linux/Unix, Web servers, Databases, Containers"
+echo ""
+read -r -p "Install add-ons from Splunkbase? (Y/n): " INSTALL_ADDONS
+case "$INSTALL_ADDONS" in
+    [nN]|[nN][oO])
+        echo "Skipping Splunkbase add-on installation."
+        ;;
+    *)
+        # Prompt for Splunkbase credentials
+        echo ""
+        if [[ -z "${SPLUNKBASE_USER:-}" ]]; then
+            echo -n "Enter Splunkbase username (email): "
+            read -r SPLUNKBASE_USER
+        fi
+        if [[ -z "${SPLUNKBASE_PASS:-}" ]]; then
+            echo -n "Enter Splunkbase password: "
+            stty -echo
+            read -r SPLUNKBASE_PASS
+            stty echo
+            echo ""
+        fi
+
+        echo ""
+        echo "Installing add-ons from Splunkbase..."
+        ADDON_SUCCESS=0
+        ADDON_FAIL=0
+        ADDON_SKIP=0
+
+        for addon in "${SPLUNKBASE_ADDONS[@]}"; do
+            IFS='|' read -r app_id app_name description <<< "$addon"
+            printf "  %-40s " "$description..."
+
+            # Check if already installed
+            CHECK=$(curl -s -k -u "admin:${SPLUNK_PASS}" \
+                "https://localhost:8089/services/apps/local/${app_name}?output_mode=json" 2>/dev/null)
+
+            if echo "$CHECK" | grep -q '"name"'; then
+                echo "SKIP (already installed)"
+                ((ADDON_SKIP++))
+                continue
+            fi
+
+            # Install from Splunkbase
+            INSTALL_RESPONSE=$(curl -s -k -w "\n%{http_code}" \
+                -u "admin:${SPLUNK_PASS}" \
+                -X POST \
+                -d "name=${app_name}" \
+                -d "auth=${SPLUNKBASE_USER}:${SPLUNKBASE_PASS}" \
+                -d "update=true" \
+                "https://localhost:8089/services/apps/local" 2>/dev/null)
+
+            HTTP_CODE=$(echo "$INSTALL_RESPONSE" | tail -1)
+            RESPONSE_BODY=$(echo "$INSTALL_RESPONSE" | sed '$d')
+
+            if [[ "$HTTP_CODE" == "200" ]] || [[ "$HTTP_CODE" == "201" ]]; then
+                echo "OK"
+                ((ADDON_SUCCESS++))
+            elif echo "$RESPONSE_BODY" | grep -qi "already exists"; then
+                echo "SKIP (already installed)"
+                ((ADDON_SKIP++))
+            else
+                ERROR_MSG=$(echo "$RESPONSE_BODY" | grep -oP '"message"\s*:\s*"\K[^"]+' | head -1)
+                echo "FAILED (${ERROR_MSG:-HTTP $HTTP_CODE})"
+                ((ADDON_FAIL++))
+            fi
+
+            sleep 1
+        done
+
+        echo ""
+        echo "Add-on installation complete:"
+        echo "  Installed: $ADDON_SUCCESS"
+        echo "  Skipped:   $ADDON_SKIP"
+        echo "  Failed:    $ADDON_FAIL"
+        ;;
+esac
+
+# Restart to load all configurations and add-ons
+echo ""
 echo "Restarting Splunk to load all configurations..."
 $SPLUNK_HOME/bin/splunk restart
 
