@@ -41,8 +41,7 @@ COWRIE_LOG_DIR="${COWRIE_HOME}/var/log/cowrie"
 COWRIE_DL_DIR="${COWRIE_HOME}/var/lib/cowrie/downloads"
 COWRIE_TTY_DIR="${COWRIE_HOME}/var/lib/cowrie/tty"
 
-# Listening ports — set the SSH listen port here.
-# Use iptables/firewall to redirect external port 22 -> this port if desired.
+# Listening ports
 LISTEN_SSH_PORT=2222
 LISTEN_TELNET_PORT=2223
 LISTEN_ENABLED_TELNET="false"
@@ -429,28 +428,28 @@ setup_firewall() {
 
     if ! command -v iptables &>/dev/null; then
         log_warn "iptables not found. Skipping firewall configuration."
-        log_warn "Cowrie listens on port ${LISTEN_SSH_PORT} -- ensure your firewall allows it."
         return
     fi
 
-    # Allow Cowrie's listen port directly
+    # Allow Cowrie's listen port
     if ! iptables -C INPUT -p tcp --dport "$LISTEN_SSH_PORT" -j ACCEPT 2>/dev/null; then
         iptables -A INPUT -p tcp --dport "$LISTEN_SSH_PORT" -j ACCEPT
-        log_info "Allowed inbound TCP/${LISTEN_SSH_PORT}."
+        log_info "Allowed inbound TCP/${LISTEN_SSH_PORT} (Cowrie)."
     fi
 
     if [[ "$LISTEN_ENABLED_TELNET" == "true" ]]; then
         if ! iptables -C INPUT -p tcp --dport "$LISTEN_TELNET_PORT" -j ACCEPT 2>/dev/null; then
             iptables -A INPUT -p tcp --dport "$LISTEN_TELNET_PORT" -j ACCEPT
-            log_info "Allowed inbound TCP/${LISTEN_TELNET_PORT}."
+            log_info "Allowed inbound TCP/${LISTEN_TELNET_PORT} (Cowrie telnet)."
         fi
     fi
 
-    # NOTE: We intentionally do NOT add a PREROUTING NAT redirect from port 22.
-    # Redirecting port 22 will break SSH access to the machine. If you want
-    # attackers to hit Cowrie on port 22, first move sshd to another port,
-    # then manually run:
-    #   iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port 2222
+    # Redirect external port 22 -> Cowrie
+    # Assumes sshd is already removed/disabled; PREROUTING only affects external traffic
+    if ! iptables -t nat -C PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT" 2>/dev/null; then
+        iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT"
+        log_info "Redirecting external port 22 -> ${LISTEN_SSH_PORT} (Cowrie)."
+    fi
 
     # Persist iptables rules across reboots
     if command -v netfilter-persistent &>/dev/null; then
@@ -497,7 +496,7 @@ do_install() {
     echo -e "${BOLD}===================================================${NC}"
     echo -e "${GREEN} Cowrie honeypot installed and running${NC}"
     echo -e "${BOLD}===================================================${NC}"
-    echo -e " SSH listener:    ${CYAN}port ${LISTEN_SSH_PORT}${NC}"
+    echo -e " Port 22:         ${CYAN}redirected -> Cowrie (${LISTEN_SSH_PORT})${NC}"
     [[ "$LISTEN_ENABLED_TELNET" == "true" ]] && \
         echo -e " Telnet listener: ${CYAN}port ${LISTEN_TELNET_PORT}${NC}"
     echo -e " JSON logs:       ${CYAN}${COWRIE_LOG_DIR}/cowrie.json${NC}"
@@ -552,6 +551,9 @@ do_uninstall() {
     if id "$COWRIE_USER" &>/dev/null; then
         userdel "$COWRIE_USER" 2>/dev/null || true
     fi
+
+    # Remove port-22 redirect
+    iptables -t nat -D PREROUTING -p tcp --dport 22 -j REDIRECT --to-port "$LISTEN_SSH_PORT" 2>/dev/null || true
 
     log_info "Cowrie uninstalled."
 }
