@@ -671,7 +671,7 @@ EOF
 
     restart_service "$WEB_SERVER"
     ok "Roundcube hardened"
-
+}
 
 # --- Main ---
 require_root
