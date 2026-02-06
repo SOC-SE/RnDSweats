@@ -22,7 +22,7 @@ set service rpc-dynamic protocol tcp port 49152-65535
 set service rpc-dynamic protocol tcp override no
 set service email-in protocol tcp port 25,110
 set service email-in protocol tcp override no
-set service-group required-ports members [ dns-required splunk-required ]
+set service-group splunk-required-ports members [ dns-required splunk-required ]
 set service-group ad-ports members [ ad-required-tcp ad-required-udp rpc-dynamic ]
 set rulebase security rules all-to-splunk to Internal
 set rulebase security rules all-to-splunk from any
@@ -31,7 +31,7 @@ set rulebase security rules all-to-splunk destination [ rOracle-Splunk rNAT-Orac
 set rulebase security rules all-to-splunk source-user any
 set rulebase security rules all-to-splunk category any
 set rulebase security rules all-to-splunk application any
-set rulebase security rules all-to-splunk service required-ports
+set rulebase security rules all-to-splunk service splunk-required-ports
 set rulebase security rules all-to-splunk source-hip any
 set rulebase security rules all-to-splunk destination-hip any
 set rulebase security rules all-to-splunk action allow
