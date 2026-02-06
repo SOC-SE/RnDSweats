@@ -290,10 +290,8 @@ EOF
         sed -i 's|/usr/lib/openssh/sftp-server|/usr/lib/ssh/sftp-server|' "$SSHD_CONFIG"
     fi
 
-    # Create banner if it doesn't exist
-    if [[ ! -f /etc/issue.net ]]; then
-        echo "Unauthorized access prohibited. All activity is monitored." > /etc/issue.net
-    fi
+    # Set SSH banner
+    echo "UNAUTHORIZED ACCESS PROHIBITED. ALL ACTIVITY IS MONITORED AND RECORDED. VIOLATIONS WILL BE PROSECUTED TO THE FULLEST EXTENT OF THE LAW." > /etc/issue.net
 
     log_info "SSH hardening applied"
 }

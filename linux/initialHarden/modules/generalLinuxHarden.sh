@@ -140,8 +140,9 @@ passwd -l lp 2>/dev/null
 echo "[+] Phase 3: System Hardening"
 
 echo "Setting Banners..."
-echo "UNAUTHORIZED ACCESS PROHIBITED." > /etc/issue
+echo "UNAUTHORIZED ACCESS PROHIBITED. ALL ACTIVITY IS MONITORED AND RECORDED. VIOLATIONS WILL BE PROSECUTED TO THE FULLEST EXTENT OF THE LAW." > /etc/issue
 cp /etc/issue /etc/motd
+cp /etc/issue /etc/issue.net
 
 echo "Nuking Cron jobs..."
 # Allow root only

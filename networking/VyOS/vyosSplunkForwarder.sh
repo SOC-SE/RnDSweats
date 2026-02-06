@@ -482,90 +482,86 @@ blacklist = \.(gz|bz2|zip)$|\.\d$
 
 MONITORS_EOF
 
-    # Add Zeek monitors if Zeek is installed
-    if [[ "$ZEEK_INSTALLED" == true ]]; then
-        log_info "Adding Zeek log monitors..."
-        cat >> "$monitor_config" << ZEEK_MONITORS_EOF
+    # Zeek monitors - always included; Splunk ignores paths that don't exist
+    cat >> "$monitor_config" << 'ZEEK_MONITORS_EOF'
 
 # -----------------------------------------------------------------------------
 # Zeek Network Security Monitor Logs
 # -----------------------------------------------------------------------------
-# Zeek installation detected at: $ZEEK_DIR
+# Splunk gracefully ignores monitor paths that do not exist.
 
 # Connection logs - all network connections
-[monitor://$ZEEK_DIR/logs/current/conn.log]
+[monitor:///opt/zeek/logs/current/conn.log]
 index = network
 sourcetype = zeek:conn
 crcSalt = <SOURCE>
 
 # DNS logs - all DNS queries and responses
-[monitor://$ZEEK_DIR/logs/current/dns.log]
+[monitor:///opt/zeek/logs/current/dns.log]
 index = network
 sourcetype = zeek:dns
 crcSalt = <SOURCE>
 
 # HTTP logs - HTTP requests (unencrypted only)
-[monitor://$ZEEK_DIR/logs/current/http.log]
+[monitor:///opt/zeek/logs/current/http.log]
 index = network
 sourcetype = zeek:http
 crcSalt = <SOURCE>
 
 # Notice log - ALERTS from detection scripts (C2, malware, attacks)
-[monitor://$ZEEK_DIR/logs/current/notice.log]
+[monitor:///opt/zeek/logs/current/notice.log]
 index = network
 sourcetype = zeek:notice
 crcSalt = <SOURCE>
 
 # SSL/TLS logs - certificate and handshake info
-[monitor://$ZEEK_DIR/logs/current/ssl.log]
+[monitor:///opt/zeek/logs/current/ssl.log]
 index = network
 sourcetype = zeek:ssl
 crcSalt = <SOURCE>
 
 # SSH logs - SSH connection details and auth
-[monitor://$ZEEK_DIR/logs/current/ssh.log]
+[monitor:///opt/zeek/logs/current/ssh.log]
 index = network
 sourcetype = zeek:ssh
 crcSalt = <SOURCE>
 
 # DCE/RPC logs - Windows RPC traffic (lateral movement indicator)
-[monitor://$ZEEK_DIR/logs/current/dce_rpc.log]
+[monitor:///opt/zeek/logs/current/dce_rpc.log]
 index = network
 sourcetype = zeek:dce_rpc
 crcSalt = <SOURCE>
 
 # SMB file access logs
-[monitor://$ZEEK_DIR/logs/current/smb_mapping.log]
+[monitor:///opt/zeek/logs/current/smb_mapping.log]
 index = network
 sourcetype = zeek:smb_mapping
 crcSalt = <SOURCE>
 
-[monitor://$ZEEK_DIR/logs/current/smb_files.log]
+[monitor:///opt/zeek/logs/current/smb_files.log]
 index = network
 sourcetype = zeek:smb_files
 crcSalt = <SOURCE>
 
 # Kerberos logs - authentication and ticket requests
-[monitor://$ZEEK_DIR/logs/current/kerberos.log]
+[monitor:///opt/zeek/logs/current/kerberos.log]
 index = network
 sourcetype = zeek:kerberos
 crcSalt = <SOURCE>
 
 # File analysis logs
-[monitor://$ZEEK_DIR/logs/current/files.log]
+[monitor:///opt/zeek/logs/current/files.log]
 index = network
 sourcetype = zeek:files
 crcSalt = <SOURCE>
 
 # X.509 certificate logs
-[monitor://$ZEEK_DIR/logs/current/x509.log]
+[monitor:///opt/zeek/logs/current/x509.log]
 index = network
 sourcetype = zeek:x509
 crcSalt = <SOURCE>
 
 ZEEK_MONITORS_EOF
-        log_success "Added Zeek log monitors"
-    fi
 
     # Add test log monitor
     cat >> "$monitor_config" << 'EOF'
@@ -663,11 +659,6 @@ print_summary() {
     echo "  Splunk Version:   $SPLUNK_VERSION"
     echo "  Install Path:     $INSTALL_DIR"
     echo "  Indexer:          $INDEXER_IP:9997"
-    if [[ "$ZEEK_INSTALLED" == true ]]; then
-        echo "  Zeek Integration: Enabled ($ZEEK_DIR)"
-    else
-        echo "  Zeek Integration: Not installed"
-    fi
     echo ""
     echo -e "${GREEN}Monitored Log Categories:${NC}"
     echo "  index=linux:"
@@ -677,9 +668,7 @@ print_summary() {
     echo "    - VPN logs (OpenVPN, IPsec/StrongSwan)"
     echo "    - Routing protocols (FRR/Quagga)"
     echo "    - Firewall, DHCP, DNS services"
-    if [[ "$ZEEK_INSTALLED" == true ]]; then
-        echo "    - Zeek logs (conn, dns, http, notice, ssl, ssh, dce_rpc, smb, kerberos, files, x509)"
-    fi
+    echo "    - Zeek logs (conn, dns, http, notice, ssl, ssh, dce_rpc, smb, kerberos, files, x509)"
     echo ""
     echo -e "${GREEN}Management Commands:${NC}"
     echo "  systemctl status SplunkForwarder"
@@ -689,11 +678,6 @@ print_summary() {
     echo -e "${YELLOW}Next Steps:${NC}"
     echo "  1. Verify logs appear in Splunk (index=linux for system, index=network for network)"
     echo "  2. Check forwarder status: $INSTALL_DIR/bin/splunk list forward-server"
-    if [[ "$ZEEK_INSTALLED" != true ]]; then
-        echo "  3. (Optional) Install Zeek for network visibility:"
-        echo "     ./vyosZeekInstall.sh -i <interface>"
-        echo "     ./zeekDetectionConfigure.sh"
-    fi
     echo ""
 }
 

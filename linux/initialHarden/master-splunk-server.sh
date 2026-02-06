@@ -465,9 +465,10 @@ phase "PHASE 4: OS HARDENING"
 # Legal banners
 log "Setting legal banners..."
 cat > /etc/issue << EOF
-UNAUTHORIZED ACCESS PROHIBITED. VIOLATORS WILL BE PROSECUTED TO THE FULLEST EXTENT OF THE LAW.
+UNAUTHORIZED ACCESS PROHIBITED. ALL ACTIVITY IS MONITORED AND RECORDED. VIOLATIONS WILL BE PROSECUTED TO THE FULLEST EXTENT OF THE LAW.
 EOF
 cp /etc/issue /etc/motd
+cp /etc/issue /etc/issue.net
 
 # Cron lockdown
 log "Clearing cron jobs and locking down..."
