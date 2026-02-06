@@ -1398,6 +1398,12 @@ create_local_zeek() {
 @load base/protocols/krb
 
 #==============================================================================
+# JSON LOG OUTPUT (easier parsing in Splunk/SIEM)
+#==============================================================================
+# Output all Zeek logs in JSON format instead of TSV
+redef LogAscii::use_json = T;
+
+#==============================================================================
 # JA3 TLS FINGERPRINTING (Legacy - broad coverage)
 #==============================================================================
 # Required for TLS-based malware/C2 detection

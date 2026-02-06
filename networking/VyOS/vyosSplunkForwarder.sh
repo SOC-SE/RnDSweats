@@ -50,7 +50,7 @@ ZEEK_DIR=""
 ZEEK_INSTALLED=false
 
 # Set defaults for configuration
-DEFAULT_INDEXER_IP="172.20.242.20"
+DEFAULT_INDEXER_IP="192.168.56.13"
 DEFAULT_ADMIN_USERNAME="admin"
 
 # Override defaults with command-line arguments if they are provided
