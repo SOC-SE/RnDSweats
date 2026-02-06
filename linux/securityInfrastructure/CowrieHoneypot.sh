@@ -252,20 +252,28 @@ setup_virtualenv() {
         fi
     fi
 
-    # Locate vendored wheels (relative to script location)
-    local VENDOR_WHEELS
-    VENDOR_WHEELS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../vendor/cowrie/wheels"
+    # Locate vendored wheels — search upward from script dir for vendor/cowrie/wheels
+    local VENDOR_WHEELS=""
+    local _search_dir
+    _search_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    while [[ "$_search_dir" != "/" ]]; do
+        if [[ -d "${_search_dir}/vendor/cowrie/wheels" ]]; then
+            VENDOR_WHEELS="${_search_dir}/vendor/cowrie/wheels"
+            break
+        fi
+        _search_dir="$(dirname "$_search_dir")"
+    done
 
     # Quick connectivity check — avoid wasting minutes on pip retries if PyPI is unreachable
     local USE_VENDOR=false
     log_info "Checking PyPI connectivity..."
     if curl -s --max-time 10 -o /dev/null https://pypi.org/simple/pip/; then
         log_info "PyPI is reachable."
-    elif [[ -d "$VENDOR_WHEELS" ]]; then
-        log_warn "PyPI unreachable (timeout). Using vendored wheels..."
+    elif [[ -n "$VENDOR_WHEELS" ]]; then
+        log_warn "PyPI unreachable (timeout). Using vendored wheels at ${VENDOR_WHEELS}..."
         USE_VENDOR=true
     else
-        log_fatal "PyPI unreachable and no vendored wheels found at ${VENDOR_WHEELS}."
+        log_fatal "PyPI unreachable and no vendored wheels found. Searched upward from $(dirname "${BASH_SOURCE[0]}")."
     fi
 
     if [[ "$USE_VENDOR" == "true" ]]; then
