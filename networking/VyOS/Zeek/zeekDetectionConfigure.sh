@@ -737,7 +737,8 @@ export {
         # Pair with JA3S for higher fidelity detection.
         # =====================================================================
         ["72a589da586844d7f0818ce684948eea"] = "Win10 SChannel to IP (CobaltStrike/Meterpreter/Havoc/Covenant/Remcos/Warzone)",
-        ["a0e9f5d64349fb13191bc781f81f42e1"] = "Win10 SChannel to domain (CobaltStrike/Meterpreter/IcedID/LummaC2/Stealc/AgentTesla)",
+        # DISABLED - Too broad, matches all Windows system TLS traffic (SChannel default)
+        # ["a0e9f5d64349fb13191bc781f81f42e1"] = "Win10 SChannel to domain (CobaltStrike/Meterpreter/IcedID/LummaC2/Stealc/AgentTesla)",
         ["5d65ea3fb1d4aa7d826733f355cd4c51"] = "Metasploit Meterpreter",
         ["5d65ea3fb1d4aa7d826733d2f2cbbb1d"] = "Metasploit Meterpreter HTTPS (Linux)", # Verified via live testing
         ["3b5074b1b5d032e5620f69f9f700ff0e"] = "IcedID",                     # NETRESEC blog
@@ -875,9 +876,11 @@ export {
         # COBALT STRIKE - ja4db.com verified + DFIR reports
         ["t12i190700_d83cc789557e_16bbda4055b2"] = "Cobalt Strike v4.9.1 (wininet, Win10)",
         ["t12i210700_76e208dd3e22_16bbda4055b2"] = "Cobalt Strike v4.9.1 (winhttp, Win10)",
-        ["t13d190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike / Sliver / Go C2 (Go < 1.22)", # ja4db.com
-        ["t13d201100_2b729b4bf6f3_9e7b989ebec8"] = "IcedID / Cobalt Strike Beacon",
-        ["t13i190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike / Sliver / Go C2 (Go < 1.22, no SNI)",
+        # DISABLED - Too broad, matches any Go app using default TLS (Go < 1.22)
+        # ["t13d190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike / Sliver / Go C2 (Go < 1.22)",
+        # ["t13i190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike / Sliver / Go C2 (Go < 1.22, no SNI)",
+        # DISABLED - Too broad, matches common Windows/IcedID TLS patterns
+        # ["t13d201100_2b729b4bf6f3_9e7b989ebec8"] = "IcedID / Cobalt Strike Beacon",
         ["t12d190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike (TLS 1.2)",
         ["t13d191000_9dc949149365_e7c285222651"] = "Cobalt Strike 4.x malleable",
         ["t13d1517h2_8daaf6152771_b0da82dd1658"] = "Cobalt Strike 4.9+ HTTPS",
