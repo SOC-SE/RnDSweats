@@ -97,11 +97,13 @@ Zeek Red Team Detection Suite - Unified Installer
 
 This script installs complete network-based threat detection:
 
-  PACKAGE 1: TLS Fingerprinting (JA4/JA3/JA4X)
+  PACKAGE 1: TLS/Certificate/DNS Detection (JA4/JA3/x509/DNS)
     • 14 C2 frameworks (Cobalt Strike, Sliver, Metasploit, Brute Ratel...)
     • 11 RATs (AsyncRAT, njRAT, QuasarRAT, Remcos...)
     • 9 Banking trojans (TrickBot, Dridex, Emotet, Qakbot...)
     • 6 Stealers (LummaC2, RedLine, Raccoon...)
+    • X.509 cert anomaly detection (serial numbers, validity, key params)
+    • DNS tunneling detection (iodine, dnscat2, data exfiltration)
     • 120+ total fingerprints
 
   PACKAGE 2: Windows/AD Attack Detection
@@ -404,13 +406,18 @@ install_tls_fingerprinting() {
     # Main loader script
     #---------------------------------------------------------------------------
     cat > "$dest_dir/__load__.zeek" << 'ZEEKEOF'
-##! Red Team Detection Suite - TLS/SSH Fingerprinting
-##! Detects C2 frameworks, RATs, and malware via JA3/JA4/HASSH fingerprints
+##! Red Team Detection Suite - TLS/SSH/DNS Detection
+##! Detects C2 frameworks, RATs, and malware via:
+##!   - JA3/JA4/HASSH fingerprints
+##!   - X.509 certificate anomalies (serial numbers, validity, key parameters)
+##!   - DNS tunneling indicators (NULL records, long queries, subdomain volume)
 ##! Gracefully handles missing packages (JA3, JA4, HASSH)
 
 @load base/protocols/ssl
 @load base/protocols/ssh
+@load base/protocols/dns
 @load base/frameworks/notice
+@load base/files/x509
 
 module RedTeam;
 
@@ -421,6 +428,7 @@ export {
         Suspicious_TLS_Client,
         Suspicious_Certificate,
         Suspicious_SSH_Client,
+        DNS_Tunneling,
     };
 
     # Enable/disable detection - ALL ENABLED BY DEFAULT
@@ -435,6 +443,7 @@ export {
 
 # Load detection logic
 @load ./detection
+@load ./dns_anomaly
 ZEEKEOF
 
     #---------------------------------------------------------------------------
@@ -660,6 +669,104 @@ event connection_state_remove(c: connection) &priority=-2
     }
 }
 @endif
+
+# ==========================================================================
+# X.509 Certificate Analysis - specific C2 certificate patterns
+# ==========================================================================
+# NOTE: Only effective for TLS 1.2 and below. TLS 1.3 encrypts certificates
+# in transit, so x509.log will be empty for TLS 1.3 connections.
+# Many C2 frameworks (especially older configs) still use TLS 1.2.
+#
+# Detection targets:
+#   - Cobalt Strike default keystore certificate (serial 146473198)
+#   - AsyncRAT/DcRat: SHA512+RSA4096 (BouncyCastle generated)
+#   - Self-signed certs with >5 year validity (Metasploit: 4-9yr, AsyncRAT: ~10yr)
+
+# Known C2 certificate serial numbers (hex encoded)
+const c2_cert_serials: set[string] = {
+    "08BB00EE",  # Cobalt Strike default keystore (decimal: 146473198)
+};
+
+event x509_certificate(f: fa_file, cert_ref: opaque of x509, cert: X509::Certificate)
+{
+    if ( ! enable_cert_detection )
+        return;
+
+    if ( ! f?$conns )
+        return;
+
+    local subject = cert$subject;
+    local issuer = cert$issuer;
+    local serial = to_upper(cert$serial);
+
+    # --- Known C2 Certificate Serial Numbers ---
+    # Cobalt Strike ships with a default Java keystore (cobaltstrike.store)
+    # with serial 146473198. Operators often change subject/issuer but
+    # forget to regenerate the keystore entirely.
+    if ( serial in c2_cert_serials )
+    {
+        for ( cid in f$conns )
+        {
+            NOTICE([
+                $note = Suspicious_Certificate,
+                $conn = f$conns[cid],
+                $msg = fmt("Known C2 certificate serial detected (serial: %s, subject: %s, server: %s:%s)",
+                           serial, subject, f$conns[cid]$id$resp_h, f$conns[cid]$id$resp_p),
+                $sub = "C2 Default Cert Serial"
+            ]);
+        }
+    }
+
+    # --- AsyncRAT / DcRat / VenomRAT Certificate Pattern ---
+    # These .NET RATs use BouncyCastle to generate certs with SHA512+RSA4096.
+    # This combination is extremely rare in legitimate certificates.
+    # Source: Corelight AsyncRAT analysis, DcRat source code
+    if ( cert?$sig_alg && cert?$key_length )
+    {
+        if ( cert$sig_alg == "sha512WithRSAEncryption" && cert$key_length == 4096 )
+        {
+            for ( cid in f$conns )
+            {
+                NOTICE([
+                    $note = Suspicious_Certificate,
+                    $conn = f$conns[cid],
+                    $msg = fmt("AsyncRAT/DcRat cert pattern: SHA512+RSA4096 (subject: %s, server: %s:%s)",
+                               subject, f$conns[cid]$id$resp_h, f$conns[cid]$id$resp_p),
+                    $sub = "AsyncRAT/DcRat Cert Pattern"
+                ]);
+            }
+        }
+    }
+
+    # --- Certificate Validity Period Anomalies ---
+    # CA/Browser Forum limits: max 398 days for publicly trusted certs.
+    # Self-signed certs with very long validity indicate tool-generated certs:
+    #   Metasploit: 4-9 years (randomized), AsyncRAT/DcRat: ~10 years
+    # Legitimate internal CAs may also use long validity, but combined with
+    # self-signed + long validity, this is a strong indicator.
+    if ( cert?$not_valid_before && cert?$not_valid_after )
+    {
+        local validity_secs = interval_to_double(cert$not_valid_after - cert$not_valid_before);
+        local five_years_secs = 5.0 * 365.0 * 86400.0;
+
+        if ( validity_secs > five_years_secs && subject == issuer )
+        {
+            local validity_days = double_to_count(validity_secs / 86400.0);
+            for ( cid in f$conns )
+            {
+                NOTICE([
+                    $note = Suspicious_Certificate,
+                    $conn = f$conns[cid],
+                    $msg = fmt("Self-signed cert with excessive validity: %d days (~%d years, subject: %s, server: %s:%s)",
+                               validity_days, double_to_count(validity_secs / (365.0 * 86400.0)),
+                               subject, f$conns[cid]$id$resp_h, f$conns[cid]$id$resp_p),
+                    $sub = fmt("Long validity self-signed: %d days", validity_days),
+                    $identifier = cat(f$conns[cid]$id$resp_h, f$conns[cid]$id$resp_p, "longvalidity")
+                ]);
+            }
+        }
+    }
+}
 ZEEKEOF
 
     #---------------------------------------------------------------------------
@@ -678,6 +785,127 @@ ZEEKEOF
     cat > "$dest_dir/detection_hassh.zeek" << 'ZEEKEOF'
 ##! HASSH SSH Fingerprint Detection
 ##! Detection logic is in detection.zeek - this file kept for compatibility
+ZEEKEOF
+
+    #---------------------------------------------------------------------------
+    # DNS Anomaly / Tunneling Detection
+    #---------------------------------------------------------------------------
+    cat > "$dest_dir/dns_anomaly.zeek" << 'ZEEKEOF'
+##! DNS Anomaly Detection - Tunneling, Exfiltration, DGA
+##! Detects: iodine (NULL records), dnscat2, dns2tcp, generic DNS tunneling
+##!
+##! Detection methods:
+##!   1. NULL record queries (almost exclusively used by DNS tunneling tools)
+##!   2. Unusually long DNS queries (data encoded in subdomain labels)
+##!   3. High volume of unique subdomains to a single parent domain
+##!
+##! NOTE: Entropy-based detection is not included here (complex to implement
+##! in Zeek script). For entropy analysis, use post-processing tools like
+##! RITA or export dns.log to a SIEM.
+
+module RedTeam;
+
+export {
+    # Enable/disable DNS anomaly detection
+    option enable_dns_detection: bool = T;
+
+    # Query length threshold - normal DNS queries are typically < 30 chars
+    # DNS tunneling tools encode data in subdomains, approaching the 253-char limit
+    # 52 chars catches most tunneling while avoiding false positives on CDN/cloud URLs
+    option dns_query_length_threshold: count = 52;
+
+    # Unique subdomain threshold per parent domain per source (2-minute window)
+    # Normal browsing: ~5-20 unique subdomains per domain
+    # DNS tunneling: hundreds of unique subdomains per domain
+    option dns_subdomain_threshold: count = 100;
+
+    # Whitelist domains that legitimately have many subdomains
+    # Examples: CDN providers, analytics, cloud services
+    option dns_whitelisted_domains: set[string] = {
+        "akadns.net", "akamaiedge.net", "amazonaws.com",
+        "azure.com", "cloudflare.com", "cloudfront.net",
+        "google.com", "googleapis.com", "googleusercontent.com",
+        "gstatic.com", "microsoft.com", "msedge.net",
+        "office.com", "windows.net", "windowsupdate.com",
+    } &redef;
+}
+
+# Track unique subdomains per [source, parent_domain] pair
+global dns_subdomain_tracker: table[string] of set[string] &read_expire=2min;
+
+event dns_request(c: connection, msg: dns_msg, query: string, qtype: count, qclass: count)
+{
+    if ( ! enable_dns_detection )
+        return;
+
+    # --- NULL Record Detection (iodine DNS tunneling) ---
+    # DNS NULL records (qtype 10) have almost zero legitimate use.
+    # iodine uses NULL records as its preferred downstream encoding method.
+    if ( qtype == 10 )
+    {
+        NOTICE([
+            $note = DNS_Tunneling,
+            $conn = c,
+            $msg = fmt("DNS NULL record query (strong iodine/tunneling indicator): %s from %s",
+                       query, c$id$orig_h),
+            $sub = "DNS NULL Record",
+            $identifier = cat(c$id$orig_h, "null_dns")
+        ]);
+    }
+
+    # --- Long DNS Query Detection ---
+    # Data exfiltration via DNS encodes payloads in subdomain labels.
+    # Legitimate queries rarely exceed 50 characters.
+    if ( |query| > dns_query_length_threshold )
+    {
+        NOTICE([
+            $note = DNS_Tunneling,
+            $conn = c,
+            $msg = fmt("Suspiciously long DNS query (%d chars, possible data exfiltration): %s from %s",
+                       |query|, query, c$id$orig_h),
+            $sub = "Long DNS Query",
+            $identifier = cat(c$id$orig_h, "long_dns", query)
+        ]);
+    }
+
+    # --- Unique Subdomain Volume Detection ---
+    # DNS tunneling generates hundreds of unique subdomains under a single
+    # parent domain (each query encodes different data). Normal browsing
+    # generates far fewer unique subdomains per domain.
+    local parts = split_string(query, /\./);
+    local n = |parts|;
+
+    if ( n >= 3 )
+    {
+        # Extract parent domain (last 2 labels)
+        local parent = fmt("%s.%s", parts[n - 2], parts[n - 1]);
+        local src = c$id$orig_h;
+        local tracker_key = fmt("%s|%s", src, parent);
+
+        # Skip whitelisted domains
+        if ( parent in dns_whitelisted_domains )
+            return;
+
+        if ( tracker_key !in dns_subdomain_tracker )
+            dns_subdomain_tracker[tracker_key] = set();
+
+        add dns_subdomain_tracker[tracker_key][query];
+
+        if ( |dns_subdomain_tracker[tracker_key]| >= dns_subdomain_threshold )
+        {
+            NOTICE([
+                $note = DNS_Tunneling,
+                $conn = c,
+                $msg = fmt("High volume unique subdomains: %s queried %d+ unique subdomains of %s (DNS tunneling/exfiltration)",
+                           src, dns_subdomain_threshold, parent),
+                $sub = fmt("DNS subdomain volume: %s", parent),
+                $identifier = cat(src, parent, "subdomain_volume")
+            ]);
+            # Reset after alerting to allow future detections
+            delete dns_subdomain_tracker[tracker_key];
+        }
+    }
+}
 ZEEKEOF
 
     log_success "Created TLS fingerprinting framework"
@@ -942,6 +1170,15 @@ ZEEKEOF
     cat > "$fp_dir/ja4x_certificates.zeek" << 'ZEEKEOF'
 ##! JA4X Certificate Fingerprints & Suspicious Patterns
 ##! Source: ja4db.com (verified), FoxIO, Validin, threat intelligence
+##!
+##! STATUS: JA4X is NOT YET COMPUTED by the Zeek JA4 package (awaiting Zeek
+##! object support). These signatures are included for:
+##!   1. Future use when Zeek adds JA4X support
+##!   2. Offline analysis with Wireshark/Arkime/tshark (which do compute JA4X)
+##!   3. Threat intel reference for pivoting in Censys/Shodan
+##!
+##! For ACTIVE certificate detection, see detection.zeek which uses x509.log
+##! fields (serial numbers, validity periods, key parameters, subject/issuer).
 
 module RedTeam;
 
@@ -971,6 +1208,9 @@ export {
         # PoshC2 default certificate values (Nettitude)
         "Pajfds", "Jethpro", "P18055077", "Minnetonka",
 
+        # Cobalt Strike default keystore certificate fields
+        "Major Cobalt Strike", "AdvancedPenTesting", "Cyberspace",
+
         # Pentesting defaults
         "YOURORGANIZATION", "YOURCOMPANY", "example.com",
         "localhost", "test", "Test", "default", "Default",
@@ -980,9 +1220,11 @@ export {
         # These share JA3 fc54e0d16d9764783542f0146a98b300 (.NET SslStream)
         "AsyncRAT", "AsyncRAT Server", "DcRat", "DCRat",
         "VenomRAT", "VenomRATByVenom", "XWorm", "xworm",
-        "QuasarRAT", "Quasar", "NanoCore", "nanocore",
+        "QuasarRAT", "Quasar", "SXN Server CA",  # QuasarRAT default CN
+        "NanoCore", "nanocore",
         "Orcus", "orcus", "SolarMarker", "solarmarker",
         "njRAT", "NJRAT", "njrat",
+        "qwqdanchun",  # DcRat/VenomRAT author handle (in OU/O fields)
 
         # Native RATs (C/C++, custom TLS or WinAPI)
         "Remcos", "remcos", "BitRAT", "bitrat",
@@ -1046,7 +1288,7 @@ export {
 }
 ZEEKEOF
 
-    log_success "Generated fingerprint database (JA3: ~82, JA3S: 10, JA4: ~26, JA4S: 5, JA4X: 8, HASSH: 11, cert patterns: 85+)"
+    log_success "Generated fingerprint database (JA3: ~82, JA3S: 10, JA4: ~26, JA4S: 5, JA4X: 8, HASSH: 11, cert patterns: 90+, DNS anomaly rules: 3)"
 }
 
 install_ad_attacks() {
@@ -1596,7 +1838,9 @@ print_summary() {
     echo -e "${GREEN}Detection Rules Installed:${NC}"
     echo "  ✓ TLS Detection Rules - 220+ JA3/JA4 signatures"
     echo "  ✓ SSH Detection Rules - 20+ HASSH signatures"
-    echo "  ✓ Certificate Patterns - 30+ suspicious patterns"
+    echo "  ✓ Certificate Patterns - 90+ suspicious patterns"
+    echo "  ✓ X.509 Certificate Analysis - serial numbers, validity, key params"
+    echo "  ✓ DNS Tunneling Detection - NULL records, long queries, subdomain volume"
     echo "  ✓ AD Attack Detection - Impacket, Kerberoasting, BloodHound"
     echo ""
     echo -e "${GREEN}Detection Coverage:${NC}"
@@ -1604,6 +1848,8 @@ print_summary() {
     echo "  • 15 RATs (AsyncRAT, njRAT, QuasarRAT, Remcos, DCRat, XWorm...)"
     echo "  • 10 Stealers/Loaders (LummaC2, RedLine, IcedID, Pikabot...)"
     echo "  • 10 Banking trojans (TrickBot, Dridex, Emotet, Qakbot...)"
+    echo "  • X.509 cert analysis (CS default serial, AsyncRAT SHA512+4096, long validity)"
+    echo "  • DNS tunneling (iodine NULL records, dnscat2, data exfiltration)"
     echo "  • 7 Impacket tools (secretsdump, psexec, wmiexec...)"
     echo "  • SSH tunneling tools (Paramiko, libssh, Meterpreter SSH)"
     echo "  • Kerberoasting & AS-REP Roasting"
