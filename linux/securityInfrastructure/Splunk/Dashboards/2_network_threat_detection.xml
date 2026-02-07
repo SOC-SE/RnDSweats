@@ -271,7 +271,214 @@ index=network sourcetype=zeek:dns rcode_name="NXDOMAIN"
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 5: Port Scanners + Connection State Analysis -->
+  <!-- Row 5: DNS and HTTP Domain Overview -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Top Queried DNS Domains</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:dns
+| where isnotnull(query) AND (id.orig_h LIKE replace("$src_filter$", "\*", "%") OR "$src_filter$"="*")
+| rex field=query "(?&lt;base_domain&gt;[^.]+\.[^.]+)$"
+| where isnotnull(base_domain)
+| stats count as queries, dc(id.orig_h) as clients, values(qtype_name) as query_types, values(rcode_name) as response_codes by base_domain
+| append [
+    search index=linux sourcetype=technitium:syslog
+    | rex field=_raw "client:\s*(?&lt;client_ip&gt;[\d.]+)"
+    | rex field=_raw "query:\s*(?&lt;query_domain&gt;[^\s;]+)"
+    | where isnotnull(query_domain) AND (client_ip LIKE replace("$src_filter$", "\*", "%") OR "$src_filter$"="*")
+    | rex field=query_domain "(?&lt;base_domain&gt;[^.]+\.[^.]+)$"
+    | where isnotnull(base_domain)
+    | stats count as queries, dc(client_ip) as clients by base_domain
+    | eval query_types="N/A", response_codes="N/A"
+]
+| stats sum(queries) as queries, sum(clients) as clients, values(query_types) as query_types, values(response_codes) as response_codes by base_domain
+| sort -queries
+| rename base_domain as "Domain", queries as "Queries", clients as "Clients", query_types as "Query Types", response_codes as "Response Codes"
+| head 25
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Queries">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax"></scale>
+        </format>
+        <format type="color" field="Clients">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax"></scale>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Top HTTP Hosts Accessed</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:http
+| where isnotnull(domain_host) AND (id.orig_h LIKE replace("$src_filter$", "\*", "%") OR "$src_filter$"="*") AND (id.resp_h LIKE replace("$dest_filter$", "\*", "%") OR "$dest_filter$"="*")
+| stats count as requests, dc(id.orig_h) as clients, dc(uri) as unique_uris, values(method) as methods by domain_host
+| sort -requests
+| rename domain_host as "HTTP Host", requests as "Requests", clients as "Clients", unique_uris as "Unique URIs", methods as "Methods"
+| head 25
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Requests">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax"></scale>
+        </format>
+        <format type="color" field="Clients">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" minColor="#53A051"></colorPalette>
+          <scale type="minMidMax"></scale>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 6: Domain Activity Timelines -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>DNS Query Volume by Top Domains</title>
+      <chart>
+        <search>
+          <query>
+index=network sourcetype=zeek:dns
+| where isnotnull(query) AND (id.orig_h LIKE replace("$src_filter$", "\*", "%") OR "$src_filter$"="*")
+| rex field=query "(?&lt;base_domain&gt;[^.]+\.[^.]+)$"
+| where isnotnull(base_domain)
+| timechart span=5m count by base_domain limit=10
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="height">250</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>HTTP Host Access Timeline</title>
+      <chart>
+        <search>
+          <query>
+index=network sourcetype=zeek:http
+| where isnotnull(domain_host) AND (id.orig_h LIKE replace("$src_filter$", "\*", "%") OR "$src_filter$"="*")
+| timechart span=5m count by domain_host limit=10
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.chart">area</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="height">250</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 7: DNS Anomaly Detection -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>Single-Client Domains (Possible C2)</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:dns
+| where isnotnull(query) AND (id.orig_h LIKE replace("$src_filter$", "\*", "%") OR "$src_filter$"="*")
+| rex field=query "(?&lt;base_domain&gt;[^.]+\.[^.]+)$"
+| where isnotnull(base_domain)
+| stats count as queries, dc(id.orig_h) as client_count, values(id.orig_h) as clients, dc(query) as unique_subdomains by base_domain
+| where client_count==1 AND queries&gt;=3
+| eval risk=case(
+    queries&gt;=50, "HIGH",
+    queries&gt;=15, "MEDIUM",
+    1=1, "LOW"
+)
+| sort -queries
+| rename base_domain as "Domain", queries as "Queries", client_count as "Clients", clients as "Client IP", unique_subdomains as "Unique Subdomains", risk as "Risk"
+| head 25
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Risk">
+          <colorPalette type="map">{"HIGH":#DC4E41,"MEDIUM":#F8BE34,"LOW":#53A051}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>High NXDOMAIN Rate Domains</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:dns
+| where isnotnull(query) AND (id.orig_h LIKE replace("$src_filter$", "\*", "%") OR "$src_filter$"="*")
+| rex field=query "(?&lt;base_domain&gt;[^.]+\.[^.]+)$"
+| where isnotnull(base_domain)
+| stats count as total_queries, sum(eval(if(rcode_name=="NXDOMAIN",1,0))) as nxdomain_count, dc(query) as unique_subdomains, dc(id.orig_h) as clients by base_domain
+| eval fail_rate=round(nxdomain_count/total_queries*100, 1)
+| where fail_rate&gt;=50 AND total_queries&gt;=5
+| eval risk=case(
+    fail_rate&gt;=90 AND unique_subdomains&gt;=10, "CRITICAL (DGA)",
+    fail_rate&gt;=80, "HIGH",
+    1=1, "MEDIUM"
+)
+| sort -fail_rate -total_queries
+| rename base_domain as "Domain", total_queries as "Total Queries", nxdomain_count as "NXDOMAIN", fail_rate as "Fail Rate %", unique_subdomains as "Unique Subdomains", clients as "Clients", risk as "Risk"
+| head 25
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Risk">
+          <colorPalette type="map">{"CRITICAL (DGA)":#DC4E41,"HIGH":#F1813F,"MEDIUM":#F8BE34}</colorPalette>
+        </format>
+        <format type="color" field="Fail Rate %">
+          <colorPalette type="minMidMax" maxColor="#DC4E41" minColor="#F8BE34"></colorPalette>
+          <scale type="minMidMax"></scale>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 8: Port Scanners + Connection State Analysis -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -329,7 +536,7 @@ index=network sourcetype=zeek:conn conn_state IN ("REJ", "RSTO", "S0", "RSTOS0",
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 6: Firewall Block Details + Block Timeline -->
+  <!-- Row 9: Firewall Block Details + Block Timeline -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -381,7 +588,7 @@ index=linux sourcetype=iptables
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 7: Large Outbound Transfers + Suspicious HTTP -->
+  <!-- Row 10: Large Outbound Transfers + Suspicious HTTP -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -446,7 +653,7 @@ index=network sourcetype=zeek:http
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 8: TLS/SSL Certificate Anomalies + File Transfers -->
+  <!-- Row 11: TLS/SSL Certificate Anomalies + File Transfers -->
   <!-- ============================================================ -->
   <row>
     <panel>
@@ -522,7 +729,7 @@ index=network sourcetype=zeek:files
   </row>
 
   <!-- ============================================================ -->
-  <!-- Row 9: SSH Network Activity + SMB Lateral Movement -->
+  <!-- Row 12: SSH Network Activity + SMB Lateral Movement -->
   <!-- ============================================================ -->
   <row>
     <panel>
