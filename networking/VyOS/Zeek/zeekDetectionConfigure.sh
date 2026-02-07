@@ -745,8 +745,9 @@ export {
         ["eb88d0b3e1961a0562f006e5ce2a0b87"] = "Cobalt Strike Malleable C2", # Suricata ET rules
         ["f5e62b5a2ed9467df09fae7a8a54dda6"] = "BazarBackdoor/BazarLoader",  # TrickBot backdoor, Suricata ET rules
 
-        # Go crypto/tls C2 agents - verified live (Sliver + Mythic Poseidon + Chisel + Merlin, Go 1.25.6)
-        ["78f0dc5ac5b19daf131a133cfdee9691"] = "Go C2 Agent (Sliver/Poseidon/Chisel/Merlin/Go-compiled)",
+        # Go crypto/tls C2 agents
+        ["2196848d251b217de8b2c037e356c11d"] = "Go C2 Agent (Sliver/Poseidon/Chisel/Merlin/Go-compiled)", # Verified live: Sliver v1.7.0, Go 1.25.6
+        ["19e29534fd49dd27d09234e639c4057e"] = "Go C2 Agent (Sliver/Poseidon/Chisel/Merlin, older Go)",   # Darktrace - Go < 1.22 default TLS
 
         # EMPIRE / STARKILLER - Python-based C2
         ["db42e3017c8b6d160751ef3a04f695e7"] = "Empire/PoshC2 Python Server",       # DFIR Report
@@ -843,7 +844,8 @@ export {
         ["ec74a5c51106f0419184d0dd08fb05bc"] = "IcedID C2 Server",           # NETRESEC
         ["80b3a14bccc8598a1f3bbe83e71f735f"] = "Emotet C2 Server",           # Salesforce blog
         ["da2b67b20914678c1f1f5888281e1db9"] = "Metasploit Handler Server",  # Verified via live testing
-        ["f4febc55ea12b31ae17cfb7e614afda8"] = "Go TLS 1.3 Server (Sliver/Mythic/Go C2)", # Verified live
+        ["f4febc55ea12b31ae17cfb7e614afda8"] = "Go TLS 1.3 Server (Sliver/Mythic/Go C2)", # Verified live: Sliver v1.7.0, Go 1.25.6
+        ["475c9302dc42b2751db9edcac3b74891"] = "Sliver C2 Server (default multiplayer)", # Intel Insights / Censys
         ["70999de61602be74d4b25185843bd18e"] = "Meterpreter Handler (Kali)", # Salesforce JA3/JA3S blog
         ["e35df3e00ca4ef31d42b34bebaa2f86e"] = "Meterpreter Reverse Shell Handler", # Suricata ET rules
         ["623de93db17d313345d7ea481e7443cf"] = "TrickBot C2 Server",        # Salesforce JA3/JA3S blog
@@ -873,22 +875,24 @@ export {
         # COBALT STRIKE - ja4db.com verified + DFIR reports
         ["t12i190700_d83cc789557e_16bbda4055b2"] = "Cobalt Strike v4.9.1 (wininet, Win10)",
         ["t12i210700_76e208dd3e22_16bbda4055b2"] = "Cobalt Strike v4.9.1 (winhttp, Win10)",
-        ["t13d190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike Beacon / Go C2",
+        ["t13d190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike / Sliver / Go C2 (Go < 1.22)", # ja4db.com
         ["t13d201100_2b729b4bf6f3_9e7b989ebec8"] = "IcedID / Cobalt Strike Beacon",
-        ["t13i190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike (no SNI)",
+        ["t13i190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike / Sliver / Go C2 (Go < 1.22, no SNI)",
         ["t12d190900_9dc949149365_97f8aa674fd9"] = "Cobalt Strike (TLS 1.2)",
         ["t13d191000_9dc949149365_e7c285222651"] = "Cobalt Strike 4.x malleable",
         ["t13d1517h2_8daaf6152771_b0da82dd1658"] = "Cobalt Strike 4.9+ HTTPS",
 
-        # SLIVER - Verified Go-based C2 fingerprints (varies by Go version)
-        ["t13d190900_9dc949149365_e7c285222651"] = "Sliver C2 implant",
-        ["t13d190900_fcb5b95cb75a_b0d3b4ac2a14"] = "Sliver mTLS / Go C2",
-        ["t13d201100_fcb5b95cb75a_b0d3b4ac2a14"] = "Sliver HTTPS implant",
-        ["t13d1517h2_8daaf6152771_02713d6af862"] = "Sliver C2 (Go 1.19+)",
+        # SLIVER / GO C2 - Verified live: Sliver v1.7.0 HTTPS, Go 1.25.6
+        # Go 1.25.6 uses 13 cipher suites (RSA/3DES removed in Go 1.22+/1.23+) and post-quantum X25519MLKEM768
+        ["t13i131000_f57a46bbacb6_e5728521abd4"] = "Go C2 Agent / Sliver HTTPS (Go 1.25, no SNI)", # Verified live
+        ["t13d131000_f57a46bbacb6_e5728521abd4"] = "Go C2 Agent / Sliver HTTPS (Go 1.25, with SNI)",
 
-        # GO C2 AGENT - Verified live (Sliver + Poseidon + Chisel + Merlin, Go 1.25.6)
-        # This fingerprint matches Go crypto/tls clients without SNI, common to Go-compiled C2 agents
-        ["t13i3111h2_e8f1e7e78f70_b26ce05bbdd6"] = "Go C2 Agent (Sliver/Poseidon/Chisel/Merlin/Go-compiled)",
+        # SLIVER / GO C2 - Legacy fingerprints (older Go versions < 1.22, 19 cipher suites)
+        # NOTE: t13d190900_9dc949149365_97f8aa674fd9 already in Cobalt Strike section above (shared Go fingerprint)
+        ["t13d190900_9dc949149365_e7c285222651"] = "Sliver C2 implant (older Go)",
+        ["t13d190900_fcb5b95cb75a_b0d3b4ac2a14"] = "Sliver mTLS / Go C2 (older Go)",
+        ["t13d201100_fcb5b95cb75a_b0d3b4ac2a14"] = "Sliver HTTPS implant (older Go)",
+        ["t13d1517h2_8daaf6152771_02713d6af862"] = "Sliver C2 (Go 1.19+)",
 
         # NMAP SSL SCANNING - Verified via live testing
         ["t13i781000_ab95583b6d39_d41ae481755e"] = "Nmap ssl-enum-ciphers (78 cipher probes)",
@@ -917,9 +921,9 @@ export {
     # any TLS 1.3 server with AES_128_GCM_SHA256). Combine with client JA4 and cert
     # anomaly detection for higher fidelity. Verified via live Sliver/Mythic testing.
     global ja4s_signatures: table[string] of string = {
-        # DISABLED - Too broad, matches most TLS 1.3 servers (GitHub, Cloudflare, nginx, etc.)
-        # ["t130200_1301_a56c5b993250"] = "Sliver/Mythic C2 Server (TLS 1.3)", # ja4db.com - also matches nginx/CDNs
-        # ["t130200_1302_a56c5b993250"] = "Go TLS 1.3 Server (AES_256_GCM)", # Verified live - too many false positives
+        # Go TLS 1.3 server (Sliver/Mythic) - verified live: Sliver v1.7.0
+        # NOTE: Also matches some legitimate TLS 1.3 servers. Combine with client JA4 for high fidelity.
+        ["t130200_1301_a56c5b993250"] = "Go TLS 1.3 Server (Sliver/Mythic C2)", # Verified live + ja4db.com
         ["t120300_c030_5e2616a54c73"] = "IcedID C2 Server",                 # ja4db.com
         ["t120300_c030_52d195ce1d92"] = "Cobalt Strike v4.9.1 Server",      # ja4db.com
         ["t120100_003d_bc98f8e001b5"] = "Metasploit Handler Server (TLS 1.2)", # Verified via live testing
