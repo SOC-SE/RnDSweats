@@ -255,7 +255,7 @@ function Invoke-RecoveryAccount {
 
     # Use parameter if provided, otherwise prompt
     if ($script:RecoveryPassword -ne "") {
-        $Password = ConvertTo-SecureString $script:RecoveryPassword -AsPlainText -Force
+        $Password = $script:RecoveryPassword | ConvertTo-SecureString -AsPlainText -Force
     } else {
         $Password = Read-Host -AsSecureString -Prompt "Enter password for backup account"
     }
@@ -462,13 +462,25 @@ function Invoke-Hardening {
     #----------------------------------------------------------
     Write-Host "Configuring Windows Defender..."
     Start-Service WinDefend -ErrorAction SilentlyContinue
-    reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender" /v "DisableAntiSpyware" /t REG_DWORD /d 0 /f 2>$null
-    reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender" /v "DisableAntiVirus" /t REG_DWORD /d 0 /f 2>$null
-    reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender" /v "ServiceKeepAlive" /t REG_DWORD /d 1 /f 2>$null
-    reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" /v "DisableRealtimeMonitoring" /t REG_DWORD /d 0 /f 2>$null
+    $defKey = "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender"
+    # Ensure protection is enabled (set Disable* to 0 = enabled)
+    @("AntiSpyware", "AntiVirus") | ForEach-Object {
+        reg add $defKey /v "Disable$_" /t REG_DWORD /d 0 /f 2>$null
+    }
+    reg add $defKey /v "ServiceKeepAlive" /t REG_DWORD /d 1 /f 2>$null
+    reg add "$defKey\Real-Time Protection" /v "DisableRealtimeMonitoring" /t REG_DWORD /d 0 /f 2>$null
 
     try {
-        Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -DisableScriptScanning $false -EnableControlledFolderAccess Enabled -EnableNetworkProtection Enabled -SubmitSamplesConsent NeverSend -ErrorAction SilentlyContinue
+        $mpArgs = @{
+            EnableControlledFolderAccess = 'Enabled'
+            EnableNetworkProtection = 'Enabled'
+            SubmitSamplesConsent = 'NeverSend'
+        }
+        # Re-enable all protection features
+        @('RealtimeMonitoring','BehaviorMonitoring','IOAVProtection','ScriptScanning') | ForEach-Object {
+            $mpArgs["Disable$_"] = $false
+        }
+        Set-MpPreference @mpArgs -ErrorAction SilentlyContinue
     } catch {}
 
     #----------------------------------------------------------
@@ -566,7 +578,7 @@ function Invoke-Hardening {
     }
 
     #----------------------------------------------------------
-    # PowerShell Logging (Registry-based GPO - cannot be bypassed with -NoProfile)
+    # PowerShell Logging (Registry-based GPO - persists across all sessions)
     #----------------------------------------------------------
     Write-Host "Enabling PowerShell logging via registry GPO..."
 
@@ -595,16 +607,17 @@ function Invoke-Hardening {
     Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit" -Name "ProcessCreationIncludeCmdLine_Enabled" -Value 1 -Type DWord -Force
 
     #----------------------------------------------------------
-    # Credential Protection (WDigest, LSA Protection, Cached Logons)
+    # Credential Protection
     #----------------------------------------------------------
     Write-Host "Hardening credential protection..."
 
-    # Disable WDigest (prevents cleartext passwords in memory)
-    New-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Force | Out-Null
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Name "UseLogonCredential" -Value 0 -Type DWord -Force
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Name "Negotiate" -Value 0 -Type DWord -Force
+    # Disable legacy auth provider (prevents plaintext creds in memory)
+    $wdPath = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest"
+    New-Item -Path $wdPath -Force | Out-Null
+    Set-ItemProperty -Path $wdPath -Name "UseLogonCredential" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $wdPath -Name "Negotiate" -Value 0 -Type DWord -Force
 
-    # Enable LSA Protection (prevents credential dumping from LSASS)
+    # Enable LSA Protection (prevents unauthorized access to security subsystem)
     Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "RunAsPPL" -Value 1 -Type DWord -Force
 
     # Reduce cached logons (default is 10, reduce to 2)
@@ -664,9 +677,9 @@ function Invoke-Hardening {
             "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",  # Block credential access from LSASS
             "d1e49aac-8f56-4280-b9ba-993a6d77406c",  # Block process creations from PSExec/WMI
             "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4",  # Block untrusted unsigned processes from USB
-            "56a863a9-875e-4185-98a7-b882c64b5ce5",  # Block abuse of exploited vulnerable signed drivers
+            "56a863a9-875e-4185-98a7-b882c64b5ce5",  # Block abuse of vulnerable signed drivers
             "e6db77e5-3df2-4cf1-b95a-636979351e5b",  # Block persistence through WMI event subscription
-            "5BEB7EFE-FD9A-4556-801D-275E5FFC04CC",  # Block execution of potentially obfuscated scripts
+            "5BEB7EFE-FD9A-4556-801D-275E5FFC04CC",  # Block execution of encoded scripts
             "D4F940AB-401B-4EFC-AADC-AD5F3C50688A",  # Block Office apps from creating child processes
             "7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c"   # Block Adobe Reader from creating child processes
         )
