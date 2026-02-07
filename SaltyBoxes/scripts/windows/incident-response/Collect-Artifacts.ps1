@@ -8,7 +8,7 @@
 
 #Requires -Version 5.1
 
-$ArtifactDir = "C:\Temp\artifacts_$env:COMPUTERNAME_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+$ArtifactDir = "C:\Temp\artifacts_${env:COMPUTERNAME}_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 New-Item -ItemType Directory -Path $ArtifactDir -Force | Out-Null
 
 Write-Host "========================================" -ForegroundColor Cyan

@@ -12,7 +12,7 @@ Get-ADUser "Krbtgt" -Property PasswordLastSet
 #--------------------------------------------------------------
 function Generate-RandomPassword {
     param (
-        [int]$Length = 256 # Default password length set to 16
+        [int]$Length = 256
     )
 
     # Define the character set (letters, numbers, special characters)
@@ -35,8 +35,8 @@ function Show-LastPasswordReset {
 #--------------------------------------------------------------
 function Reset-KrbtgtPassword {
     $newPassword = Generate-RandomPassword
-    Write-Output "Generated New Password: $newPassword"
     Set-ADAccountPassword -Identity "Krbtgt" -Reset -NewPassword (ConvertTo-SecureString -AsPlainText $newPassword -Force)
+    Write-Output "Krbtgt password has been reset (password not displayed for security)"
     Show-LastPasswordReset
 }
 
@@ -48,7 +48,7 @@ Write-Output "Starting Krbtgt Password Reset Process..."
 #--------------------------------------------------------------
 Show-LastPasswordReset
 
-# Reset Password Three Times
+# Reset Password Twice (standard for golden ticket invalidation)
 #--------------------------------------------------------------
 Reset-KrbtgtPassword
 Reset-KrbtgtPassword

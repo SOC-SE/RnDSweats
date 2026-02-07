@@ -30,7 +30,7 @@ $extractPathever = "C:\voidtools"
 Start-BitsTransfer -Source $urlSY -Destination $downloadPathSY 
 
 # Download everthing
-Start-BitsTransfer -Source $urleverhing -Destination $extractPathever
+Start-BitsTransfer -Source $urleverhing -Destination $downloadPathever
 
 #--------------------------------------------------------------
 # Create Folders
@@ -84,9 +84,7 @@ compmgmt.msc
 #Open Event Viewer / Logs
 #--------------------------------------------------------------
 
-eventvmr.msc /S
-
-sysmonsetup
+eventvwr.msc
 
 function sysmonsetup {
     #test
@@ -279,3 +277,5 @@ Write-Host "  Log:     Microsoft-Windows-Sysmon/Operational"
 Write-Host "===================================================" -ForegroundColor Cyan
 
 }
+
+sysmonsetup

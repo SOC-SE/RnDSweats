@@ -177,7 +177,7 @@ $svc = Get-Service SplunkForwarder -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -eq "Running") {
     Write-Host "[OK] SplunkForwarder service is running" -ForegroundColor Green
 } else {
-    Write-Host "[WARN] SplunkForwarder service is not running — check Event Viewer" -ForegroundColor Yellow
+    Write-Host "[WARN] SplunkForwarder service is not running - check Event Viewer" -ForegroundColor Yellow
 }
 
 # Clean up downloaded MSI

@@ -163,8 +163,12 @@ function Get-WazuhInstaller {
     }
 
     try {
-        # Enable TLS 1.3 with TLS 1.2 fallback
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls13 -bor [Net.SecurityProtocolType]::Tls12
+        # Enable TLS 1.2 (and TLS 1.3 if available - not present on Server 2016/2019)
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls13 -bor [Net.SecurityProtocolType]::Tls12
+        } catch {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        }
 
         # Download using Invoke-WebRequest (WebClient is deprecated)
         Write-Log "Downloading (this may take a moment)..."

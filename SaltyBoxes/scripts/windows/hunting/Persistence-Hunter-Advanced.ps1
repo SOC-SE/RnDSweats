@@ -40,10 +40,10 @@ Get-WmiObject Win32_Service | Where-Object {
 Write-Host "`n[6/15] SUSPICIOUS SERVICES (New/Unknown)" -ForegroundColor Yellow
 Write-Host "----------------------------------------"
 Get-WmiObject Win32_Service | Where-Object {
-    $_.PathName -like "*temp*" -or 
+    ($_.PathName -like "*temp*" -or
     $_.PathName -like "*tmp*" -or
     $_.PathName -like "*appdata*" -or
-    $_.PathName -like "*programdata*" -and $_.PathName -notlike "*Microsoft*"
+    $_.PathName -like "*programdata*") -and $_.PathName -notlike "*Microsoft*"
 } | Select-Object Name, PathName, State | Format-Table -AutoSize
 
 Write-Host "`n[7/15] WMI SUBSCRIPTIONS (Persistence)" -ForegroundColor Yellow

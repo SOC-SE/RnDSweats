@@ -5,6 +5,11 @@
 #--------------------------------------------------------------
 
 #--------------------------------------------------------------
+# Timestamp
+#--------------------------------------------------------------
+$ts = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+
+#--------------------------------------------------------------
 # Enumeration
 #--------------------------------------------------------------
 
@@ -101,7 +106,7 @@ compmgmt.msc
 #Open Event Viewer / Logs
 #--------------------------------------------------------------
 
-eventvmr.msc
+eventvwr.msc
 
 
 #--------------------------------------------------------------
@@ -116,7 +121,8 @@ $params = @{
     Description = 'Nothing to see here blue team'
 }
 
-Add-LocalGroupMember -Group "Administrators" -Member "bob"
+New-LocalUser @params -PasswordNeverExpires -ErrorAction SilentlyContinue
+Add-LocalGroupMember -Group "Administrators" -Member "bob" -ErrorAction SilentlyContinue
 
 #--------------------------------------------------------------
 #Back ups
@@ -148,7 +154,6 @@ New-Item -ItemType Directory -Path "C:\Backups\Audit" -Force
 
 #Registry
 #--------------------------------------------------------------
-$ts = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 New-Item -ItemType Directory -Path "C:\Backups\Registry" -Force
 New-Item -ItemType Directory -Path "C:\Backups\Registry\Registry_$ts" -Force
 

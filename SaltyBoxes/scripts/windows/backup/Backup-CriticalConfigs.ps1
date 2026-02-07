@@ -14,7 +14,7 @@ param(
 )
 
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupPath = Join-Path $BackupDir "backup_$env:COMPUTERNAME_$Timestamp"
+$BackupPath = Join-Path $BackupDir "backup_${env:COMPUTERNAME}_$Timestamp"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "CONFIG BACKUP - $env:COMPUTERNAME" -ForegroundColor Cyan

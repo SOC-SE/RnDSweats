@@ -92,11 +92,11 @@ function Get-UserInput {
         return $Default
     }
 
-    $input = Read-Host -Prompt "$Prompt [Default: $Default]"
-    if ([string]::IsNullOrWhiteSpace($input)) {
+    $response = Read-Host -Prompt "$Prompt [Default: $Default]"
+    if ([string]::IsNullOrWhiteSpace($response)) {
         return $Default
     }
-    return $input
+    return $response
 }
 
 function Test-SaltMinionInstalled {

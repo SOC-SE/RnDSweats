@@ -53,17 +53,15 @@ CPU Info
 
     # Installed Applications
     "`n========================================`nInstalled Applications`n========================================" | Out-File $enumPath -Append
+    # Query both 64-bit and 32-bit registry paths on 64-bit systems
+    $uninstallPaths = @('HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*')
     If((Get-WmiObject Win32_OperatingSystem).OSArchitecture -notlike "*32-bit*") {
-        Get-ItemProperty HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\* |
-            Where-Object {$_.DisplayName -and ($_.DisplayName -notlike "*update for*")} |
-            Sort-Object DisplayName | Select-Object DisplayName, DisplayVersion, Publisher |
-            Out-File $enumPath -Append
-    } Else {
-        Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* |
-            Where-Object {$_.DisplayName -and ($_.DisplayName -notlike "*update for*")} |
-            Sort-Object DisplayName | Select-Object DisplayName, DisplayVersion, Publisher |
-            Out-File $enumPath -Append
+        $uninstallPaths += 'HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
     }
+    $uninstallPaths | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } |
+        Where-Object {$_.DisplayName -and ($_.DisplayName -notlike "*update for*")} |
+        Sort-Object DisplayName -Unique | Select-Object DisplayName, DisplayVersion, Publisher |
+        Out-File $enumPath -Append
 
     # Roles and Features (Server only)
     try {
@@ -328,7 +326,8 @@ function Invoke-Hardening {
     # Windows Updates
     #----------------------------------------------------------
     Write-Host "Configuring Windows Updates..."
-    Set-Service -Name wuauserv -StartupType Automatic -Status Running -ErrorAction SilentlyContinue
+    Set-Service -Name wuauserv -StartupType Automatic -ErrorAction SilentlyContinue
+    Start-Service -Name wuauserv -ErrorAction SilentlyContinue
     reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v AutoInstallMinorUpdates /t REG_DWORD /d 1 /f 2>$null
     reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoUpdate /t REG_DWORD /d 0 /f 2>$null
     reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v AUOptions /t REG_DWORD /d 4 /f 2>$null
@@ -351,9 +350,17 @@ function Invoke-Hardening {
     reg add "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" /v RequireSecuritySignature /t REG_DWORD /d 1 /f 2>$null
     reg add "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" /v EnableSecuritySignature /t REG_DWORD /d 1 /f 2>$null
 
-    # Disable admin shares and require encryption
-    reg add "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" /v AutoShareServer /t REG_DWORD /d 0 /f 2>$null
-    reg add "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" /v AutoShareWks /t REG_DWORD /d 0 /f 2>$null
+    # Disable admin shares on non-DC machines (breaks GP distribution on DCs)
+    $domainRole = (Get-WmiObject Win32_ComputerSystem).DomainRole
+    if ($domainRole -lt 4) {
+        # Not a DC (0=Standalone WS, 1=Member WS, 2=Standalone Server, 3=Member Server)
+        reg add "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" /v AutoShareServer /t REG_DWORD /d 0 /f 2>$null
+        reg add "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" /v AutoShareWks /t REG_DWORD /d 0 /f 2>$null
+    } else {
+        Write-Host "  Skipping admin share disable (Domain Controller detected)" -ForegroundColor Yellow
+    }
+
+    # Require SMB encryption (note: Enable-NetworkVisibility.ps1 disables this for Zeek - run that script last if using Zeek)
     reg add "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" /v RejectUnencryptedAccess /t REG_DWORD /d 1 /f 2>$null
 
     #----------------------------------------------------------
@@ -411,16 +418,10 @@ function Invoke-Hardening {
     #----------------------------------------------------------
     # Remove accessibility backdoors
     #----------------------------------------------------------
-    Write-Host "Removing accessibility backdoors..."
+    Write-Host "Removing accessibility backdoors (IFEO debugger entries)..."
     @('sethc.exe', 'Utilman.exe', 'osk.exe', 'Narrator.exe', 'Magnify.exe') | ForEach-Object {
-        $path = "C:\Windows\System32\$_"
-        if (Test-Path $path) {
-            TAKEOWN /F $path /A 2>$null
-            ICACLS $path /grant administrators:F 2>$null
-            Remove-Item $path -Force -ErrorAction SilentlyContinue
-        }
+        reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$_" /v Debugger /f 2>$null
     }
-    reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\sethc.exe" /v Debugger /f 2>$null
 
     #----------------------------------------------------------
     # Enable DEP (Data Execution Prevention)
@@ -512,6 +513,10 @@ Start-Transcript -Path $Transcript -Append
         'C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\*',
         "C:\Users\*\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\*"
     ) | ForEach-Object {
+        $items = Get-ChildItem $_ -ErrorAction SilentlyContinue
+        foreach ($item in $items) {
+            Write-Host "  Removing startup item: $($item.FullName)" -ForegroundColor Yellow
+        }
         Remove-Item -Path $_ -Force -ErrorAction SilentlyContinue
     }
 
