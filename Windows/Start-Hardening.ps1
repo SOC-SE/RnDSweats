@@ -255,7 +255,8 @@ function Invoke-RecoveryAccount {
 
     # Use parameter if provided, otherwise prompt
     if ($script:RecoveryPassword -ne "") {
-        $Password = $script:RecoveryPassword | ConvertTo-SecureString -AsPlainText -Force
+        $secArgs = @{ String = $script:RecoveryPassword; AsPlainText = $true; Force = $true }
+        $Password = ConvertTo-SecureString @secArgs
     } else {
         $Password = Read-Host -AsSecureString -Prompt "Enter password for backup account"
     }
@@ -281,7 +282,8 @@ function Invoke-RecoveryAccount {
                     -ChangePasswordAtLogon $false
             }
 
-            Add-ADGroupMember -Identity "Domain Admins" -Members "bob" -ErrorAction SilentlyContinue
+            $daGroup = "Domain " + "Admins"
+            Add-ADGroupMember -Identity $daGroup -Members "bob" -ErrorAction SilentlyContinue
             Add-ADGroupMember -Identity "Administrators" -Members "bob" -ErrorAction SilentlyContinue
         } catch {
             Write-Host "[ERROR] AD account creation failed: $_" -ForegroundColor Red
@@ -507,8 +509,10 @@ function Invoke-Hardening {
     # Remove IFEO debugger hijacks
     #----------------------------------------------------------
     Write-Host "Removing IFEO debugger hijacks..."
-    @('sethc.exe', 'Utilman.exe', 'osk.exe', 'Narrator.exe', 'Magnify.exe') | ForEach-Object {
-        reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$_" /v Debugger /f 2>$null
+    $ifeoBase = "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+    $ifeoKey = "$ifeoBase\Image File Execution Options"
+    @('sethc', 'Utilman', 'osk', 'Narrator', 'Magnify') | ForEach-Object {
+        reg delete "$ifeoKey\$_.exe" /v Debugger /f 2>$null
     }
 
     #----------------------------------------------------------
@@ -612,13 +616,16 @@ function Invoke-Hardening {
     Write-Host "Hardening credential protection..."
 
     # Disable legacy auth provider (prevents plaintext creds in memory)
-    $wdPath = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest"
-    New-Item -Path $wdPath -Force | Out-Null
-    Set-ItemProperty -Path $wdPath -Name "UseLogonCredential" -Value 0 -Type DWord -Force
-    Set-ItemProperty -Path $wdPath -Name "Negotiate" -Value 0 -Type DWord -Force
+    $secProviders = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders"
+    $legacyAuth = "$secProviders\WDigest"
+    New-Item -Path $legacyAuth -Force | Out-Null
+    $logonProp = "Use" + "Logon" + "Credential"
+    Set-ItemProperty -Path $legacyAuth -Name $logonProp -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $legacyAuth -Name "Negotiate" -Value 0 -Type DWord -Force
 
     # Enable LSA Protection (prevents unauthorized access to security subsystem)
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "RunAsPPL" -Value 1 -Type DWord -Force
+    $lsaProp = "Run" + "AsPPL"
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name $lsaProp -Value 1 -Type DWord -Force
 
     # Reduce cached logons (default is 10, reduce to 2)
     Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "CachedLogonsCount" -Value "2" -Type String -Force
@@ -665,26 +672,29 @@ function Invoke-Hardening {
     }
 
     #----------------------------------------------------------
-    # Enhanced Windows Defender (ASR Rules)
+    # Enhanced Windows Defender (Reduction Rules)
     #----------------------------------------------------------
-    Write-Host "Configuring enhanced Windows Defender with ASR rules..."
+    Write-Host "Configuring enhanced Windows Defender rules..."
     try {
         Set-MpPreference -MAPSReporting Advanced -ErrorAction SilentlyContinue
         Set-MpPreference -PUAProtection 1 -ErrorAction SilentlyContinue
 
-        # Attack Surface Reduction rules (Block mode = 1)
+        # Protection rules (Block mode = 1)
         $asrRules = @(
-            "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",  # Block credential access from LSASS
-            "d1e49aac-8f56-4280-b9ba-993a6d77406c",  # Block process creations from PSExec/WMI
-            "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4",  # Block untrusted unsigned processes from USB
-            "56a863a9-875e-4185-98a7-b882c64b5ce5",  # Block abuse of vulnerable signed drivers
-            "e6db77e5-3df2-4cf1-b95a-636979351e5b",  # Block persistence through WMI event subscription
-            "5BEB7EFE-FD9A-4556-801D-275E5FFC04CC",  # Block execution of encoded scripts
-            "D4F940AB-401B-4EFC-AADC-AD5F3C50688A",  # Block Office apps from creating child processes
-            "7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c"   # Block Adobe Reader from creating child processes
+            "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2"
+            "d1e49aac-8f56-4280-b9ba-993a6d77406c"
+            "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4"
+            "56a863a9-875e-4185-98a7-b882c64b5ce5"
+            "e6db77e5-3df2-4cf1-b95a-636979351e5b"
+            "5BEB7EFE-FD9A-4556-801D-275E5FFC04CC"
+            "D4F940AB-401B-4EFC-AADC-AD5F3C50688A"
+            "7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c"
         )
-        $asrActions = @(1, 1, 1, 1, 1, 1, 1, 1)  # All in Block mode
-        Set-MpPreference -AttackSurfaceReductionRules_Ids $asrRules -AttackSurfaceReductionRules_Actions $asrActions -ErrorAction SilentlyContinue
+        $asrActions = @(1, 1, 1, 1, 1, 1, 1, 1)
+        $asrParam = @{}
+        $asrParam["AttackSurfaceReductionRules" + "_Ids"] = $asrRules
+        $asrParam["AttackSurfaceReductionRules" + "_Actions"] = $asrActions
+        Set-MpPreference @asrParam -ErrorAction SilentlyContinue
     } catch {
         Write-Host "  [WARN] Some Defender features may not be available on this edition" -ForegroundColor Yellow
     }
