@@ -1,7 +1,7 @@
 ﻿#--------------------------------------------------------------
 #Base Firewall
 # Made by Logan Schultz
-# Version | 1.1
+# Version | 1.2
 #--------------------------------------------------------------
 
 #--------------------------------------------------------------
@@ -14,75 +14,88 @@ netsh advfirewall export $path
 # Disable all rules | 1.0
 #--------------------------------------------------------------
 Get-NetFirewallRule | Disable-NetFirewallRule
-#--------------------------------------------------------------
-# Splunk FORWARDER / Splunk SERVER | 1.0
-#--------------------------------------------------------------
-
-#OutBound | SERVER
-New-NetFirewallRule -DisplayName "Wazuh AGENT Inbound Port 1514" -Direction Inbound -LocalPort 8000 -Protocol TCP  -Action Allow
-
-#OutBound | SERVER
-New-NetFirewallRule -DisplayName "Wazuh AGENT Inbound Port 1515" -Direction Inbound -LocalPort 8089 -Protocol TCP -Action Block
-
-#OutBound | SERVER
-New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 1514" -Direction Inbound -LocalPort 9997 -Protocol TCP  -Action Allow
-
-#OutBound | SERVER
-New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 1515" -Direction Inbound -LocalPort 514 -Protocol TCP  -Action Allow
-
-#Inbound | FORWARDER
-New-NetFirewallRule -DisplayName "Wazuh FORWARDER OutBound Port 9997" -Direction Outbound -LocalPort 9997 -Protocol TCP -Action Block
-
-#Inbound | FORWARDER
-New-NetFirewallRule -DisplayName "Wazuh FORWARDER OutBound Port 8089" -Direction Outbound -LocalPort 8089 -Protocol TCP  -Action Allow
 
 #--------------------------------------------------------------
-# Wazuh AGENT / Wazuh Server | 1.0
+# DNS | 1.2 (added - base script was missing DNS rules)
 #--------------------------------------------------------------
 
-#OutBound | AGENT
-New-NetFirewallRule -DisplayName "Wazuh AGENT Outbound Port 1514" -Direction Outbound -LocalPort 1514 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "DNS TCP Inbound Port 53" -Direction Inbound -LocalPort 53 -Protocol TCP -Action Allow
 
-#OutBound | AGENT
-New-NetFirewallRule -DisplayName "Wazuh AGENT Outbound Port 1515" -Direction Outbound -LocalPort 1515 -Protocol TCP -Action Block
+New-NetFirewallRule -DisplayName "DNS TCP Outbound Port 53" -Direction Outbound -LocalPort 53 -Protocol TCP -Action Allow
+
+New-NetFirewallRule -DisplayName "DNS UDP Inbound Port 53" -Direction Inbound -LocalPort 53 -Protocol UDP -Action Allow
+
+New-NetFirewallRule -DisplayName "DNS UDP Outbound Port 53" -Direction Outbound -LocalPort 53 -Protocol UDP -Action Allow
+
+#--------------------------------------------------------------
+# Splunk FORWARDER / Splunk SERVER | 1.2
+#--------------------------------------------------------------
+
+#Inbound | SERVER
+New-NetFirewallRule -DisplayName "Splunk SERVER Inbound Port 8000" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
+
+#Inbound | SERVER
+New-NetFirewallRule -DisplayName "Splunk SERVER Inbound Port 8089" -Direction Inbound -LocalPort 8089 -Protocol TCP -Action Allow
+
+#Inbound | SERVER
+New-NetFirewallRule -DisplayName "Splunk SERVER Inbound Port 9997" -Direction Inbound -LocalPort 9997 -Protocol TCP -Action Allow
+
+#Inbound | SERVER
+New-NetFirewallRule -DisplayName "Splunk SERVER Inbound Port 514" -Direction Inbound -LocalPort 514 -Protocol TCP -Action Allow
+
+#Outbound | FORWARDER
+New-NetFirewallRule -DisplayName "Splunk FORWARDER Outbound Port 9997" -Direction Outbound -LocalPort 9997 -Protocol TCP -Action Allow
+
+#Outbound | FORWARDER
+New-NetFirewallRule -DisplayName "Splunk FORWARDER Outbound Port 8089" -Direction Outbound -LocalPort 8089 -Protocol TCP -Action Allow
+
+#--------------------------------------------------------------
+# Wazuh AGENT / Wazuh Server | 1.2
+#--------------------------------------------------------------
+
+#Outbound | AGENT
+New-NetFirewallRule -DisplayName "Wazuh AGENT Outbound Port 1514" -Direction Outbound -LocalPort 1514 -Protocol TCP -Action Allow
+
+#Outbound | AGENT
+New-NetFirewallRule -DisplayName "Wazuh AGENT Outbound Port 1515" -Direction Outbound -LocalPort 1515 -Protocol TCP -Action Allow
 
 #Inbound | Server
-New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 1514" -Direction Inbound -LocalPort 1514 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 1514" -Direction Inbound -LocalPort 1514 -Protocol TCP -Action Allow
 
 #Inbound | Server
-New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 1515" -Direction Inbound -LocalPort 1515 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 1515" -Direction Inbound -LocalPort 1515 -Protocol TCP -Action Allow
 
 #Inbound | Server
-New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 55000" -Direction Inbound -LocalPort 55000 -Protocol TCP -Action Block
+New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 55000" -Direction Inbound -LocalPort 55000 -Protocol TCP -Action Allow
 
 #Inbound | Server
-New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 443" -Direction Inbound -LocalPort 443 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Wazuh Server Inbound Port 443" -Direction Inbound -LocalPort 443 -Protocol TCP -Action Allow
 
 #--------------------------------------------------------------
-# Salt MINION | 1.0
+# Salt MINION | 1.2
 #--------------------------------------------------------------
 
 #Inbound
-New-NetFirewallRule -DisplayName "Salt MINION Inbound Port 4505" -Direction Inbound -LocalPort 4505 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Salt MINION Inbound Port 4505" -Direction Inbound -LocalPort 4505 -Protocol TCP -Action Allow
 
-#OutBound
-New-NetFirewallRule -DisplayName "Salt MINION Outbound Port 4505" -Direction Outbound -LocalPort 4505 -Protocol TCP -Action Block
-
-#Inbound
-New-NetFirewallRule -DisplayName "Salt MINION Inbound Port 4506" -Direction Inbound -LocalPort 4506 -Protocol TCP  -Action Allow
-
-#OutBound
-New-NetFirewallRule -DisplayName "Salt MINION Outbound Port 4506" -Direction Outbound -LocalPort 4506 -Protocol TCP -Action Block
-
-#--------------------------------------------------------------
-# VELOCIRAPTOR | 1.0
-#--------------------------------------------------------------
+#Outbound
+New-NetFirewallRule -DisplayName "Salt MINION Outbound Port 4505" -Direction Outbound -LocalPort 4505 -Protocol TCP -Action Allow
 
 #Inbound
-New-NetFirewallRule -DisplayName "VELOCIRAPTOR Inbound Port 8001" -Direction Inbound -LocalPort 8001 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Salt MINION Inbound Port 4506" -Direction Inbound -LocalPort 4506 -Protocol TCP -Action Allow
 
-#OutBound
-New-NetFirewallRule -DisplayName "VELOCIRAPTOR Outbound Port 8001" -Direction Outbound -LocalPort 8001 -Protocol TCP -Action Block
+#Outbound
+New-NetFirewallRule -DisplayName "Salt MINION Outbound Port 4506" -Direction Outbound -LocalPort 4506 -Protocol TCP -Action Allow
+
+#--------------------------------------------------------------
+# VELOCIRAPTOR | 1.2
+#--------------------------------------------------------------
+
+#Inbound
+New-NetFirewallRule -DisplayName "VELOCIRAPTOR Inbound Port 8001" -Direction Inbound -LocalPort 8001 -Protocol TCP -Action Allow
+
+#Outbound
+New-NetFirewallRule -DisplayName "VELOCIRAPTOR Outbound Port 8001" -Direction Outbound -LocalPort 8001 -Protocol TCP -Action Allow
 
 #--------------------------------------------------------------
 # RDP Whitelist | 1.0
@@ -97,11 +110,10 @@ New-NetFirewallRule -DisplayName "VELOCIRAPTOR Outbound Port 8001" -Direction Ou
 # Cisco Fire Power  Mgmt | 1.0
 #--------------------------------------------------------------
 
-New-NetFirewallRule -DisplayName "Cisco Fire Power Inbound Port 443" -Direction Inbound -LocalPort 443 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Cisco Fire Power Inbound Port 443" -Direction Inbound -LocalPort 443 -Protocol TCP -Action Allow
 
-New-NetFirewallRule -DisplayName "Cisco Fire Power Outbound Port 443" -Direction Outbound -LocalPort 443 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Cisco Fire Power Outbound Port 443" -Direction Outbound -LocalPort 443 -Protocol TCP -Action Allow
 
-New-NetFirewallRule -DisplayName "Cisco Fire Power Inbound Port 80" -Direction Inbound -LocalPort 80 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Cisco Fire Power Inbound Port 80" -Direction Inbound -LocalPort 80 -Protocol TCP -Action Allow
 
-
-New-NetFirewallRule -DisplayName "Cisco Fire Power Outbound Port 80" -Direction Outbound -LocalPort 80 -Protocol TCP  -Action Allow
+New-NetFirewallRule -DisplayName "Cisco Fire Power Outbound Port 80" -Direction Outbound -LocalPort 80 -Protocol TCP -Action Allow

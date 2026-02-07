@@ -37,6 +37,8 @@ $RECEIVER_PORT = "9997"
 
 # Download Splunk Universal Forwarder MSI
 Write-Host "Downloading Splunk Universal Forwarder MSI..."
+# Ensure TLS 1.2 is available (older PowerShell defaults to TLS 1.0 which download.splunk.com rejects)
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 #take away the progress bar, but drastically speeds up downloads on older powershell versions
 $ProgressPreference = 'SilentlyContinue'
 try {
