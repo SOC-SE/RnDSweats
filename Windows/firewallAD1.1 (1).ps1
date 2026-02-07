@@ -61,6 +61,16 @@ New-NetFirewallRule -DisplayName "NetBIOS TCP Inbound Port 139" -Direction Inbou
 
 New-NetFirewallRule -DisplayName "NetBIOS TCP Outbound Port 139" -Direction Outbound -LocalPort 139 -Protocol TCP  -Action Deny
 
+#LLMNR (anti-Responder)
+New-NetFirewallRule -DisplayName "LLMNR UDP Inbound Port 5355 DENY" -Direction Inbound -LocalPort 5355 -Protocol UDP -Action Deny
+
+New-NetFirewallRule -DisplayName "LLMNR UDP Outbound Port 5355 DENY" -Direction Outbound -LocalPort 5355 -Protocol UDP -Action Deny
+
+#mDNS (anti-Responder)
+New-NetFirewallRule -DisplayName "mDNS UDP Inbound Port 5353 DENY" -Direction Inbound -LocalPort 5353 -Protocol UDP -Action Deny
+
+New-NetFirewallRule -DisplayName "mDNS UDP Outbound Port 5353 DENY" -Direction Outbound -LocalPort 5353 -Protocol UDP -Action Deny
+
 #LDAP
 New-NetFirewallRule -DisplayName "LDAP UDP Inbound Port 389" -Direction Inbound -LocalPort 389 -Protocol UDP  -Action Allow
 

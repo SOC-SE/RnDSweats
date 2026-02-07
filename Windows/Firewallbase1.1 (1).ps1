@@ -117,3 +117,30 @@ New-NetFirewallRule -DisplayName "Cisco Fire Power Outbound Port 443" -Direction
 New-NetFirewallRule -DisplayName "Cisco Fire Power Inbound Port 80" -Direction Inbound -LocalPort 80 -Protocol TCP -Action Allow
 
 New-NetFirewallRule -DisplayName "Cisco Fire Power Outbound Port 80" -Direction Outbound -RemotePort 80 -Protocol TCP -Action Allow
+
+#--------------------------------------------------------------
+# LLMNR / mDNS / NetBIOS Deny (anti-Responder) | 1.2
+#--------------------------------------------------------------
+
+#NetBIOS
+New-NetFirewallRule -DisplayName "NetBIOS UDP Inbound Port 137 DENY" -Direction Inbound -LocalPort 137 -Protocol UDP -Action Deny
+
+New-NetFirewallRule -DisplayName "NetBIOS UDP Outbound Port 137 DENY" -Direction Outbound -LocalPort 137 -Protocol UDP -Action Deny
+
+New-NetFirewallRule -DisplayName "NetBIOS UDP Inbound Port 138 DENY" -Direction Inbound -LocalPort 138 -Protocol UDP -Action Deny
+
+New-NetFirewallRule -DisplayName "NetBIOS UDP Outbound Port 138 DENY" -Direction Outbound -LocalPort 138 -Protocol UDP -Action Deny
+
+New-NetFirewallRule -DisplayName "NetBIOS TCP Inbound Port 139 DENY" -Direction Inbound -LocalPort 139 -Protocol TCP -Action Deny
+
+New-NetFirewallRule -DisplayName "NetBIOS TCP Outbound Port 139 DENY" -Direction Outbound -LocalPort 139 -Protocol TCP -Action Deny
+
+#LLMNR
+New-NetFirewallRule -DisplayName "LLMNR UDP Inbound Port 5355 DENY" -Direction Inbound -LocalPort 5355 -Protocol UDP -Action Deny
+
+New-NetFirewallRule -DisplayName "LLMNR UDP Outbound Port 5355 DENY" -Direction Outbound -LocalPort 5355 -Protocol UDP -Action Deny
+
+#mDNS
+New-NetFirewallRule -DisplayName "mDNS UDP Inbound Port 5353 DENY" -Direction Inbound -LocalPort 5353 -Protocol UDP -Action Deny
+
+New-NetFirewallRule -DisplayName "mDNS UDP Outbound Port 5353 DENY" -Direction Outbound -LocalPort 5353 -Protocol UDP -Action Deny

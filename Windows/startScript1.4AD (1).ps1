@@ -31,12 +31,22 @@ $backupfiles = "C:\Backups"
 # Download Files
 #--------------------------------------------------------------
 
+# Disable progress bar to avoid PowerShell 5.1 slowdown bug
+$ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
 # Download Sysinternals
-Start-BitsTransfer -Source $urlSY -Destination $downloadPathSY -ErrorAction SilentlyContinue
+try {
+    Invoke-WebRequest -Uri $urlSY -OutFile $downloadPathSY -ErrorAction Stop
+    Write-Host "[OK] Sysinternals downloaded" -ForegroundColor Green
+} catch {
+    Write-Host "[WARN] Sysinternals download failed: $_" -ForegroundColor Yellow
+}
 
 # Download GitHub Repo
 try {
-    Start-BitsTransfer -Source $urlGitHub -Destination $downloadPathGitHub -ErrorAction Stop
+    Invoke-WebRequest -Uri $urlGitHub -OutFile $downloadPathGitHub -ErrorAction Stop
+    Write-Host "[OK] RnDSweats repo downloaded" -ForegroundColor Green
 } catch {
     Write-Host "[WARN] RnDSweats download failed - ensure repo is available on USB/local" -ForegroundColor Yellow
 }

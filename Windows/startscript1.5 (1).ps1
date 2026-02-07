@@ -145,7 +145,13 @@ function Invoke-Downloads {
 
     # Download Sysinternals
     Write-Host "Downloading Sysinternals Suite..."
-    Start-BitsTransfer -Source $urlSY -Destination $downloadPathSY -ErrorAction SilentlyContinue
+    $ProgressPreference = 'SilentlyContinue'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    try {
+        Invoke-WebRequest -Uri $urlSY -OutFile $downloadPathSY -ErrorAction Stop
+    } catch {
+        Write-Host "[WARN] Sysinternals download failed: $_" -ForegroundColor Yellow
+    }
     if (Test-Path $downloadPathSY) {
         Expand-Archive -Path $downloadPathSY -DestinationPath $extractPathSY -Force
     }
@@ -168,7 +174,7 @@ function Invoke-Downloads {
     # Download GitHub Repo
     Write-Host "Downloading GitHub repository..."
     try {
-        Start-BitsTransfer -Source $urlGitHub -Destination $downloadPathGitHub -ErrorAction Stop
+        Invoke-WebRequest -Uri $urlGitHub -OutFile $downloadPathGitHub -ErrorAction Stop
         if (Test-Path $downloadPathGitHub) {
             Expand-Archive -Path $downloadPathGitHub -DestinationPath $extractPathGitHub -Force
         }
@@ -392,7 +398,7 @@ function Invoke-Hardening {
     reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" /v "DisableRealtimeMonitoring" /t REG_DWORD /d 0 /f 2>$null
 
     try {
-        Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -DisableScriptScanning $false -EnableControlledFolderAccess Enabled -EnableNetworkProtection Enabled -MAPSReporting Disabled -SubmitSamplesConsent NeverSend -ErrorAction SilentlyContinue
+        Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -DisableScriptScanning $false -EnableControlledFolderAccess Enabled -EnableNetworkProtection Enabled -SubmitSamplesConsent NeverSend -ErrorAction SilentlyContinue
     } catch {}
 
     #----------------------------------------------------------
@@ -490,7 +496,114 @@ function Invoke-Hardening {
     }
 
     #----------------------------------------------------------
-    # PowerShell Transcript Logging
+    # PowerShell Logging (Registry-based GPO - cannot be bypassed with -NoProfile)
+    #----------------------------------------------------------
+    Write-Host "Enabling PowerShell logging via registry GPO..."
+
+    # ScriptBlock logging
+    New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Force | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging" -Name "EnableScriptBlockLogging" -Value 1 -Type DWord -Force
+
+    # Module logging (log all modules)
+    New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging" -Force | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging" -Name "EnableModuleLogging" -Value 1 -Type DWord -Force
+    New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames" -Force | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames" -Name "*" -Value "*" -Type String -Force
+
+    # Transcription (registry-based, belt-and-suspenders with profile-based below)
+    New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Force | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "EnableTranscripting" -Value 1 -Type DWord -Force
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "OutputDirectory" -Value "C:\Windows\Logs\PSTranscripts" -Type String -Force
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription" -Name "EnableInvocationHeader" -Value 1 -Type DWord -Force
+    New-Item -ItemType Directory -Path "C:\Windows\Logs\PSTranscripts" -Force | Out-Null
+
+    #----------------------------------------------------------
+    # Command-Line in Process Creation Events (Event 4688)
+    #----------------------------------------------------------
+    Write-Host "Enabling command-line in process creation events..."
+    New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit" -Force | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit" -Name "ProcessCreationIncludeCmdLine_Enabled" -Value 1 -Type DWord -Force
+
+    #----------------------------------------------------------
+    # Credential Protection (WDigest, LSA Protection, Cached Logons)
+    #----------------------------------------------------------
+    Write-Host "Hardening credential protection..."
+
+    # Disable WDigest (prevents cleartext passwords in memory)
+    New-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Force | Out-Null
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Name "UseLogonCredential" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Name "Negotiate" -Value 0 -Type DWord -Force
+
+    # Enable LSA Protection (blocks Mimikatz from reading LSASS)
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "RunAsPPL" -Value 1 -Type DWord -Force
+
+    # Reduce cached logons (default is 10, reduce to 2)
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "CachedLogonsCount" -Value "2" -Type String -Force
+
+    #----------------------------------------------------------
+    # RDP Hardening
+    #----------------------------------------------------------
+    Write-Host "Hardening RDP..."
+
+    # Require Network Level Authentication
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 1 -Type DWord -Force
+    # Set security layer to TLS
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "SecurityLayer" -Value 2 -Type DWord -Force
+
+    # Session timeouts and redirection restrictions
+    New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" -Force | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" -Name "MaxIdleTime" -Value 1800000 -Type DWord -Force
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" -Name "MaxDisconnectionTime" -Value 900000 -Type DWord -Force
+    # Disable drive and clipboard redirection
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" -Name "fDisableCdm" -Value 1 -Type DWord -Force
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" -Name "fDisableClip" -Value 1 -Type DWord -Force
+
+    #----------------------------------------------------------
+    # Disable LLMNR / NBT-NS / mDNS (anti-Responder)
+    #----------------------------------------------------------
+    Write-Host "Disabling LLMNR, NBT-NS, and mDNS..."
+
+    # Disable LLMNR
+    New-Item -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" -Force | Out-Null
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient" -Name "EnableMulticast" -Value 0 -Type DWord -Force
+
+    # Disable NBT-NS on all adapters
+    $adapters = Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "IPEnabled=true"
+    foreach ($adapter in $adapters) {
+        $adapter.SetTcpipNetbios(2) | Out-Null  # 2 = Disable NetBIOS over TCP/IP
+    }
+
+    # Block mDNS via firewall
+    New-NetFirewallRule -DisplayName "Block mDNS Inbound (UDP 5353)" -Direction Inbound -LocalPort 5353 -Protocol UDP -Action Block -ErrorAction SilentlyContinue | Out-Null
+    New-NetFirewallRule -DisplayName "Block mDNS Outbound (UDP 5353)" -Direction Outbound -LocalPort 5353 -Protocol UDP -Action Block -ErrorAction SilentlyContinue | Out-Null
+
+    #----------------------------------------------------------
+    # Enhanced Windows Defender (ASR Rules)
+    #----------------------------------------------------------
+    Write-Host "Configuring enhanced Windows Defender with ASR rules..."
+    try {
+        Set-MpPreference -MAPSReporting Advanced -ErrorAction SilentlyContinue
+        Set-MpPreference -PUAProtection 1 -ErrorAction SilentlyContinue
+
+        # Attack Surface Reduction rules (Block mode = 1)
+        $asrRules = @(
+            "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",  # Block credential stealing from LSASS
+            "d1e49aac-8f56-4280-b9ba-993a6d77406c",  # Block process creations from PSExec/WMI
+            "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4",  # Block untrusted unsigned processes from USB
+            "56a863a9-875e-4185-98a7-b882c64b5ce5",  # Block abuse of exploited vulnerable signed drivers
+            "e6db77e5-3df2-4cf1-b95a-636979351e5b",  # Block persistence through WMI event subscription
+            "5BEB7EFE-FD9A-4556-801D-275E5FFC04CC",  # Block execution of potentially obfuscated scripts
+            "D4F940AB-401B-4EFC-AADC-AD5F3C50688A",  # Block Office apps from creating child processes
+            "7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c"   # Block Adobe Reader from creating child processes
+        )
+        $asrActions = @(1, 1, 1, 1, 1, 1, 1, 1)  # All in Block mode
+        Set-MpPreference -AttackSurfaceReductionRules_Ids $asrRules -AttackSurfaceReductionRules_Actions $asrActions -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "  [WARN] Some Defender features may not be available on this edition" -ForegroundColor Yellow
+    }
+
+    #----------------------------------------------------------
+    # PowerShell Transcript Logging (Profile-based)
     #----------------------------------------------------------
     Write-Host "Enabling PowerShell transcript logging..."
     $transcriptContent = @'
