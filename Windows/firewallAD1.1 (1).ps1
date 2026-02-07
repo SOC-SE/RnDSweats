@@ -7,6 +7,7 @@
 #--------------------------------------------------------------
 # Backups | 1.0
 #--------------------------------------------------------------
+New-Item -ItemType Directory -Path "C:\Backups\Firewall" -Force | Out-Null
 $path = "C:\Backups\Firewall\Firewall_$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').wfw"
 netsh advfirewall export $path
 

@@ -3,7 +3,7 @@
 # Runs: Hardening -> Firewall (in order)
 #--------------------------------------------------------------
 param(
-    [string]$BackdoorPassword = "",
+    [string]$RecoveryPassword = "",
     [switch]$SkipFirewall,
     [switch]$SkipHardening,
     [switch]$FirewallOnly,
@@ -78,8 +78,8 @@ if ($runHardening) {
     Write-Host "| Phase 1: Hardening                   |"
     Write-Host "========================================"
     $hardenArgs = @()
-    if ($BackdoorPassword -ne "") {
-        $hardenArgs += "-BackdoorPassword", $BackdoorPassword
+    if ($RecoveryPassword -ne "") {
+        $hardenArgs += "-RecoveryPassword", $RecoveryPassword
     }
     & $hardeningScript @hardenArgs
 }
