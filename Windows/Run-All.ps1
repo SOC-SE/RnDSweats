@@ -11,6 +11,15 @@ param(
 )
 
 #--------------------------------------------------------------
+# Exclude script directory from Defender scanning
+# (hardening scripts trigger false positives due to security keywords)
+#--------------------------------------------------------------
+try {
+    Add-MpPreference -ExclusionPath $PSScriptRoot -ErrorAction SilentlyContinue
+    Write-Host "[OK] Added Defender exclusion for $PSScriptRoot" -ForegroundColor Green
+} catch {}
+
+#--------------------------------------------------------------
 # DC Detection
 #--------------------------------------------------------------
 $IsDC = (Get-WmiObject Win32_ComputerSystem).DomainRole -ge 4
