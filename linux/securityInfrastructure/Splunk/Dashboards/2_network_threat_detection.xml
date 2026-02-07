@@ -51,6 +51,8 @@ index=network sourcetype=zeek:notice id.orig_h=$src_filter$ id.resp_h=$dest_filt
         <search>
           <query>
 index=linux sourcetype=suricata:fast
+| rex field=_raw "\{(?&lt;proto&gt;\w+)\}\s*(?&lt;src&gt;[\d.]+):(?&lt;sport&gt;\d+)\s*-&gt;\s*(?&lt;dst&gt;[\d.]+):(?&lt;dport&gt;\d+)"
+| where (src LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (dst LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
 | stats count
           </query>
           <earliest>$time_token.earliest$</earliest>
@@ -120,7 +122,7 @@ index=network sourcetype=zeek:conn id.orig_h=$src_filter$ id.resp_h=$dest_filter
         <search>
           <query>
 index=network sourcetype=zeek:notice (note="*C2*" OR note="*Malware*" OR note="*Suspicious*" OR note="*Beacon*" OR note="*Sliver*" OR note="*Mythic*" OR note="*Cobalt*" OR note="*Empire*" OR note="*Metasploit*")
-| where id.orig_h LIKE "$src_filter$" OR "$src_filter$"="*"
+| where (id.orig_h LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (id.resp_h LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
 | stats count as beacon_count, min(_time) as first_seen, max(_time) as last_seen, values(msg) as details by note, id.orig_h, id.resp_h, id.resp_p
 | eval duration=round((last_seen-first_seen)/60, 1)
 | eval first_seen=strftime(first_seen, "%H:%M:%S"), last_seen=strftime(last_seen, "%H:%M:%S")
@@ -160,6 +162,7 @@ index=linux sourcetype=suricata:fast
 | rex field=_raw "\[\*\*\]\s*\[(?&lt;sid&gt;[\d:]+)\]\s*(?&lt;alert_msg&gt;[^\[]+)\[\*\*\]"
 | rex field=_raw "\[Priority:\s*(?&lt;priority&gt;\d+)\]"
 | rex field=_raw "\{(?&lt;proto&gt;\w+)\}\s*(?&lt;src&gt;[\d.]+):(?&lt;sport&gt;\d+)\s*-&gt;\s*(?&lt;dst&gt;[\d.]+):(?&lt;dport&gt;\d+)"
+| where (src LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (dst LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
 | eval severity=case(priority=="1", "CRITICAL", priority=="2", "HIGH", priority=="3", "MEDIUM", 1=1, "LOW")
 | table _time, severity, alert_msg, src, sport, dst, dport, proto
 | sort -_time
@@ -186,6 +189,8 @@ index=linux sourcetype=suricata:fast
           <query>
 index=linux sourcetype=suricata:fast
 | rex field=_raw "\[Priority:\s*(?&lt;priority&gt;\d+)\]"
+| rex field=_raw "\{(?&lt;proto&gt;\w+)\}\s*(?&lt;src&gt;[\d.]+):(?&lt;sport&gt;\d+)\s*-&gt;\s*(?&lt;dst&gt;[\d.]+):(?&lt;dport&gt;\d+)"
+| where (src LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (dst LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
 | eval severity=case(priority=="1", "Critical", priority=="2", "High", priority=="3", "Medium", 1=1, "Low")
 | timechart span=5m count by severity
           </query>
@@ -275,7 +280,7 @@ index=network sourcetype=zeek:dns rcode_name="NXDOMAIN"
         <search>
           <query>
 index=network sourcetype=zeek:conn conn_state IN ("REJ", "RSTO", "S0", "RSTOS0")
-| where id.orig_h LIKE "$src_filter$" OR "$src_filter$"="*"
+| where (id.orig_h LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (id.resp_h LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
 | stats dc(id.resp_p) as unique_ports, dc(id.resp_h) as unique_hosts, count as attempts by id.orig_h
 | eval scan_type=case(
     unique_ports &gt; 50 AND unique_hosts &lt;= 3, "Vertical (Port Sweep)",
@@ -435,6 +440,146 @@ index=network sourcetype=zeek:http
         <option name="refresh.display">progressbar</option>
         <format type="color" field="Flag">
           <colorPalette type="map">{"Suspicious UA":#F1813F,"Server Error":#DC4E41,"Client Error":#F8BE34,"Other":#708794}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 8: TLS/SSL Certificate Anomalies + File Transfers -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>TLS Certificate Anomalies</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:ssl
+| where (id.orig_h LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (id.resp_h LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
+| eval cert_fp=mvindex('cert_chain_fps{}', 0)
+| where isnotnull(cert_fp)
+| join type=left cert_fp [
+    search index=network sourcetype=zeek:x509
+    | rename fingerprint as cert_fp
+    | fields cert_fp, certificate.subject, certificate.issuer, certificate.not_valid_before, certificate.not_valid_after
+]
+| eval flag=case(
+    certificate.subject==certificate.issuer, "Self-Signed",
+    certificate.not_valid_after &lt; now(), "Expired",
+    (certificate.not_valid_after - certificate.not_valid_before) &gt; 94608000, "Long Validity (&gt;3yr)",
+    validation_status!="ok" AND isnotnull(validation_status), "Validation Failed",
+    1=1, "OK"
+)
+| where flag!="OK"
+| eval not_before=strftime(certificate.not_valid_before, "%Y-%m-%d"), not_after=strftime(certificate.not_valid_after, "%Y-%m-%d")
+| table _time, id.orig_h, id.resp_h, id.resp_p, server_name, certificate.subject, certificate.issuer, flag, validation_status, not_before, not_after
+| sort -_time
+| rename id.orig_h as "Source", id.resp_h as "Dest", id.resp_p as "Port", server_name as "Server Name", certificate.subject as "Subject", certificate.issuer as "Issuer", flag as "Flag", validation_status as "Validation", not_before as "Valid From", not_after as "Valid Until"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Flag">
+          <colorPalette type="map">{"Self-Signed":#DC4E41,"Expired":#DC4E41,"Long Validity (&gt;3yr)":#F1813F,"Validation Failed":#F8BE34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Suspicious File Transfers</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:files
+| where mime_type IN ("application/x-dosexec", "application/x-executable", "application/x-elf", "application/x-shellscript", "application/x-mach-o-executable", "application/java-archive", "application/x-archive", "application/zip", "application/x-rar", "application/x-7z-compressed", "application/x-bat", "application/vnd.ms-cab-compressed", "text/x-python", "text/x-perl", "text/x-shellscript")
+| rename tx_hosts{} as tx_hosts, rx_hosts{} as rx_hosts
+| eval source=mvindex(tx_hosts, 0), dest=mvindex(rx_hosts, 0)
+| where (source LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (dest LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
+| eval size_KB=round(total_bytes/1024, 1)
+| table _time, source, dest, filename, mime_type, size_KB, seen_bytes, md5, sha1
+| sort -_time
+| rename source as "Source", dest as "Dest", filename as "Filename", mime_type as "MIME Type", size_KB as "Size (KB)", seen_bytes as "Seen Bytes", md5 as "MD5", sha1 as "SHA1"
+| head 30
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="MIME Type">
+          <colorPalette type="map">{"application/x-dosexec":#DC4E41,"application/x-executable":#DC4E41,"application/x-elf":#DC4E41,"application/x-shellscript":#F1813F,"application/x-mach-o-executable":#DC4E41,"application/java-archive":#F1813F,"application/zip":#F8BE34,"application/x-rar":#F8BE34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- ============================================================ -->
+  <!-- Row 9: SSH Network Activity + SMB Lateral Movement -->
+  <!-- ============================================================ -->
+  <row>
+    <panel>
+      <title>SSH Activity Overview</title>
+      <table>
+        <search>
+          <query>
+index=network sourcetype=zeek:ssh
+| where (id.orig_h LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (id.resp_h LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
+| eval status=if(auth_success=="true", "Success", "Failed")
+| table _time, id.orig_h, id.resp_h, id.resp_p, client, server, status, direction, hassh, hassh_server
+| sort -_time
+| rename id.orig_h as "Source", id.resp_h as "Dest", id.resp_p as "Port", client as "Client Version", server as "Server Version", status as "Auth Status", direction as "Direction", hassh as "HASSH", hassh_server as "HASSH Server"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Auth Status">
+          <colorPalette type="map">{"Success":#53A051,"Failed":#DC4E41}</colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>SMB Activity</title>
+      <table>
+        <search>
+          <query>
+index=network (sourcetype=zeek:smb_mapping OR sourcetype=zeek:smb_files)
+| where (id.orig_h LIKE replace("$src_filter$", "*", "%") OR "$src_filter$"="*") AND (id.resp_h LIKE replace("$dest_filter$", "*", "%") OR "$dest_filter$"="*")
+| eval activity=case(
+    sourcetype=="zeek:smb_mapping", "Share Access",
+    sourcetype=="zeek:smb_files", "File Operation",
+    1=1, "Other"
+)
+| eval detail=coalesce(path, name, share_type)
+| eval action_info=coalesce(action, "-")
+| table _time, id.orig_h, id.resp_h, activity, share_type, detail, action_info
+| sort -_time
+| rename id.orig_h as "Source", id.resp_h as "Dest", activity as "Activity", share_type as "Share Type", detail as "Path/Name", action_info as "Action"
+| head 50
+          </query>
+          <earliest>$time_token.earliest$</earliest>
+          <latest>$time_token.latest$</latest>
+          <refresh>60</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Activity">
+          <colorPalette type="map">{"Share Access":#F1813F,"File Operation":#F8BE34}</colorPalette>
         </format>
       </table>
     </panel>
