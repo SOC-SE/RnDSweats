@@ -250,8 +250,7 @@ index=network sourcetype=zeek:conn (id.orig_h=$ip_token$ OR id.resp_h=$ip_token$
       <table>
         <search>
           <query>
-index=network sourcetype=zeek:files
-| where tx_hosts=$ip_token$ OR rx_hosts=$ip_token$ OR "$ip_token$"="*"
+index=network sourcetype=zeek:files (tx_hosts{}=$ip_token$ OR rx_hosts{}=$ip_token$)
 | eval size_KB=round(total_bytes/1024, 2)
 | table _time, tx_hosts, rx_hosts, mime_type, filename, size_KB, md5, sha1
 | sort -_time
