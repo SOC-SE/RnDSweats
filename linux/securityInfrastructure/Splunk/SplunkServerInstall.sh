@@ -4,8 +4,10 @@ set -euo pipefail
 # Script Name: SplunkServerInstall.sh
 # Description: Distro-agnostic Splunk Enterprise install script.
 #              Backs up licenses, nukes old install, installs fresh,
-#              restores licenses, sets up admin user, props.conf,
-#              dashboards, and optionally installs add-ons from Splunkbase.
+#              restores licenses, sets up admin user, configures inputs.conf
+#              (syslog listeners + local log monitors), props.conf, transforms.conf,
+#              enables 9997 forwarder receiver, installs dashboards,
+#              and optionally installs add-ons from Splunkbase.
 # Author: Samuel Brucker 2024-2026
 # Version: 3.0
 #
@@ -181,6 +183,176 @@ else
     echo "[WARN] transforms.conf not found, skipping."
 fi
 
+# --- Configure inputs.conf (listeners + local log monitors) ---
+echo "Configuring inputs.conf..."
+cat > "$SPLUNK_HOME/etc/system/local/inputs.conf" << 'INPUTS_EOF'
+[default]
+host = $decideOnStartup
+
+# =============================================================================
+# Network listeners (syslog from firewalls, DNS)
+# =============================================================================
+
+[tcp://514]
+sourcetype = palo
+index = network
+disabled = 0
+
+[udp://514]
+sourcetype = cisco
+index = network
+disabled = 0
+
+[tcp://5140]
+sourcetype = technitium:query
+index = network
+disabled = 0
+connection_host = ip
+
+# =============================================================================
+# Local file monitors (logs generated on this host)
+# =============================================================================
+
+# --- System logs ---
+
+[monitor:///var/log/auth.log]
+index = linux
+sourcetype = linux_secure
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/secure]
+index = linux
+sourcetype = linux_secure
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/messages]
+index = linux
+sourcetype = syslog
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+[monitor:///var/log/audit/audit.log]
+index = linux
+sourcetype = linux:audit
+crcSalt = <SOURCE>
+blacklist = \.(gz|bz2|zip)$|\.\d$
+
+# --- Custom scripts (syst) ---
+
+[monitor:///var/log/syst/*audit*]
+index = linux
+sourcetype = linux_enum
+crcSalt = <SOURCE>
+
+[monitor:///var/log/syst/security_scan_*.log]
+index = linux
+sourcetype = linux_security_scan
+crcSalt = <SOURCE>
+
+[monitor:///var/log/syst/linpeas_findings_*.log]
+index = linux
+sourcetype = linpeas
+crcSalt = <SOURCE>
+
+[monitor:///var/log/syst/integrity_scan.log]
+index = linux
+sourcetype = linux_rootkit
+crcSalt = <SOURCE>
+
+[monitor:///var/log/syst/pre_install_compromise.log]
+index = linux
+sourcetype = linux_rootkit
+crcSalt = <SOURCE>
+
+# --- LMD (Linux Malware Detect) ---
+
+[monitor:///usr/local/maldetect/logs/event_log]
+index = linux
+sourcetype = linux_av:events
+crcSalt = <SOURCE>
+
+[monitor:///usr/local/maldetect/logs/scan_log]
+index = linux
+sourcetype = linux_av:scan_summaries
+crcSalt = <SOURCE>
+
+[monitor:///usr/local/maldetect/logs/error_log]
+index = linux
+sourcetype = linux_av:errors
+crcSalt = <SOURCE>
+
+[monitor:///usr/local/maldetect/sess/*]
+index = linux
+sourcetype = linux_av:full_reports
+crcSalt = <SOURCE>
+
+# --- Wazuh (local manager logs) ---
+
+[monitor:///var/ossec/logs/ossec.log]
+index = linux
+sourcetype = wazuh:agent
+crcSalt = <SOURCE>
+
+[monitor:///var/ossec/logs/api.log]
+index = linux
+sourcetype = wazuh:api
+crcSalt = <SOURCE>
+
+[monitor:///var/ossec/logs/alerts/alerts.json]
+index = linux
+sourcetype = wazuh:alerts
+crcSalt = <SOURCE>
+disabled = 0
+
+# --- Salt Master ---
+
+[monitor:///var/log/salt/master]
+index = linux
+sourcetype = salt:master
+crcSalt = <SOURCE>
+
+# --- Technitium DNS (Docker container, host-mounted volume) ---
+
+[monitor:///opt/technitium-dns/config/logs/*.log]
+index = linux
+sourcetype = technitium:syslog
+crcSalt = <SOURCE>
+
+# --- Honeypot (Cowrie SSH/Telnet) ---
+
+[monitor:///opt/cowrie/var/log/cowrie/cowrie.json]
+index = linux
+sourcetype = cowrie
+crcSalt = <SOURCE>
+
+[monitor:///opt/cowrie/var/log/cowrie/cowrie.log]
+index = linux
+sourcetype = cowrie:text
+crcSalt = <SOURCE>
+INPUTS_EOF
+
+# Replace $decideOnStartup with actual hostname
+sed -i "s/\$decideOnStartup/$(hostname)/" "$SPLUNK_HOME/etc/system/local/inputs.conf"
+chown splunk:splunk "$SPLUNK_HOME/etc/system/local/inputs.conf"
+echo "inputs.conf configured (syslog listeners + local log monitors)"
+
+# --- Lock down MongoDB/KVStore to localhost ---
+echo "Locking down KVStore to localhost..."
+if [[ -f "$SPLUNK_HOME/etc/system/local/server.conf" ]]; then
+    # Append kvstore section if not already present
+    if ! grep -q '\[kvstore\]' "$SPLUNK_HOME/etc/system/local/server.conf"; then
+        printf '\n[kvstore]\nserverAddress = 127.0.0.1\n' >> "$SPLUNK_HOME/etc/system/local/server.conf"
+    fi
+else
+    cat > "$SPLUNK_HOME/etc/system/local/server.conf" <<EOF
+[kvstore]
+serverAddress = 127.0.0.1
+EOF
+fi
+chown splunk:splunk "$SPLUNK_HOME/etc/system/local/server.conf"
+
 # --- Restore backed up licenses ---
 if [[ -d "$BACKUP_DIR" ]] && [[ "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]]; then
     echo "Restoring licenses..."
@@ -214,9 +386,13 @@ fi
 echo "Starting Splunk and accepting license..."
 $SPLUNK_HOME/bin/splunk start --accept-license --answer-yes --no-prompt
 
-$SPLUNK_HOME/bin/splunk add index linux -auth "admin:$SPLUNK_PASS"
-$SPLUNK_HOME/bin/splunk add index windows -auth "admin:$SPLUNK_PASS"
-$SPLUNK_HOME/bin/splunk add index network -auth "admin:$SPLUNK_PASS"
+$SPLUNK_HOME/bin/splunk add index linux -auth "admin:$SPLUNK_PASS" || echo "[WARN] Index 'linux' may already exist"
+$SPLUNK_HOME/bin/splunk add index windows -auth "admin:$SPLUNK_PASS" || echo "[WARN] Index 'windows' may already exist"
+$SPLUNK_HOME/bin/splunk add index network -auth "admin:$SPLUNK_PASS" || echo "[WARN] Index 'network' may already exist"
+
+# --- Enable forwarder receiver on port 9997 ---
+echo "Enabling forwarder listener on port 9997..."
+$SPLUNK_HOME/bin/splunk enable listen 9997 -auth "admin:$SPLUNK_PASS"
 
 # --- Install dashboards ---
 DASHBOARD_DIR=""
@@ -362,5 +538,7 @@ echo ""
 echo "========================================================"
 echo "  Splunk $SPLUNK_VERSION installation complete!"
 echo "  Web UI: https://localhost:8000"
+echo "  Forwarder receiver: port 9997"
+echo "  Syslog listeners: tcp/514, udp/514, tcp/5140"
 echo "  Dashboards: Settings > Dashboards, or search 'CCDC'"
 echo "========================================================"
