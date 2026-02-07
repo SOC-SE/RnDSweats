@@ -168,7 +168,7 @@ function Invoke-Downloads {
     $ProgressPreference = 'SilentlyContinue'
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     try {
-        Invoke-WebRequest -Uri $urlSY -OutFile $downloadPathSY -ErrorAction Stop
+        Invoke-WebRequest -Uri $urlSY -OutFile $downloadPathSY -TimeoutSec 150 -ErrorAction Stop
     } catch {
         Write-Host "[WARN] Sysinternals download failed: $_" -ForegroundColor Yellow
     }
