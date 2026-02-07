@@ -689,8 +689,9 @@ $filename = "transcript-${username}-${hostname}-${datetime}.txt"
 $Transcript = Join-Path -Path $path -ChildPath $filename
 Start-Transcript -Path $Transcript -Append
 '@
-    New-Item -Path $profile.AllUsersCurrentHost -Type File -Force -ErrorAction SilentlyContinue | Out-Null
-    Set-Content -Path $profile.AllUsersCurrentHost -Value $transcriptContent -Force -ErrorAction SilentlyContinue
+    $profilePath = if ($profile.AllUsersCurrentHost) { $profile.AllUsersCurrentHost } else { "$env:windir\System32\WindowsPowerShell\v1.0\Microsoft.PowerShell_profile.ps1" }
+    New-Item -Path $profilePath -Type File -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-Content -Path $profilePath -Value $transcriptContent -Force -ErrorAction SilentlyContinue
 
     #----------------------------------------------------------
     # Cleanup startup locations
