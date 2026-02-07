@@ -168,7 +168,7 @@ function Invoke-Downloads {
     $ProgressPreference = 'SilentlyContinue'
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     try {
-        Invoke-WebRequest -Uri $urlSY -OutFile $downloadPathSY -TimeoutSec 150 -ErrorAction Stop
+        Invoke-WebRequest -Uri $urlSY -OutFile $downloadPathSY -TimeoutSec 90 -ErrorAction Stop
     } catch {
         Write-Host "[WARN] Sysinternals download failed: $_" -ForegroundColor Yellow
     }
@@ -179,7 +179,7 @@ function Invoke-Downloads {
     # Download Sysmon Config
     Write-Host "Downloading Sysmon configuration..."
     try {
-        Invoke-WebRequest -Uri $sysmonConfigUrl -OutFile $sysmonConfigPath -ErrorAction Stop
+        Invoke-WebRequest -Uri $sysmonConfigUrl -OutFile $sysmonConfigPath -TimeoutSec 90 -ErrorAction Stop
     } catch {
         Write-Host "[!] Sysmon config download failed, trying vendor fallback..." -ForegroundColor Yellow
         $vendorConfig = Join-Path $PSScriptRoot "..\vendor\sysmon-config\sysmonconfig-export.xml"
@@ -194,7 +194,7 @@ function Invoke-Downloads {
     # Download GitHub Repo
     Write-Host "Downloading GitHub repository..."
     try {
-        Invoke-WebRequest -Uri $urlGitHub -OutFile $downloadPathGitHub -ErrorAction Stop
+        Invoke-WebRequest -Uri $urlGitHub -OutFile $downloadPathGitHub -TimeoutSec 90 -ErrorAction Stop
         if (Test-Path $downloadPathGitHub) {
             Expand-Archive -Path $downloadPathGitHub -DestinationPath $extractPathGitHub -Force
         }
