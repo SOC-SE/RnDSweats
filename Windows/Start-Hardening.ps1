@@ -101,7 +101,15 @@ CPU Info
     "`n========================================`nLocal Groups`n========================================" | Out-File $enumPath -Append
     Get-LocalGroup | Out-File $enumPath -Append
     "`n========================================`nAdministrators Group Members`n========================================" | Out-File $enumPath -Append
-    Get-LocalGroupMember -Group "Administrators" | Out-File $enumPath -Append
+    if ($script:IsDC) {
+        try {
+            Get-ADGroupMember -Identity "Administrators" | Select-Object Name, SamAccountName, objectClass | Out-File $enumPath -Append
+        } catch {
+            "Could not enumerate AD Administrators group: $_" | Out-File $enumPath -Append
+        }
+    } else {
+        Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue | Out-File $enumPath -Append
+    }
 
     # AD Users (if available)
     if (Get-Module -ListAvailable -Name ActiveDirectory) {
