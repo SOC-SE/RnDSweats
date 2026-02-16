@@ -55,7 +55,7 @@ if [ "$resp" = "y" ] || [ "$resp" = "Y" ]; then
 	
 	echo -n "Enter name of external zone: "
     read -r extzone
-    sed -i "s|CHANGEEXTERNAL|$pubip|g" "$compfile"
+    sed -i "s|CHANGEEXTERNAL|$extzone|g" "$compfile"
     
     ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$compfile"
 fi

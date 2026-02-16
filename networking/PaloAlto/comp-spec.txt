@@ -28,14 +28,26 @@ set service email-in protocol tcp port 25,110
 set service email-in protocol tcp override no
 set service-group splunk-required-ports members [ dns-required splunk-required ]
 set service-group ad-ports members [ ad-required-tcp ad-required-udp rpc-dynamic ]
+set rulebase security rules BIG-RED-BUTTON to any
+set rulebase security rules BIG-RED-BUTTON from any
+set rulebase security rules BIG-RED-BUTTON source any
+set rulebase security rules BIG-RED-BUTTON destination any
+set rulebase security rules BIG-RED-BUTTON source-user any
+set rulebase security rules BIG-RED-BUTTON category any
+set rulebase security rules BIG-RED-BUTTON application any
+set rulebase security rules BIG-RED-BUTTON service splunk-required-ports
+set rulebase security rules BIG-RED-BUTTON source-hip any
+set rulebase security rules BIG-RED-BUTTON destination-hip any
+set rulebase security rules BIG-RED-BUTTON action allow
+set rulebase security rules BIG-RED-BUTTON disabled yes
 set rulebase security rules all-to-splunk to CHANGEINTERNAL
 set rulebase security rules all-to-splunk from any
 set rulebase security rules all-to-splunk source any
-set rulebase security rules all-to-splunk destination [ rOracle-Splunk rNAT-Oracle-Splunk ]
+set rulebase security rules all-to-splunk destination [ rOracle-Splunk PUB-Oracle-Splunk ]
 set rulebase security rules all-to-splunk source-user any
 set rulebase security rules all-to-splunk category any
 set rulebase security rules all-to-splunk application any
-set rulebase security rules all-to-splunk service splunk-required-ports
+set rulebase security rules all-to-splunk service any
 set rulebase security rules all-to-splunk source-hip any
 set rulebase security rules all-to-splunk destination-hip any
 set rulebase security rules all-to-splunk action allow
@@ -64,7 +76,7 @@ set rulebase security rules lan-to-ad action allow
 set rulebase security rules ecomm-in to CHANGEINTERNAL
 set rulebase security rules ecomm-in from any
 set rulebase security rules ecomm-in source any
-set rulebase security rules ecomm-in destination [ rUbuntu-Ecomm ]
+set rulebase security rules ecomm-in destination [ rUbuntu-Ecomm PUB-Ubuntu-Ecomm ]
 set rulebase security rules ecomm-in source-user any
 set rulebase security rules ecomm-in category any
 set rulebase security rules ecomm-in application any
@@ -72,17 +84,17 @@ set rulebase security rules ecomm-in service [ service-http service-https ]
 set rulebase security rules ecomm-in source-hip any
 set rulebase security rules ecomm-in destination-hip any
 set rulebase security rules ecomm-in action allow
-set rulebase security rules ecomm-in to CHANGEINTERNAL
-set rulebase security rules ecomm-in from any
-set rulebase security rules ecomm-in source any
-set rulebase security rules ecomm-in destination [ rFedora-Webmail ]
-set rulebase security rules ecomm-in source-user any
-set rulebase security rules ecomm-in category any
-set rulebase security rules ecomm-in application any
-set rulebase security rules ecomm-in service email-in
-set rulebase security rules ecomm-in source-hip any
-set rulebase security rules ecomm-in destination-hip any
-set rulebase security rules ecomm-in action allow
+set rulebase security rules webmail-in to CHANGEINTERNAL
+set rulebase security rules webmail-in from any
+set rulebase security rules webmail-in source any
+set rulebase security rules webmail-in destination [ rFedora-Webmail PUB-Fedora-Webmail ]
+set rulebase security rules webmail-in source-user any
+set rulebase security rules webmail-in category any
+set rulebase security rules webmail-in application any
+set rulebase security rules webmail-in service email-in
+set rulebase security rules webmail-in source-hip any
+set rulebase security rules webmail-in destination-hip any
+set rulebase security rules webmail-in action allow
 commit
 exit
 exit
