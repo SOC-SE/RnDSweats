@@ -61,28 +61,28 @@ set rulebase security rules lan-to-ad service ad-ports
 set rulebase security rules lan-to-ad source-hip any
 set rulebase security rules lan-to-ad destination-hip any
 set rulebase security rules lan-to-ad action allow
-set rulebase security rules Ecomm-In to CHANGEINTERNAL
-set rulebase security rules Ecomm-In from any
-set rulebase security rules Ecomm-In source any
-set rulebase security rules Ecomm-In destination [ rUbuntu-Ecomm ]
-set rulebase security rules Ecomm-In source-user any
-set rulebase security rules Ecomm-In category any
-set rulebase security rules Ecomm-In application any
-set rulebase security rules Ecomm-In service [ service-http service-https ]
-set rulebase security rules Ecomm-In source-hip any
-set rulebase security rules Ecomm-In destination-hip any
-set rulebase security rules Ecomm-In action allow
-set rulebase security rules Ecomm-In to CHANGEINTERNAL
-set rulebase security rules Ecomm-In from any
-set rulebase security rules Ecomm-In source any
-set rulebase security rules Ecomm-In destination [ rFedora-Webmail ]
-set rulebase security rules Ecomm-In source-user any
-set rulebase security rules Ecomm-In category any
-set rulebase security rules Ecomm-In application any
-set rulebase security rules Ecomm-In service email-in
-set rulebase security rules Ecomm-In source-hip any
-set rulebase security rules Ecomm-In destination-hip any
-set rulebase security rules Ecomm-In action allow
+set rulebase security rules ecomm-in to CHANGEINTERNAL
+set rulebase security rules ecomm-in from any
+set rulebase security rules ecomm-in source any
+set rulebase security rules ecomm-in destination [ rUbuntu-Ecomm ]
+set rulebase security rules ecomm-in source-user any
+set rulebase security rules ecomm-in category any
+set rulebase security rules ecomm-in application any
+set rulebase security rules ecomm-in service [ service-http service-https ]
+set rulebase security rules ecomm-in source-hip any
+set rulebase security rules ecomm-in destination-hip any
+set rulebase security rules ecomm-in action allow
+set rulebase security rules ecomm-in to CHANGEINTERNAL
+set rulebase security rules ecomm-in from any
+set rulebase security rules ecomm-in source any
+set rulebase security rules ecomm-in destination [ rFedora-Webmail ]
+set rulebase security rules ecomm-in source-user any
+set rulebase security rules ecomm-in category any
+set rulebase security rules ecomm-in application any
+set rulebase security rules ecomm-in service email-in
+set rulebase security rules ecomm-in source-hip any
+set rulebase security rules ecomm-in destination-hip any
+set rulebase security rules ecomm-in action allow
 commit
 exit
 exit
