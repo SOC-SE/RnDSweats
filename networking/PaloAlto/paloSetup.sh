@@ -43,13 +43,19 @@ echo -n "Run comp-spec? [y/n] "
 read -r resp
 
 if [ "$resp" = "y" ] || [ "$resp" = "Y" ]; then
-	compfile="$(pwd)/comp-spec.txt"
-	echo -n "Enter 3rd-octet of public IP: "
-	read -r pubip
-	# Use a temp file instead of modifying the template in-place
-	tmpfile=$(mktemp)
-	trap 'rm -f "$tmpfile"' EXIT
-	#sed "s|pub-ip|$pubip|" "$compfile" > "$tmpfile"
-	ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$tmpfile"
-	rm -f "$tmpfile"
+    compfile="$(pwd)/comp-spec.txt"
+	
+    echo -n "Enter 3rd-octet of public IP: "
+    read -r pubip
+    sed -i "s|CHANGEOCTET|$pubip|g" "$compfile"
+	
+	echo -n "Enter name of internal zone: "
+    read -r intzone
+    sed -i "s|CHANGEINTERNAL|$intzone|g" "$compfile"
+	
+	echo -n "Enter name of external zone: "
+    read -r extzone
+    sed -i "s|CHANGEEXTERNAL|$pubip|g" "$compfile"
+    
+    ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$compfile"
 fi
