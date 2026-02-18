@@ -109,7 +109,7 @@ set rulebase security rules web-out destination any
 set rulebase security rules web-out source-user any
 set rulebase security rules web-out category any
 set rulebase security rules web-out application any
-set rulebase security rules web-out service [ service-http service-https ]
+set rulebase security rules web-out service [ service-http service-https dns-required ]
 set rulebase security rules web-out source-hip any
 set rulebase security rules web-out destination-hip any
 set rulebase security rules web-out action allow
