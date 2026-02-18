@@ -42,7 +42,7 @@ set rulebase security rules BIG-RED-BUTTON destination any
 set rulebase security rules BIG-RED-BUTTON source-user any
 set rulebase security rules BIG-RED-BUTTON category any
 set rulebase security rules BIG-RED-BUTTON application any
-set rulebase security rules BIG-RED-BUTTON service splunk-required-ports
+set rulebase security rules BIG-RED-BUTTON service any
 set rulebase security rules BIG-RED-BUTTON source-hip any
 set rulebase security rules BIG-RED-BUTTON destination-hip any
 set rulebase security rules BIG-RED-BUTTON action allow
