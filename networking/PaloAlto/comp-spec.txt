@@ -8,6 +8,7 @@ set address rFedora-Webmail ip-netmask 172.20.242.40
 set address rServer19-Web ip-netmask 172.20.240.101
 set address rServer22-FTP ip-netmask 172.20.240.104
 set address rWin11-Wkst ip-netmask 172.20.240.100
+set address rCisco-FTD ip-netmask 172.20.240.200
 set address PUB-Oracle-Splunk ip-netmask 172.25.CHANGEOCTET.9
 set address PUB-Ubuntu-Ecomm ip-netmask 172.25.CHANGEOCTET.11
 set address PUB-Fedora-Webmail ip-netmask 172.25.CHANGEOCTET.39
@@ -15,8 +16,14 @@ set address PUB-Server19-Web ip-netmask 172.25.CHANGEOCTET.140
 set address PUB-Server19-ADDNS ip-netmask 172.25.CHANGEOCTET.155
 set address PUB-Win11-Wkst ip-netmask 172.25.CHANGEOCTET.144
 set address PUB-Server22-FTP ip-netmask 172.25.CHANGEOCTET.162
+set address Vyos-Windows ip-netmask 172.16.0.1
+set address Vyos-Linux ip-netmask 172.16.0.2
+set address SUBNET-Windows ip-netmask 172.20.240.0/24
+set address SUBNET-Linux ip-netmask 172.20.242.0/24
 set service splunk-required protocol tcp port 22,9997,1514,1515,4505,4506,3000,8000,514,5140,5380,443
 set service splunk-required protocol tcp override no
+set service splunk-required-udp protocol udp port 53,514
+set service splunk-required-udp protocol udp override no
 set service ad-required-tcp protocol tcp port 53,88,135,389,445,464
 set service ad-required-tcp protocol tcp override no 
 set service ad-required-udp protocol udp port 53,88,123,389,464,514
@@ -26,7 +33,7 @@ set service rpc-dynamic protocol tcp override no
 set service dns-required protocol udp port 53,5353
 set service email-in protocol tcp port 25,110
 set service email-in protocol tcp override no
-set service-group splunk-required-ports members [ dns-required splunk-required ]
+set service-group splunk-required-ports members [ splunk-required splunk-required-udp ]
 set service-group ad-ports members [ ad-required-tcp ad-required-udp rpc-dynamic ]
 set rulebase security rules BIG-RED-BUTTON to any
 set rulebase security rules BIG-RED-BUTTON from any
@@ -51,6 +58,50 @@ set rulebase security rules all-to-splunk service any
 set rulebase security rules all-to-splunk source-hip any
 set rulebase security rules all-to-splunk destination-hip any
 set rulebase security rules all-to-splunk action allow
+set rulebase security rules ping-to-all to any
+set rulebase security rules ping-to-all from any
+set rulebase security rules ping-to-all source any
+set rulebase security rules ping-to-all destination any
+set rulebase security rules ping-to-all source-user any
+set rulebase security rules ping-to-all category any
+set rulebase security rules ping-to-all application [ icmp ping ]
+set rulebase security rules ping-to-all service application-default
+set rulebase security rules ping-to-all source-hip any
+set rulebase security rules ping-to-all destination-hip any
+set rulebase security rules ping-to-all action allow
+set rulebase security rules ssh-to-internal to CHANGEINTERNAL
+set rulebase security rules ssh-to-internal from CHANGEEXTERNAL
+set rulebase security rules ssh-to-internal source any
+set rulebase security rules ssh-to-internal destination any
+set rulebase security rules ssh-to-internal source-user any
+set rulebase security rules ssh-to-internal category any
+set rulebase security rules ssh-to-internal application ssh
+set rulebase security rules ssh-to-internal service application-default
+set rulebase security rules ssh-to-internal source-hip any
+set rulebase security rules ssh-to-internal destination-hip any
+set rulebase security rules ssh-to-internal action allow
+set rulebase security rules vyos-to-technitium to Internal
+set rulebase security rules vyos-to-technitium from External
+set rulebase security rules vyos-to-technitium source [ Vyos-Linux Vyos-WIndows ]
+set rulebase security rules vyos-to-technitium destination [ PUB-Oracle-Splunk rOracle-Splunk ]
+set rulebase security rules vyos-to-technitium source-user any
+set rulebase security rules vyos-to-technitium category any
+set rulebase security rules vyos-to-technitium application any
+set rulebase security rules vyos-to-technitium service dns-required
+set rulebase security rules vyos-to-technitium source-hip any
+set rulebase security rules vyos-to-technitium destination-hip any
+set rulebase security rules vyos-to-technitium action allow
+set rulebase security rules lan-to-technitium to Internal
+set rulebase security rules lan-to-technitium from [ External Internal ]
+set rulebase security rules lan-to-technitium source [ SUBNET-Linux SUBNET-Windows ]
+set rulebase security rules lan-to-technitium destination [ PUB-Oracle-Splunk rOracle-Splunk ]
+set rulebase security rules lan-to-technitium source-user any
+set rulebase security rules lan-to-technitium category any
+set rulebase security rules lan-to-technitium application any
+set rulebase security rules lan-to-technitium service dns-required
+set rulebase security rules lan-to-technitium source-hip any
+set rulebase security rules lan-to-technitium destination-hip any
+set rulebase security rules lan-to-technitium action allow
 set rulebase security rules web-out to CHANGEEXTERNAL
 set rulebase security rules web-out from CHANGEINTERNAL
 set rulebase security rules web-out source any
@@ -62,39 +113,83 @@ set rulebase security rules web-out service [ service-http service-https ]
 set rulebase security rules web-out source-hip any
 set rulebase security rules web-out destination-hip any
 set rulebase security rules web-out action allow
-set rulebase security rules lan-to-ad to CHANGEINTERNAL
-set rulebase security rules lan-to-ad from any
-set rulebase security rules lan-to-ad source any
-set rulebase security rules lan-to-ad destination rServer19-ADDNS
-set rulebase security rules lan-to-ad source-user any
-set rulebase security rules lan-to-ad category any
-set rulebase security rules lan-to-ad application any
-set rulebase security rules lan-to-ad service ad-ports
-set rulebase security rules lan-to-ad source-hip any
-set rulebase security rules lan-to-ad destination-hip any
-set rulebase security rules lan-to-ad action allow
-set rulebase security rules ecomm-in to CHANGEINTERNAL
-set rulebase security rules ecomm-in from any
-set rulebase security rules ecomm-in source any
-set rulebase security rules ecomm-in destination [ rUbuntu-Ecomm PUB-Ubuntu-Ecomm ]
-set rulebase security rules ecomm-in source-user any
-set rulebase security rules ecomm-in category any
-set rulebase security rules ecomm-in application any
-set rulebase security rules ecomm-in service [ service-http service-https ]
-set rulebase security rules ecomm-in source-hip any
-set rulebase security rules ecomm-in destination-hip any
-set rulebase security rules ecomm-in action allow
-set rulebase security rules webmail-in to CHANGEINTERNAL
-set rulebase security rules webmail-in from any
-set rulebase security rules webmail-in source any
-set rulebase security rules webmail-in destination [ rFedora-Webmail PUB-Fedora-Webmail ]
-set rulebase security rules webmail-in source-user any
-set rulebase security rules webmail-in category any
-set rulebase security rules webmail-in application any
-set rulebase security rules webmail-in service email-in
-set rulebase security rules webmail-in source-hip any
-set rulebase security rules webmail-in destination-hip any
-set rulebase security rules webmail-in action allow
+set rulebase security rules lan-to-splunk to Internal
+set rulebase security rules lan-to-splunk from [ External Internal ]
+set rulebase security rules lan-to-splunk source [ SUBNET-Linux SUBNET-Windows ]
+set rulebase security rules lan-to-splunk destination [ PUB-Oracle-Splunk rOracle-Splunk ]
+set rulebase security rules lan-to-splunk source-user any
+set rulebase security rules lan-to-splunk category any
+set rulebase security rules lan-to-splunk application any
+set rulebase security rules lan-to-splunk service [ service-http service-https splunk-required-ports ]
+set rulebase security rules lan-to-splunk source-hip any
+set rulebase security rules lan-to-splunk destination-hip any
+set rulebase security rules lan-to-splunk action allow
+set rulebase security rules ad-to-lan to [ External Internal ]
+set rulebase security rules ad-to-lan from [ External Internal ]
+set rulebase security rules ad-to-lan source [ PUB-Server19-ADDNS rServer19-ADDNS SUBNET-Linux ]
+set rulebase security rules ad-to-lan destination [ PUB-Server19-ADDNS rServer19-ADDNS SUBNET-Linux ]
+set rulebase security rules ad-to-lan source-user any
+set rulebase security rules ad-to-lan category any
+set rulebase security rules ad-to-lan application any
+set rulebase security rules ad-to-lan service ad-ports
+set rulebase security rules ad-to-lan source-hip any
+set rulebase security rules ad-to-lan destination-hip any
+set rulebase security rules ad-to-lan action allow
+set rulebase security rules internal-to-ftd to External
+set rulebase security rules internal-to-ftd from Internal
+set rulebase security rules internal-to-ftd source any
+set rulebase security rules internal-to-ftd destination rCisco-FTD
+set rulebase security rules internal-to-ftd source-user any
+set rulebase security rules internal-to-ftd category any
+set rulebase security rules internal-to-ftd application any
+set rulebase security rules internal-to-ftd service [ service-http service-https ]
+set rulebase security rules internal-to-ftd source-hip any
+set rulebase security rules internal-to-ftd destination-hip any
+set rulebase security rules internal-to-ftd action allow
+set rulebase security rules scoring-to-webmail to Internal
+set rulebase security rules scoring-to-webmail from External
+set rulebase security rules scoring-to-webmail source any
+set rulebase security rules scoring-to-webmail destination [ PUB-Fedora-Webmail rFedora-Webmail ]
+set rulebase security rules scoring-to-webmail source-user any
+set rulebase security rules scoring-to-webmail category any
+set rulebase security rules scoring-to-webmail application any
+set rulebase security rules scoring-to-webmail service [ email-in service-http service-https ]
+set rulebase security rules scoring-to-webmail source-hip any
+set rulebase security rules scoring-to-webmail destination-hip any
+set rulebase security rules scoring-to-webmail action allow
+set rulebase security rules scoring-to-splunk to Internal
+set rulebase security rules scoring-to-splunk from External
+set rulebase security rules scoring-to-splunk source any
+set rulebase security rules scoring-to-splunk destination [ PUB-Oracle-Splunk rOracle-Splunk ]
+set rulebase security rules scoring-to-splunk source-user any
+set rulebase security rules scoring-to-splunk category any
+set rulebase security rules scoring-to-splunk application any
+set rulebase security rules scoring-to-splunk service [ rpc-dynamic splunk-required ]
+set rulebase security rules scoring-to-splunk source-hip any
+set rulebase security rules scoring-to-splunk destination-hip any
+set rulebase security rules scoring-to-splunk action allow
+set rulebase security rules scoring-to-ecomm to Internal
+set rulebase security rules scoring-to-ecomm from External
+set rulebase security rules scoring-to-ecomm source any
+set rulebase security rules scoring-to-ecomm destination [ PUB-Ubuntu-Ecomm rUbuntu-Ecomm ]
+set rulebase security rules scoring-to-ecomm source-user any
+set rulebase security rules scoring-to-ecomm category any
+set rulebase security rules scoring-to-ecomm application any
+set rulebase security rules scoring-to-ecomm service [ service-http service-https ]
+set rulebase security rules scoring-to-ecomm source-hip any
+set rulebase security rules scoring-to-ecomm destination-hip any
+set rulebase security rules scoring-to-ecomm action allow
+set rulebase security rules deny-all to any
+set rulebase security rules deny-all from any
+set rulebase security rules deny-all source any
+set rulebase security rules deny-all destination any
+set rulebase security rules deny-all source-user any
+set rulebase security rules deny-all category any
+set rulebase security rules deny-all application any
+set rulebase security rules deny-all service application-default
+set rulebase security rules deny-all source-hip any
+set rulebase security rules deny-all destination-hip any
+set rulebase security rules deny-all action deny
 commit
 exit
 exit
