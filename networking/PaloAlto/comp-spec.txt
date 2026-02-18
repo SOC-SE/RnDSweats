@@ -120,21 +120,10 @@ set rulebase security rules lan-to-splunk destination [ PUB-Oracle-Splunk rOracl
 set rulebase security rules lan-to-splunk source-user any
 set rulebase security rules lan-to-splunk category any
 set rulebase security rules lan-to-splunk application any
-set rulebase security rules lan-to-splunk service [ service-http service-https splunk-required-ports ]
+set rulebase security rules lan-to-splunk service [ service-https splunk-required-ports ]
 set rulebase security rules lan-to-splunk source-hip any
 set rulebase security rules lan-to-splunk destination-hip any
 set rulebase security rules lan-to-splunk action allow
-set rulebase security rules ad-to-lan to [ CHANGEEXTERNAL CHANGEINTERNAL ]
-set rulebase security rules ad-to-lan from [ CHANGEEXTERNAL CHANGEINTERNAL ]
-set rulebase security rules ad-to-lan source [ PUB-Server19-ADDNS rServer19-ADDNS SUBNET-Linux ]
-set rulebase security rules ad-to-lan destination [ PUB-Server19-ADDNS rServer19-ADDNS SUBNET-Linux ]
-set rulebase security rules ad-to-lan source-user any
-set rulebase security rules ad-to-lan category any
-set rulebase security rules ad-to-lan application any
-set rulebase security rules ad-to-lan service ad-ports
-set rulebase security rules ad-to-lan source-hip any
-set rulebase security rules ad-to-lan destination-hip any
-set rulebase security rules ad-to-lan action allow
 set rulebase security rules internal-to-ftd to CHANGEEXTERNAL
 set rulebase security rules internal-to-ftd from CHANGEINTERNAL
 set rulebase security rules internal-to-ftd source any
@@ -175,7 +164,7 @@ set rulebase security rules scoring-to-ecomm destination [ PUB-Ubuntu-Ecomm rUbu
 set rulebase security rules scoring-to-ecomm source-user any
 set rulebase security rules scoring-to-ecomm category any
 set rulebase security rules scoring-to-ecomm application any
-set rulebase security rules scoring-to-ecomm service [ service-http service-https ]
+set rulebase security rules scoring-to-ecomm service [ service-https ]
 set rulebase security rules scoring-to-ecomm source-hip any
 set rulebase security rules scoring-to-ecomm destination-hip any
 set rulebase security rules scoring-to-ecomm action allow
