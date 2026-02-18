@@ -82,7 +82,7 @@ set rulebase security rules ssh-to-internal destination-hip any
 set rulebase security rules ssh-to-internal action allow
 set rulebase security rules vyos-to-technitium to CHANGEINTERNAL
 set rulebase security rules vyos-to-technitium from CHANGEEXTERNAL
-set rulebase security rules vyos-to-technitium source [ Vyos-Linux Vyos-WIndows ]
+set rulebase security rules vyos-to-technitium source [ Vyos-Linux Vyos-Windows ]
 set rulebase security rules vyos-to-technitium destination [ PUB-Oracle-Splunk rOracle-Splunk ]
 set rulebase security rules vyos-to-technitium source-user any
 set rulebase security rules vyos-to-technitium category any
