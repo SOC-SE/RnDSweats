@@ -80,8 +80,8 @@ set rulebase security rules ssh-to-internal service application-default
 set rulebase security rules ssh-to-internal source-hip any
 set rulebase security rules ssh-to-internal destination-hip any
 set rulebase security rules ssh-to-internal action allow
-set rulebase security rules vyos-to-technitium to Internal
-set rulebase security rules vyos-to-technitium from External
+set rulebase security rules vyos-to-technitium to CHANGEINTERNAL
+set rulebase security rules vyos-to-technitium from CHANGEEXTERNAL
 set rulebase security rules vyos-to-technitium source [ Vyos-Linux Vyos-WIndows ]
 set rulebase security rules vyos-to-technitium destination [ PUB-Oracle-Splunk rOracle-Splunk ]
 set rulebase security rules vyos-to-technitium source-user any
@@ -91,8 +91,8 @@ set rulebase security rules vyos-to-technitium service dns-required
 set rulebase security rules vyos-to-technitium source-hip any
 set rulebase security rules vyos-to-technitium destination-hip any
 set rulebase security rules vyos-to-technitium action allow
-set rulebase security rules lan-to-technitium to Internal
-set rulebase security rules lan-to-technitium from [ External Internal ]
+set rulebase security rules lan-to-technitium to CHANGEINTERNAL
+set rulebase security rules lan-to-technitium from [ CHANGEEXTERNAL CHANGEINTERNAL ]
 set rulebase security rules lan-to-technitium source [ SUBNET-Linux SUBNET-Windows ]
 set rulebase security rules lan-to-technitium destination [ PUB-Oracle-Splunk rOracle-Splunk ]
 set rulebase security rules lan-to-technitium source-user any
@@ -113,8 +113,8 @@ set rulebase security rules web-out service [ service-http service-https ]
 set rulebase security rules web-out source-hip any
 set rulebase security rules web-out destination-hip any
 set rulebase security rules web-out action allow
-set rulebase security rules lan-to-splunk to Internal
-set rulebase security rules lan-to-splunk from [ External Internal ]
+set rulebase security rules lan-to-splunk to CHANGEINTERNAL
+set rulebase security rules lan-to-splunk from [ CHANGEEXTERNAL CHANGEINTERNAL ]
 set rulebase security rules lan-to-splunk source [ SUBNET-Linux SUBNET-Windows ]
 set rulebase security rules lan-to-splunk destination [ PUB-Oracle-Splunk rOracle-Splunk ]
 set rulebase security rules lan-to-splunk source-user any
@@ -124,8 +124,8 @@ set rulebase security rules lan-to-splunk service [ service-http service-https s
 set rulebase security rules lan-to-splunk source-hip any
 set rulebase security rules lan-to-splunk destination-hip any
 set rulebase security rules lan-to-splunk action allow
-set rulebase security rules ad-to-lan to [ External Internal ]
-set rulebase security rules ad-to-lan from [ External Internal ]
+set rulebase security rules ad-to-lan to [ CHANGEEXTERNAL CHANGEINTERNAL ]
+set rulebase security rules ad-to-lan from [ CHANGEEXTERNAL CHANGEINTERNAL ]
 set rulebase security rules ad-to-lan source [ PUB-Server19-ADDNS rServer19-ADDNS SUBNET-Linux ]
 set rulebase security rules ad-to-lan destination [ PUB-Server19-ADDNS rServer19-ADDNS SUBNET-Linux ]
 set rulebase security rules ad-to-lan source-user any
@@ -135,8 +135,8 @@ set rulebase security rules ad-to-lan service ad-ports
 set rulebase security rules ad-to-lan source-hip any
 set rulebase security rules ad-to-lan destination-hip any
 set rulebase security rules ad-to-lan action allow
-set rulebase security rules internal-to-ftd to External
-set rulebase security rules internal-to-ftd from Internal
+set rulebase security rules internal-to-ftd to CHANGEEXTERNAL
+set rulebase security rules internal-to-ftd from CHANGEINTERNAL
 set rulebase security rules internal-to-ftd source any
 set rulebase security rules internal-to-ftd destination rCisco-FTD
 set rulebase security rules internal-to-ftd source-user any
@@ -146,8 +146,8 @@ set rulebase security rules internal-to-ftd service [ service-http service-https
 set rulebase security rules internal-to-ftd source-hip any
 set rulebase security rules internal-to-ftd destination-hip any
 set rulebase security rules internal-to-ftd action allow
-set rulebase security rules scoring-to-webmail to Internal
-set rulebase security rules scoring-to-webmail from External
+set rulebase security rules scoring-to-webmail to CHANGEINTERNAL
+set rulebase security rules scoring-to-webmail from CHANGEEXTERNAL
 set rulebase security rules scoring-to-webmail source any
 set rulebase security rules scoring-to-webmail destination [ PUB-Fedora-Webmail rFedora-Webmail ]
 set rulebase security rules scoring-to-webmail source-user any
@@ -157,8 +157,8 @@ set rulebase security rules scoring-to-webmail service [ email-in service-http s
 set rulebase security rules scoring-to-webmail source-hip any
 set rulebase security rules scoring-to-webmail destination-hip any
 set rulebase security rules scoring-to-webmail action allow
-set rulebase security rules scoring-to-splunk to Internal
-set rulebase security rules scoring-to-splunk from External
+set rulebase security rules scoring-to-splunk to CHANGEINTERNAL
+set rulebase security rules scoring-to-splunk from CHANGEEXTERNAL
 set rulebase security rules scoring-to-splunk source any
 set rulebase security rules scoring-to-splunk destination [ PUB-Oracle-Splunk rOracle-Splunk ]
 set rulebase security rules scoring-to-splunk source-user any
@@ -168,8 +168,8 @@ set rulebase security rules scoring-to-splunk service [ rpc-dynamic splunk-requi
 set rulebase security rules scoring-to-splunk source-hip any
 set rulebase security rules scoring-to-splunk destination-hip any
 set rulebase security rules scoring-to-splunk action allow
-set rulebase security rules scoring-to-ecomm to Internal
-set rulebase security rules scoring-to-ecomm from External
+set rulebase security rules scoring-to-ecomm to CHANGEINTERNAL
+set rulebase security rules scoring-to-ecomm from CHANGEEXTERNAL
 set rulebase security rules scoring-to-ecomm source any
 set rulebase security rules scoring-to-ecomm destination [ PUB-Ubuntu-Ecomm rUbuntu-Ecomm ]
 set rulebase security rules scoring-to-ecomm source-user any
