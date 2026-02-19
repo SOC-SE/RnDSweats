@@ -27,8 +27,8 @@ backup_and_configure() {
     # Comment out the default smtpd line on port 25
     sed -i 's/^smtp\s\+inet\s\+n\s\+-\s\+n\s\+-\s\+-\s\+smtpd/#smtp      inet  n       -       n       -       -       smtpd/' "$MASTER_CF"
     
-    # Append Postscreen daemon definitions if they don't already exist
-    if ! grep -q "smtp.*inet.*postscreen" "$MASTER_CF"; then
+    # Check for an ACTIVE postscreen line (starts with smtp, not #smtp)
+    if ! grep -q "^smtp.*inet.*postscreen" "$MASTER_CF"; then
         cat << 'EOF' >> "$MASTER_CF"
 
 # --- POSTSCREEN ENABLEMENT ---
@@ -39,7 +39,7 @@ tlsproxy  unix  -       -       n       -       0       tlsproxy
 EOF
         echo "Success: Injected Postscreen daemons into master.cf"
     else
-        echo "Notice: Postscreen definitions already exist in master.cf. Skipping injection."
+        echo "Notice: Active Postscreen definitions already exist in master.cf. Skipping injection."
     fi
 
     echo ""
