@@ -82,8 +82,8 @@ harden_postfix() {
 
 # === Mail Hardener additions ===
 smtpd_tls_security_level = may
-smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem
-smtpd_tls_key_file = /etc/ssl/private/ssl-cert-snakeoil.key
+#smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem
+#smtpd_tls_key_file = /etc/ssl/private/ssl-cert-snakeoil.key
 smtpd_tls_mandatory_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
 smtpd_tls_ciphers = high
 smtpd_tls_exclude_ciphers = aNULL, MD5, RC4, 3DES
