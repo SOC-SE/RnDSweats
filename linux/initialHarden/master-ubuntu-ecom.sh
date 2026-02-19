@@ -125,6 +125,26 @@ log "E-Commerce Hardening (Apache/NGINX + OpenCart + PHP + DB) completed"
 # ============================================================================
 phase "PHASE 3: MYSQL HARDENING"
 
+#Daut - test on 2/18
+MYSQL_BACKUP="$REPO_DIR/postHardenTools/misc/MySQL/mysqlbackup.sh"
+if [[ -f "$MYSQL_BACKUP" ]]; then
+    log "Running MySQL initial backup..."
+    chmod +x "$MYSQL_BACKUP"
+    # Run in non-interactive mode - will use ~/.my.cnf or prompt
+    bash "$MYSQL_BACKUP" 2>&1 | tee -a "$LOG_FILE" || warn "MySQL backup completed with warnings"
+else
+    warn "MySQL backup script not found at $MYSQL_BACKUP"
+fi
+MYSQL_ENUM="$REPO_DIR/postHardenTools/misc/MySQL/mysqlenum.sh"
+if [[ -f "$MYSQL_ENUM" ]]; then
+    log "Running MySQL enumeration..."
+    chmod +x "$MYSQL_ENUM"
+    # Run in non-interactive mode - will use ~/.my.cnf or prompt
+    bash "$MYSQL_ENUM" 2>&1 | tee -a "$LOG_FILE" || warn "MySQL enumeration completed with warnings"
+else
+    warn "MySQL enumeration script not found at $MYSQL_ENUM"
+fi
+
 MYSQL_HARDEN="$REPO_DIR/postHardenTools/misc/MySQL/mysqlharden.sh"
 if [[ -f "$MYSQL_HARDEN" ]]; then
     log "Running MySQL hardening..."
