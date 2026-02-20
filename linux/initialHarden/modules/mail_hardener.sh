@@ -546,8 +546,8 @@ harden_postfix() {
 
 # === Mail Hardener: TLS/SSL Configuration ===
 smtpd_tls_security_level = may
-smtpd_tls_cert_file = $CERT_FILE
-smtpd_tls_key_file = $KEY_FILE
+#smtpd_tls_cert_file = $CERT_FILE
+#smtpd_tls_key_file = $KEY_FILE
 smtpd_tls_mandatory_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
 smtpd_tls_protocols = !SSLv2,!SSLv3,!TLSv1,!TLSv1.1
 smtpd_tls_ciphers = high
