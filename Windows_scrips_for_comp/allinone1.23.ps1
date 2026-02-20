@@ -1989,7 +1989,7 @@ New-Item -ItemType Directory -Path $BackupDir -Force
 #>
 
 param (
-    [string]$DnsServer = "localhost",
+    #[string]$DnsServer = "localhost",
     [string]$BackupDir = "C:\Backup\DNS_Server\DNS-Backups"
 
 )
@@ -2643,5 +2643,6 @@ Read-Host "Press Enter to exit..."
 
 #--------------------------------------------------------------
 #End of Script
+
 
 #--------------------------------------------------------------
