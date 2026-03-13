@@ -83,8 +83,18 @@ set service rpc-dynamic protocol tcp override no
 set service dns-required protocol udp port 53,5353
 set service email-in protocol tcp port 25,110
 set service email-in protocol tcp override no
+set service windows-intralan-tcp tcp port 53,88
+set service windows-intralan-tcp tcp override no
+set service windows-intralan-udp udp port 53,88
+set service windows-intralan-udp override no
+set service ftp-required tcp port 21
+set service ftp-required override no
+set service ftp-required-high tcp port 50000-51000
+set service ftp-required-high override no
 set service-group splunk-required-ports members [ splunk-required splunk-required-udp ]
 set service-group ad-ports members [ ad-required-tcp ad-required-udp rpc-dynamic ]
+set service-group windows-intralan-tcpudp [ windows-intralan-tcp windows-intralan-udp ]
+set service-group ftp-scoring [ ftp-required ftp-required-high ]
 set rulebase security rules BIG-RED-BUTTON to any
 set rulebase security rules BIG-RED-BUTTON from any
 set rulebase security rules BIG-RED-BUTTON source any
@@ -163,8 +173,50 @@ set rulebase security rules lan-to-splunk service [ service-https splunk-require
 set rulebase security rules lan-to-splunk source-hip any
 set rulebase security rules lan-to-splunk destination-hip any
 set rulebase security rules lan-to-splunk action allow
-
-
+set rulebase security rules windows-intralan to CHANGEINTERNAL
+set rulebase security rules windows-intralan from CHANGEINTERNAL
+set rulebase security rules windows-intralan source any
+set rulebase security rules windows-intralan destination any
+set rulebase security rules windows-intralan source-user any
+set rulebase security rules windows-intralan category any
+set rulebase security rules windows-intralan application any
+set rulebase security rules windows-intralan service [ windows-intralan-tcpudp ]
+set rulebase security rules windows-intralan source-hip any
+set rulebase security rules windows-intralan destination-hip any
+set rulebase security rules windows-intralan action allow
+set rulebase security rules scoring-to-addns to CHANGEINTERNAL
+set rulebase security rules scoring-to-addns from CHANGEEXTERNAL
+set rulebase security rules scoring-to-addns source any
+set rulebase security rules scoring-to-addns destination [ PUB-Server19-ADDNS rServer19-ADDNS ]
+set rulebase security rules scoring-to-addns source-user any
+set rulebase security rules scoring-to-addns category any
+set rulebase security rules scoring-to-addns application any
+set rulebase security rules scoring-to-addns service [ dns-required ]
+set rulebase security rules scoring-to-addns source-hip any
+set rulebase security rules scoring-to-addns destination-hip any
+set rulebase security rules scoring-to-addns action allow
+set rulebase security rules scoring-to-addns to CHANGEINTERNAL
+set rulebase security rules scoring-to-addns from CHANGEEXTERNAL
+set rulebase security rules scoring-to-addns source any
+set rulebase security rules scoring-to-addns destination [ PUB-Server22-FTP rServer22-FTP ]
+set rulebase security rules scoring-to-addns source-user any
+set rulebase security rules scoring-to-addns category any
+set rulebase security rules scoring-to-addns application any
+set rulebase security rules scoring-to-addns service [ ftp-scoring ]
+set rulebase security rules scoring-to-addns source-hip any
+set rulebase security rules scoring-to-addns destination-hip any
+set rulebase security rules scoring-to-addns action allow
+set rulebase security rules scoring-to-web to CHANGEINTERNAL
+set rulebase security rules scoring-to-web from CHANGEEXTERNAL
+set rulebase security rules scoring-to-web source any
+set rulebase security rules scoring-to-web destination [ PUB-Server19-Web rServer19-Web ]
+set rulebase security rules scoring-to-web source-user any
+set rulebase security rules scoring-to-web category any
+set rulebase security rules scoring-to-web application any
+set rulebase security rules scoring-to-web service [ service-http service-https ]
+set rulebase security rules scoring-to-web source-hip any
+set rulebase security rules scoring-to-web destination-hip any
+set rulebase security rules scoring-to-web action allow
 set rulebase security rules deny-all to any
 set rulebase security rules deny-all from any
 set rulebase security rules deny-all source any
