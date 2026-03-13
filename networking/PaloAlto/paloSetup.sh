@@ -21,41 +21,41 @@ echo -n "Add bbob backdoor user? [y/n] "
 read -r bbob
 
 if [ "$bbob" = "y" ] || [ "$bbob" = "Y" ]; then
-	userfilepath="$(pwd)/user.txt"
-	echo -n "Enter a password for bbob: "
-	read -rs password
-	echo
-	if [ -z "$password" ]; then
-		echo "Password cannot be empty; exiting..."
-		exit 1
-	fi
-	# Use a temp file instead of modifying the template in-place
-	tmpfile=$(mktemp)
-	trap 'rm -f "$tmpfile"' EXIT
-	sed "s|password|$password|" "$userfilepath" > "$tmpfile"
-	ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$tmpfile"
-	rm -f "$tmpfile"
+        userfilepath="$(pwd)/user.txt"
+        echo -n "Enter a password for bbob: "
+        read -rs password
+        echo
+        if [ -z "$password" ]; then
+                echo "Password cannot be empty; exiting..."
+                exit 1
+        fi
+        # Use a temp file instead of modifying the template in-place
+        tmpfile=$(mktemp)
+        trap 'rm -f "$tmpfile"' EXIT
+        sed "s|password|$password|" "$userfilepath" > "$tmpfile"
+        ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$tmpfile"
+        rm -f "$tmpfile"
 fi
 
 ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$filepath"
 
-echo -n "Run comp-spec? [y/n] "
+echo -n "Run Linux firewall config? [y/n] "
 read -r resp
 
 if [ "$resp" = "y" ] || [ "$resp" = "Y" ]; then
-    compfile="$(pwd)/comp-spec.txt"
-	
+    linuxconfig="$(pwd)/comp-spec-linux.txt"
+
     echo -n "Enter 3rd-octet of public IP: "
     read -r pubip
-    sed -i "s|CHANGEOCTET|$pubip|g" "$compfile"
-	
-	echo -n "Enter name of internal zone: "
+    sed -i "s|CHANGEOCTET|$pubip|g" "$linuxconfig"
+
+        echo -n "Enter name of internal zone: "
     read -r intzone
-    sed -i "s|CHANGEINTERNAL|$intzone|g" "$compfile"
-	
-	echo -n "Enter name of external zone: "
+    sed -i "s|CHANGEINTERNAL|$intzone|g" "$linuxconfig"
+
+        echo -n "Enter name of external zone: "
     read -r extzone
-    sed -i "s|CHANGEEXTERNAL|$extzone|g" "$compfile"
-    
-    ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$compfile"
+    sed -i "s|CHANGEEXTERNAL|$extzone|g" "$linuxconfig"
+
+    ssh -oHostKeyAlgorithms=+ssh-rsa "$user@$mgmtIp" < "$linuxconfig"
 fi

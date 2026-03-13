@@ -1,0 +1,181 @@
+set cli pager off
+set cli scripting-mode on
+configure
+set rulebase security rules known-bad-ips to any
+set rulebase security rules known-bad-ips from any
+set rulebase security rules known-bad-ips source 240.0.0.1
+set rulebase security rules known-bad-ips destination any 
+set rulebase security rules known-bad-ips source-user any
+set rulebase security rules known-bad-ips category any
+set rulebase security rules known-bad-ips application any
+set rulebase security rules known-bad-ips service any
+set rulebase security rules known-bad-ips source-hip any
+set rulebase security rules known-bad-ips destination-hip any
+set rulebase security rules known-bad-ips action drop
+move rulebase security rules known-bad-ips top
+set network profiles zone-protection-profile strict-zone-prot flood tcp-syn enable yes syn-cookies alarm-rate 10000 activate-rate 10000 maximal-rate 1000000
+set network profiles zone-protection-profile strict-zone-prot flood udp enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood icmp enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood icmpv6 enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot flood other-ip enable yes red alarm-rate 10000 activate-rate 10000 maximal-rate 40000
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt dest-unreach yes 
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt pkt-too-big yes
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt time-exceeded yes
+set network profiles zone-protection-profile strict-zone-prot ipv6 ignore-inv-pkt param-problem yes
+set network profiles zone-protection-profile strict-zone-prot scan 8001 action block-ip track-by source-and-destination
+set network profiles zone-protection-profile strict-zone-prot scan 8001 action block-ip duration 3600
+set network profiles zone-protection-profile strict-zone-prot scan 8001 interval 2
+set network profiles zone-protection-profile strict-zone-prot scan 8001 threshold 100
+set network profiles zone-protection-profile strict-zone-prot scan 8002 action block-ip track-by source-and-destination
+set network profiles zone-protection-profile strict-zone-prot scan 8002 action block-ip duration 3600
+set network profiles zone-protection-profile strict-zone-prot scan 8002 interval 10
+set network profiles zone-protection-profile strict-zone-prot scan 8002 threshold 100
+set network profiles zone-protection-profile strict-zone-prot scan 8003 action block-ip track-by source-and-destination
+set network profiles zone-protection-profile strict-zone-prot scan 8003 action block-ip duration 3600
+set network profiles zone-protection-profile strict-zone-prot scan 8003 interval 2
+set network profiles zone-protection-profile strict-zone-prot scan 8003 threshold 100
+set network profiles zone-protection-profile strict-zone-prot discard-ip-spoof yes
+set network profiles zone-protection-profile strict-zone-prot strict-ip-check yes
+set network profiles zone-protection-profile strict-zone-prot discard-unknown-option yes
+set network profiles zone-protection-profile strict-zone-prot discard-malformed-option yes
+set network profiles zone-protection-profile strict-zone-prot discard-overlapping-tcp-segment-mismatch yes
+set network profiles zone-protection-profile strict-zone-prot remove-tcp-timestamp yes
+set network profiles zone-protection-profile strict-zone-prot discard-icmp-ping-zero-id yes
+set network profiles zone-protection-profile strict-zone-prot discard-icmp-frag yes
+set network profiles zone-protection-profile strict-zone-prot discard-icmp-large-packet yes
+set network profiles zone-protection-profile strict-zone-prot discard-icmp-error yes
+set zone Internal network zone-protection-profile strict-zone-prot
+set application-group int-to-ext-known members [ syslog dns dns-base github github-base ssl ntp-base web-browsing paloalto-updates apt-get quic ocsp ms-update ]
+set application-group pub-web-servers members [ ssl web-browsing quic ]
+set application-group pub-ad-server members [ active-directory kerberos ldap ms-netlogon ntp dns ]
+set application-group pub-dns-server members [ dns dns-base ]
+set application-group pub-ftp-server members [ ftp ssh web-browsing ssl ]
+set application-group insecure-mail-server members [ ms-exchange imap pop3 smtp roundcube secureserver-mail groupwise ]
+set address rOracle-Splunk ip-netmask 172.20.242.20
+set address rServer19-ADDNS ip-netmask 172.20.240.102
+set address rUbuntu-Ecomm ip-netmask 172.20.242.30
+set address rFedora-Webmail ip-netmask 172.20.242.40
+set address rServer19-Web ip-netmask 172.20.240.101
+set address rServer22-FTP ip-netmask 172.20.240.104
+set address rWin11-Wkst ip-netmask 172.20.240.100
+set address rCisco-FTD ip-netmask 172.20.240.200
+set address PUB-Oracle-Splunk ip-netmask 172.25.CHANGEOCTET.9
+set address PUB-Ubuntu-Ecomm ip-netmask 172.25.CHANGEOCTET.11
+set address PUB-Fedora-Webmail ip-netmask 172.25.CHANGEOCTET.39
+set address PUB-Server19-Web ip-netmask 172.25.CHANGEOCTET.140
+set address PUB-Server19-ADDNS ip-netmask 172.25.CHANGEOCTET.155
+set address PUB-Win11-Wkst ip-netmask 172.25.CHANGEOCTET.144
+set address PUB-Server22-FTP ip-netmask 172.25.CHANGEOCTET.162
+set address Vyos-Windows ip-netmask 172.16.0.1
+set address Vyos-Linux ip-netmask 172.16.0.2
+set address SUBNET-Windows ip-netmask 172.20.240.0/24
+set address SUBNET-Linux ip-netmask 172.20.242.0/24
+set service splunk-required protocol tcp port 22,9997,1514,1515,4505,4506,3000,8000,514,5140,5380,443
+set service splunk-required protocol tcp override no
+set service splunk-required-udp protocol udp port 53,514
+set service splunk-required-udp protocol udp override no
+set service ad-required-tcp protocol tcp port 53,88,135,389,445,464
+set service ad-required-tcp protocol tcp override no 
+set service ad-required-udp protocol udp port 53,88,123,389,464,514
+set service ad-required-udp protocol udp override no 
+set service rpc-dynamic protocol tcp port 49152-65535
+set service rpc-dynamic protocol tcp override no
+set service dns-required protocol udp port 53,5353
+set service email-in protocol tcp port 25,110
+set service email-in protocol tcp override no
+set service-group splunk-required-ports members [ splunk-required splunk-required-udp ]
+set service-group ad-ports members [ ad-required-tcp ad-required-udp rpc-dynamic ]
+set rulebase security rules BIG-RED-BUTTON to any
+set rulebase security rules BIG-RED-BUTTON from any
+set rulebase security rules BIG-RED-BUTTON source any
+set rulebase security rules BIG-RED-BUTTON destination any
+set rulebase security rules BIG-RED-BUTTON source-user any
+set rulebase security rules BIG-RED-BUTTON category any
+set rulebase security rules BIG-RED-BUTTON application any
+set rulebase security rules BIG-RED-BUTTON service any
+set rulebase security rules BIG-RED-BUTTON source-hip any
+set rulebase security rules BIG-RED-BUTTON destination-hip any
+set rulebase security rules BIG-RED-BUTTON action allow
+set rulebase security rules BIG-RED-BUTTON disabled yes
+set rulebase security rules all-to-splunk to CHANGEINTERNAL
+set rulebase security rules all-to-splunk from any
+set rulebase security rules all-to-splunk source any
+set rulebase security rules all-to-splunk destination [ rOracle-Splunk PUB-Oracle-Splunk ]
+set rulebase security rules all-to-splunk source-user any
+set rulebase security rules all-to-splunk category any
+set rulebase security rules all-to-splunk application any
+set rulebase security rules all-to-splunk service any
+set rulebase security rules all-to-splunk source-hip any
+set rulebase security rules all-to-splunk destination-hip any
+set rulebase security rules all-to-splunk action allow
+set rulebase security rules ping-to-all to any
+set rulebase security rules ping-to-all from any
+set rulebase security rules ping-to-all source any
+set rulebase security rules ping-to-all destination any
+set rulebase security rules ping-to-all source-user any
+set rulebase security rules ping-to-all category any
+set rulebase security rules ping-to-all application [ icmp ping ]
+set rulebase security rules ping-to-all service application-default
+set rulebase security rules ping-to-all source-hip any
+set rulebase security rules ping-to-all destination-hip any
+set rulebase security rules ping-to-all action allow
+set rulebase security rules ssh-to-internal to CHANGEINTERNAL
+set rulebase security rules ssh-to-internal from CHANGEEXTERNAL
+set rulebase security rules ssh-to-internal source any
+set rulebase security rules ssh-to-internal destination any
+set rulebase security rules ssh-to-internal source-user any
+set rulebase security rules ssh-to-internal category any
+set rulebase security rules ssh-to-internal application ssh
+set rulebase security rules ssh-to-internal service application-default
+set rulebase security rules ssh-to-internal source-hip any
+set rulebase security rules ssh-to-internal destination-hip any
+set rulebase security rules ssh-to-internal action allow
+set rulebase security rules lan-to-technitium to CHANGEINTERNAL
+set rulebase security rules lan-to-technitium from [ CHANGEEXTERNAL CHANGEINTERNAL ]
+set rulebase security rules lan-to-technitium source [ SUBNET-Linux SUBNET-Windows ]
+set rulebase security rules lan-to-technitium destination [ PUB-Oracle-Splunk rOracle-Splunk ]
+set rulebase security rules lan-to-technitium source-user any
+set rulebase security rules lan-to-technitium category any
+set rulebase security rules lan-to-technitium application any
+set rulebase security rules lan-to-technitium service dns-required
+set rulebase security rules lan-to-technitium source-hip any
+set rulebase security rules lan-to-technitium destination-hip any
+set rulebase security rules lan-to-technitium action allow
+set rulebase security rules web-out to CHANGEEXTERNAL
+set rulebase security rules web-out from CHANGEINTERNAL
+set rulebase security rules web-out source any
+set rulebase security rules web-out destination any
+set rulebase security rules web-out source-user any
+set rulebase security rules web-out category any
+set rulebase security rules web-out application any
+set rulebase security rules web-out service [ service-http service-https dns-required ]
+set rulebase security rules web-out source-hip any
+set rulebase security rules web-out destination-hip any
+set rulebase security rules web-out action allow
+set rulebase security rules lan-to-splunk to CHANGEINTERNAL
+set rulebase security rules lan-to-splunk from [ CHANGEEXTERNAL CHANGEINTERNAL ]
+set rulebase security rules lan-to-splunk source [ SUBNET-Linux SUBNET-Windows ]
+set rulebase security rules lan-to-splunk destination [ PUB-Oracle-Splunk rOracle-Splunk ]
+set rulebase security rules lan-to-splunk source-user any
+set rulebase security rules lan-to-splunk category any
+set rulebase security rules lan-to-splunk application any
+set rulebase security rules lan-to-splunk service [ service-https splunk-required-ports ]
+set rulebase security rules lan-to-splunk source-hip any
+set rulebase security rules lan-to-splunk destination-hip any
+set rulebase security rules lan-to-splunk action allow
+
+
+set rulebase security rules deny-all to any
+set rulebase security rules deny-all from any
+set rulebase security rules deny-all source any
+set rulebase security rules deny-all destination any
+set rulebase security rules deny-all source-user any
+set rulebase security rules deny-all category any
+set rulebase security rules deny-all application any
+set rulebase security rules deny-all service application-default
+set rulebase security rules deny-all source-hip any
+set rulebase security rules deny-all destination-hip any
+set rulebase security rules deny-all action deny
+commit
+exit
+exit
