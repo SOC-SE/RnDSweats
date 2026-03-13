@@ -6,9 +6,13 @@ $externalZone = Read-Host "Enter the External zone name: "
 $customPublic = Read-Host "Enter the third octet of the public addresses: "
 $commandFile = "comp-spec-win.txt"
 
-(Get-Content $commandFile) -replace 'CHANGEINTERNAL', $internalInt `
-                            -replace 'CHANGEEXTERNAL', $externalInt `
-                            -replace 'CHANGEOCTET', $customPublic
+(Get-Content $commandFile) | 
+ForEach-Object { 
+    $_ -replace 'CHANGEINTERNAL', $internalZone `
+       -replace 'CHANGEEXTERNAL', $externalZone `
+       -replace 'CHANGEOCTET', $customPublic
+} |
+Out-File $commandFile
 
 if (-Not (Test-Path $commandFile)) {
     Write-Host "Error: Command file not found at $commandFile." -ForegroundColor Red
