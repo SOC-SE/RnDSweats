@@ -2453,6 +2453,32 @@ main() {
         fi
         echo -e "\n\n"
 
+        # --- FILE MOUNT INFO --- -Added by Daut - This grabs initial file mount info in a few different views (ex: kernel vs detailed)
+        echo "=================================================================="
+        echo "FILE MOUNT INFO"
+        echo "=================================================================="
+        echo ""
+
+        echo "--- Mount Table (libmount view) ---"
+        mount 2>/dev/null || echo "[SKIP] mount command not available"
+        echo ""
+
+        echo "--- Kernel Mount Table (/proc/mounts) ---"
+        cat /proc/mounts 2>/dev/null || echo "[SKIP] /proc/mounts not readable"
+        echo ""
+
+        echo "--- Detailed Mount Info (/proc/self/mountinfo) ---"
+        cat /proc/self/mountinfo 2>/dev/null || echo "[SKIP] /proc/self/mountinfo not readable"
+        echo ""
+
+        echo "--- Filesystem Mount Tree (findmnt) ---"
+        if command -v findmnt &>/dev/null; then
+            findmnt 2>/dev/null
+        else
+            echo "[SKIP] findmnt not available"
+        fi
+        echo -e "\n\n"
+
         # --- FOOTER ---
         echo "=================================================================="
         echo "AUDIT COMPLETE"
