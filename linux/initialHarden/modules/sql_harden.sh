@@ -31,6 +31,7 @@ mkdir -p "$DB_BACKUP"
 mkdir -p "$CONF_BACKUP"
 
 #############################################
+
 detect_paths(){
 
 if [ -d /etc/mysql/mysql.conf.d ]; then
@@ -50,6 +51,7 @@ fi
 }
 
 #############################################
+
 detect_service(){
 
 if systemctl list-units --type=service | grep -q mariadb; then
@@ -61,6 +63,7 @@ fi
 }
 
 #############################################
+
 install_auditd(){
 
 if command -v auditctl >/dev/null; then
@@ -79,6 +82,7 @@ fi
 }
 
 #############################################
+
 create_backups(){
 
 echo "Creating backups..."
@@ -113,6 +117,7 @@ echo "Backups completed."
 }
 
 #############################################
+
 secure_mysql_accounts(){
 
 echo "Securing MySQL accounts..."
@@ -128,6 +133,7 @@ EOF
 }
 
 #############################################
+
 configure_server(){
 
 echo "Applying server hardening..."
@@ -161,6 +167,7 @@ touch "$HARDEN_MARK"
 }
 
 #############################################
+
 secure_permissions(){
 
 echo "Securing file permissions..."
@@ -176,6 +183,7 @@ chown -R mysql:mysql /var/lib/mysql 2>/dev/null
 }
 
 #############################################
+
 configure_auditd(){
 
 echo "Configuring auditd..."
@@ -212,6 +220,48 @@ systemctl restart auditd
 }
 
 #############################################
+
+change_root_password(){
+
+echo ""
+echo "Configure SQL root password"
+
+while true
+do
+    read -s -p "Enter new root password: " PASS1
+    echo
+    read -s -p "Confirm new root password: " PASS2
+    echo
+
+    if [ "$PASS1" != "$PASS2" ]; then
+        echo "Passwords do not match. Try again."
+    elif [ -z "$PASS1" ]; then
+        echo "Password cannot be empty."
+    else
+        break
+    fi
+done
+
+echo "Updating root password..."
+
+$MYSQL <<EOF
+ALTER USER 'root'@'localhost' IDENTIFIED BY '$PASS1';
+FLUSH PRIVILEGES;
+EOF
+
+if [ $? -eq 0 ]; then
+    echo "Root password successfully updated."
+else
+    echo "Password update may have failed. Verify manually."
+fi
+
+unset PASS1
+unset PASS2
+
+}
+
+#############################################
+
 perform_hardening(){
 
 detect_service
@@ -221,6 +271,7 @@ echo "Starting hardening..."
 
 create_backups
 secure_mysql_accounts
+change_root_password
 configure_server
 secure_permissions
 configure_auditd
@@ -232,6 +283,7 @@ echo "Hardening completed."
 }
 
 #############################################
+
 load_backups(){
 
 echo ""
@@ -278,6 +330,7 @@ fi
 }
 
 #############################################
+
 revert_hardening(){
 
 detect_service
@@ -304,6 +357,7 @@ echo "Hardening reverted."
 }
 
 #############################################
+
 menu(){
 
 while true
